@@ -1,0 +1,348 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import 'tailwindcss';
+
+/* ============================================================
+   MUSICIA — SISTEMA VISUAL "CONSOLE"
+   Pro audio + futurista: superficie oscura neutra y plana,
+   un acento "señal" (verde eléctrico) para datos/acciones,
+   datos siempre en mono, cero ornamento.
+   ============================================================ */
+
+:root {
+  /* Superficie: neutra, sin tinte */
+  --bg: #0a0a0c;
+  --surface: #101013;
+  --surface-2: #16161a;
+  --surface-3: #1d1d22;
+  --line: #26262c;
+  --line-strong: #34343c;
+
+  /* Acento señal (IA activa) */
+  --acc: #b8ff29;          /* verde eléctrico */
+  --acc-dim: rgba(184, 255, 41, 0.14);
+  --acc-line: rgba(184, 255, 41, 0.35);
+
+  /* Semánticos */
+  --warn: #ffb224;
+  --err: #ff5c5c;
+
+  /* Texto */
+  --text: #e8e8ec;
+  --muted: #8f8f9a;
+  --faint: #55555e;
+
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+textarea, input { user-select: text; }
+
+/* ===================== GRID DE ESTUDIO ===================== */
+.app-container {
+  height: 100vh;
+  display: flex;
+  background:
+    /* grid sutil de punto, como matriz de hardware */
+    radial-gradient(circle, #1a1a20 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--bg);
+}
+
+/* ===================== PANELES (RACK) ===================== */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.panel-2 { background: var(--surface-2); border: 1px solid var(--line); }
+.panel-3 { background: var(--surface-3); border: 1px solid var(--line-strong); }
+
+/* Cabecera de panel tipo rack: etiqueta mono + tornillo visual */
+.rack {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+.rack-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.rack-head .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc);
+}
+.rack-body { padding: 28px 30px; flex: 1; min-height: 0; }
+
+/* Esquinas tipo instrumento (marcas de registro) */
+.corner::before,
+.corner::after {
+  content: '';
+  position: absolute;
+  width: 7px; height: 7px;
+  border: 1px solid var(--line-strong);
+}
+.corner::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.corner::after  { bottom: -1px; right: -1px; border-left: 0; border-right: 0; border-top: 0; }
+
+/* ===================== BOTONES ===================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0 20px;
+  height: 46px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-3);
+  color: var(--text);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--faint); background: #232329; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btn-signal {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #0c0f04;
+}
+.btn-signal:hover:not(:disabled) {
+  background: #c6ff55;
+  border-color: #c6ff55;
+  box-shadow: 0 0 18px rgba(184, 255, 41, 0.25);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--faint); }
+
+.btn-chip {
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  transition: all .15s;
+  text-transform: none;
+  cursor: pointer;
+}
+.btn-chip:hover { color: var(--acc); border-color: var(--acc-line); background: var(--acc-dim); }
+.btn-chip.active {
+  color: #0c0f04;
+  background: var(--acc);
+  border-color: var(--acc);
+  font-weight: 700;
+}
+
+/* ===================== NAV LATERAL (CANAL STRIP) ===================== */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-align: left;
+  transition: all .15s;
+  position: relative;
+  border: 1px solid transparent;
+}
+.nav-item:hover { color: var(--text); background: var(--surface-2); }
+.nav-item.active {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -1px; top: -1px; bottom: -1px;
+  width: 3px;
+  background: var(--acc);
+  box-shadow: 0 0 10px var(--acc);
+}
+
+/* ===================== TIPOGRAFÍA ===================== */
+.label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+.h-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.mono { font-family: var(--mono); }
+.num {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--acc);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Estados */
+.st-ok    { color: var(--acc); }
+.st-warn  { color: var(--warn); }
+.st-err   { color: var(--err); }
+
+/* ===================== INPUTS ===================== */
+input[type='range'] {
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  outline: none;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 28px;
+  border-radius: 3px;
+  background: var(--acc);
+  box-shadow: 0 0 10px rgba(184, 255, 41, 0.4);
+  cursor: grab;
+}
+input[type='range']:active::-webkit-slider-thumb { cursor: grabbing; }
+
+input[type='text'],
+input[type='search'],
+textarea,
+select {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 4px;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  transition: border-color .15s;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--acc-line); }
+::placeholder { color: var(--faint); }
+
+select { padding: 6px 10px; cursor: pointer; }
+
+/* ===================== REPRODUCTOR ===================== */
+.player {
+  width: 100%;
+  height: 36px;
+  border-radius: 4px;
+}
+.player::-webkit-media-controls-panel { background: var(--surface-3); }
+
+/* ===================== MEDIDORES / VISUALES ===================== */
+.eq { display: flex; align-items: flex-end; gap: 3px; height: 28px; }
+.eq span {
+  width: 4px;
+  border-radius: 1px;
+  background: var(--acc);
+  animation: eq-bounce 0.9s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.eq span:nth-child(1) { animation-delay: 0s;   height: 45%; }
+.eq span:nth-child(2) { animation-delay: .12s; height: 80%; }
+.eq span:nth-child(3) { animation-delay: .24s; height: 55%; }
+.eq span:nth-child(4) { animation-delay: .36s; height: 90%; }
+.eq span:nth-child(5) { animation-delay: .48s;  height: 50%; }
+.eq span:nth-child(6) { animation-delay: .6s;   height: 75%; }
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.4); }
+  50%      { transform: scaleY(1); }
+}
+
+/* VU-meter horizontal (barra que crece con % real) */
+.vu {
+  height: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.vu > i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+  box-shadow: 0 0 8px rgba(184, 255, 41, 0.5);
+  transition: width .4s ease;
+}
+
+/* Progreso en pasos (1 ▸ 2 ▸ 3) tipo consola */
+.steps { display: flex; gap: 6px; align-items: center; }
+.steps .step {
+  width: 22px; height: 4px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+.steps .step.done { background: var(--acc); border-color: var(--acc); box-shadow: 0 0 6px rgba(184,255,41,.4); }
+.steps .step.on { background: var(--warn); border-color: var(--warn); }
+
+/* ===================== ANIMACIONES ===================== */
+.fade-up { animation: fadeUp .3s ease both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.blink { animation: blink 1.2s step-end infinite; }
+
+/* ===================== SCROLL ===================== */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border: 1px solid var(--line); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }

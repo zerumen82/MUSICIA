@@ -1,0 +1,34 @@
+# Venvs y dependencias pesadas
+backend/venv/
+backend/acestep-venv/
+vendor/
+
+# Motor ACE-Step (se instala aparte, 17 GB con modelos)
+vendor/ACE-Step-1.5/.venv/
+vendor/ACE-Step-1.5/checkpoints/
+vendor/ACE-Step-1.5/outputs/
+
+# Audio generado y subidas
+backend/outputs/
+*.mp3
+*.wav
+*.flac
+
+# Config local
+backend/config.json
+
+# Cachés Python
+__pycache__/
+*.pyc
+
+# Logs
+logs/
+*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Sistema
+.DS_Store
+Thumbs.db

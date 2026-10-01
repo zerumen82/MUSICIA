@@ -1,0 +1,34 @@
+{
+  "host": "127.0.0.1",
+  "port": 8000,
+  "log_level": "INFO",
+  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+  "acestep": {
+    "base_url": "http://127.0.0.1:8001",
+    "request_timeout": 60.0,
+    "poll_interval": 3.0,
+    "job_timeout": 1800.0
+  },
+  "generation": {
+    "duration_seconds": 120.0,
+    "instrumental": true,
+    "language": "en",
+    "inference_steps": 8,
+    "guidance_scale": 7.0,
+    "audio_format": "mp3",
+    "model": "acestep-v15-turbo",
+    "lm_model": "acestep-5Hz-lm-0.6B",
+    "lm_backend": "pt",
+    "max_duration_seconds": 600.0
+  },
+  "tts": {
+    "default_voice": "es-ES-AlvaroNeural"
+  },
+  "mixer": {
+    "min_gain_db": -60.0,
+    "max_gain_db": 12.0
+  },
+  "paths": {
+    "outputs_dir": "./outputs"
+  }
+}
