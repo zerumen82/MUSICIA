@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Loader2, AlertTriangle, Download, Trash2, Music4, Sparkles,
-  Music, Mic2, Dices, Wand2, WandSparkles, Layers,
+  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather,
 } from 'lucide-react';
 import { api, JOB_POLL_INTERVAL_MS } from '../api';
 import QualityWizard from './QualityWizard';
 import JobsPanel from './JobsPanel';
+import {
+  VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
+  buildVocalTags, structureLyric, hasLyricStructure,
+} from '../vocal';
 
 const UI = {
   minDuration: 10,
@@ -66,6 +70,23 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
+/** Fila de chips conmutables para los selectores de voz (spec A3). */
+function ChipGroup({ label, options, value, onChange }) {
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <span className="label shrink-0 w-[86px]">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button key={o.id} onClick={() => onChange(value === o.id ? '' : o.id)}
+            className={`btn h-7 px-2.5 text-[11px] ${value === o.id ? 'btn-signal' : 'btn-ghost'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const loadHistory = () => {
   try { return JSON.parse(localStorage.getItem(UI.historyKey) ?? '[]'); }
   catch { return []; }
@@ -91,6 +112,10 @@ export default function Composer({ initialMode = 'music' }) {
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceInfo, setEnhanceInfo] = useState(null); // {original, enhanced, additions}
   const [lyrics, setLyrics] = useState(''); // letra para el modo canción con voz
+  const [vocal, setVocal] = useState({ gender: '', timbre: '', style: '', emotion: '' });
+  const [vocalLang, setVocalLang] = useState('es'); // vocal_language que viaja al motor (A3)
+  const [writingLyrics, setWritingLyrics] = useState(false);
+  const [lyricsWarning, setLyricsWarning] = useState(null);
   const aliveRef = useRef(true);
 
   const maxDuration = config?.max_duration_seconds ?? UI.maxDurationFallback;
@@ -122,7 +147,7 @@ export default function Composer({ initialMode = 'music' }) {
     });
   }, []);
 
-  /** Compone el prompt final: estilo del género + mood + texto libre. */
+  /** Compone el prompt final: estilo del género + mood + texto libre + voz. */
   const buildPrompt = () => {
     const parts = [];
     const g = GENRES.find((x) => x.id === genre);
@@ -131,7 +156,45 @@ export default function Composer({ initialMode = 'music' }) {
     if (m) parts.push(m.text);
     const free = prompt.trim();
     if (free) parts.push(free);
+    // En modo voz, los descriptores elegidos forman parte del prompt (A3).
+    if (mode === 'voice') {
+      const voiceTags = buildVocalTags(vocal);
+      if (voiceTags) parts.push(voiceTags);
+    }
     return parts.join(', ');
+  };
+
+  /** "Escribir la letra por mí": el LM local propone un borrador editable. */
+  const autoWriteLyrics = async () => {
+    setError(null);
+    setLyricsWarning(null);
+    setWritingLyrics(true);
+    try {
+      const seedPrompt = buildPrompt() || prompt.trim() || 'canción con voz cantada';
+      const data = await api.writeLyrics({
+        prompt: seedPrompt,
+        lyrics: lyrics.trim(),
+        language: vocalLang,
+        duration_seconds: Number(duration),
+        bpm: bpm ?? null,
+        key_scale: key || null,
+      });
+      if (data.warning) {
+        // El LM no compone letra aquí: no pisamos lo que haya escrito el usuario.
+        setLyricsWarning(data.warning);
+      } else {
+        setLyrics(structureLyric(data.lyrics || ''));
+        setEnhanceInfo({
+          original: seedPrompt,
+          enhanced: data.caption ?? seedPrompt,
+          additions: [data.bpm ? `${data.bpm} bpm` : null, data.key_scale, data.vocal_language].filter(Boolean),
+        });
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setWritingLyrics(false);
+    }
   };
 
   const pollUntilDone = useCallback(async (jobId, meta) => {
@@ -169,10 +232,13 @@ export default function Composer({ initialMode = 'music' }) {
     const created = await api.generateMusic({
       prompt: finalPrompt,
       instrumental: !conVoz,
-      lyrics: conVoz ? lyrics.trim() : null,
+      // La letra sin marcas de estructura hace que el motor cante poco (A3).
+      lyrics: conVoz ? structureLyric(lyrics.trim()) : null,
       duration_seconds: meta.duration,
       bpm: bpm ?? null,
       key_scale: key || null,
+      // vocal_language via explícito: antes viajaba siempre "en" (bug A3).
+      language: conVoz ? vocalLang : null,
       seed: seedValue,
       // Nombre elegido por el usuario; vacío = "pista-sin-nombre" numerado.
       output_name: (nameOverride ?? songName).trim() ? (nameOverride ?? songName).trim() : null,
@@ -357,16 +423,62 @@ export default function Composer({ initialMode = 'music' }) {
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
           {mode === 'voice' && (
-            <div className="flex flex-col gap-2">
-              <span className="label">LETRA PARA LA VOZ CANTADA</span>
+            <div className="flex flex-col gap-4 border border-[var(--line)] p-5">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <span className="label">VOZ CANTADA · ELIGE CÓMO SUENA</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="label">IDIOMA</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VOCAL_LANGUAGES.map((l) => (
+                      <button key={l.id} onClick={() => setVocalLang(l.id)}
+                        className={`btn h-7 px-2.5 text-[11px] ${vocalLang === l.id ? 'btn-signal' : 'btn-ghost'}`}>
+                        {l.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <ChipGroup label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
+                onChange={(v) => setVocal({ ...vocal, gender: v })} />
+              <ChipGroup label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
+                onChange={(v) => setVocal({ ...vocal, timbre: v })} />
+              <ChipGroup label="CANTADO" options={VOCAL_STYLE} value={vocal.style}
+                onChange={(v) => setVocal({ ...vocal, style: v })} />
+              <ChipGroup label="EMOCIÓN" options={VOCAL_EMOTION} value={vocal.emotion}
+                onChange={(v) => setVocal({ ...vocal, emotion: v })} />
+
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <span className="label">LETRA PARA LA VOZ CANTADA</span>
+                <button onClick={autoWriteLyrics} disabled={writingLyrics}
+                  title="El LM local propone un borrador; luego lo editas como quieras"
+                  className="btn btn-ghost px-3 h-8">
+                  {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> ESCRIBIENDO…</>
+                    : <><Feather size={12} /> ESCRIBIR LA LETRA POR MÍ</>}
+                </button>
+              </div>
               <textarea
                 value={lyrics}
                 onChange={(e) => setLyrics(e.target.value)}
-                placeholder="Escribe aquí la letra, verso a verso…"
-                className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[90px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
+                placeholder="Escribe tu letra aquí, o pulsa ESCRIBIR LA LETRA POR MÍ y edítala…"
+                className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
               />
+              <p className="mono text-[10px] text-[var(--faint)]">
+                {lyricsWarning && <span className="text-[var(--warn)] block mb-1">{lyricsWarning}</span>}
+                {lyrics.trim() === ''
+                  ? 'Sin letra el motor hace un instrumental.'
+                  : hasLyricStructure(lyrics)
+                    ? 'Letra con estructura: se canta tal cual.'
+                    : 'Le añadimos [verso]/[estribillo] automáticamente al generar (puedes escribirlos tú).'}
+              </p>
             </div>
           )}
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="label shrink-0">NOMBRE DE LA CANCIÓN</span>
+            <input type="text" value={songName} onChange={(e) => setSongName(e.target.value)}
+              placeholder="sin nombre (se guardará como pista-sin-nombre)"
+              className="flex-1 min-w-[260px] px-4 py-3 text-[15px] font-semibold bg-transparent outline-none border border-[var(--line-strong)] focus:border-[var(--acc-line)] transition-colors" />
+          </div>
           <div className="flex items-center gap-5">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <span className="label shrink-0">DURACIÓN</span>
@@ -374,11 +486,6 @@ export default function Composer({ initialMode = 'music' }) {
                 value={duration} onChange={(e) => setDuration(Number(e.target.value))}
                 className="flex-1 min-w-0" aria-label="Duración" />
               <span className="num w-12 text-right">{fmt(duration)}</span>
-            </div>
-            <div className="flex items-center gap-2.5 shrink-0">
-              <span className="label">NOMBRE</span>
-              <input type="text" value={songName} onChange={(e) => setSongName(e.target.value)}
-                placeholder="sin nombre" className="w-44 px-3 py-2 text-[13px]" title="Nombre del MP3 que se guardará" />
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
               <span className="label">SEMILLA</span>

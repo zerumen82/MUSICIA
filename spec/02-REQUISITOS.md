@@ -28,7 +28,36 @@ obtener un MP3, **para** crear música sin saber producir.
 - [x] Vaciar historial
 - [x] Persiste entre sesiones (localStorage, máx. 30)
 
-### [A3] [P1] [propuesta] Generar canción con voz (letra + estilo)
+### [A3] [P0] [en-curso] CANCIÓN CON VOZ: letra + selector de voz
+**Como** usuario, **quiero** que la canción con voz **cante mi letra** y poder
+elegir cómo canta (mujer/hombre, timbre, estilo, emoción, idioma), **para**
+que suene como la tengo en la cabeza y no como un instrumental.
+
+**Bug raíz (2026-10-02)**: `GenerationDefaults.language = "en"` se mandaba
+como `vocal_language` en TODAS las generaciones. El motor construye la
+entrada `# Languages\n{lang}\n\n# Lyric\n{letra}`; con `"en"` y letra en
+castellano la pista salía instrumental. Además el motor espera la letra con
+marcas de estructura (`[Verse]`, `[Chorus]`…); un párrafo plano no canta bien.
+
+**Decisiones del usuario (ask_user 2026-10-02)**
+- Selector de: género de voz (mujer/hombre), timbre, estilo de canto y emoción.
+- Letra: **híbrido** — botón "escribir la letra por mí" (LM local) que
+  rellena el campo, y el usuario corrige o escribe la suya.
+
+**Criterios de aceptación**
+- [x] `vocal_language` viaja desde la UI (no el default "en")
+- [x] Letra sin marcas → la app la estructura [verso]/[estribillo]/[puente]
+- [x] Selector VOZ: género · timbre · estilo · emoción → se inyectan en el prompt
+- [x] Selector IDIOMA que llega al motor (`vocal_language`)
+- [x] Botón "ESCRIBIR LA LETRA POR MÍ" → `POST /format_input` del motor local,
+      letra editable antes de generar (con aviso honesto si el LM no compone)
+- [x] SUBIR/LIBRARY: si kind es voz/mixta, LETRA opcional → `instrumental=false`
+- [x] Evidencia: generación con voz real (45 s) + letra estructurada (memory.md)
+- [ ] Pendiente de oído humano: confirmar que la pista canta la letra
+      (`Prueba Con Voz.mp3` en la biblioteca para escuchar)
+
+**Endpoint nuevo**: `POST /music/write_lyrics` → proxy a `/format_input` del
+motor (caption, lyrics, bpm, key_scale, vocal_language).
 - [ ] La UI ofrece modo "con voz" con campo de letra (ya esbozado, falta cablear)
 - [ ] Backend ya lo soporta (`instrumental=false` + `lyrics`)
 - [ ] Verificación: el audio contiene voz (duración > 0 + revisión humana)

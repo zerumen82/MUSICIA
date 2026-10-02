@@ -163,6 +163,36 @@ class MusicService:
         """Modelos DiT disponibles en el motor."""
         return await self._request("GET", self.engine.models_path)
 
+    async def write_lyrics(
+        self,
+        caption: str,
+        lyrics: str = "",
+        language: str | None = None,
+        duration_seconds: float | None = None,
+        bpm: int | None = None,
+        key_scale: str | None = None,
+    ) -> dict[str, Any]:
+        """Pide al LM local del motor una letra con estructura de canción.
+
+        Es el "escribir la letra por mí" de la UI: el usuario recibe un
+        borrador editable (spec A3). Nunca sale a la nube, es el mismo motor.
+        """
+        param_obj: dict[str, Any] = {}
+        if duration_seconds:
+            param_obj["duration"] = int(duration_seconds)
+        if bpm:
+            param_obj["bpm"] = bpm
+        if key_scale:
+            param_obj["key"] = key_scale
+        if language:
+            param_obj["language"] = language
+        data = await self._request(
+            "POST",
+            self.engine.format_input_path,
+            json={"prompt": caption, "lyrics": lyrics, "param_obj": param_obj},
+        )
+        return data if isinstance(data, dict) else {}
+
     def build_payload(self, request: GenerationRequest) -> dict[str, Any]:
         """Construye el cuerpo de /release_task a partir de config + petición."""
         defaults = self.defaults

@@ -33,7 +33,11 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
   const [note, setNote] = useState(null);
   const [seed, setSeed] = useState(null);
   const [name, setName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre numerado
+  const [lyrics, setLyrics] = useState(''); // letra opcional: solo para kind voz/mixta
   const [launching, setLaunching] = useState(false);
+
+  // Con voz: el motor solo canta si le llega letra; sin ella hace instrumental.
+  const conVoz = kind === 'voz' || kind === 'mixta';
 
   useEffect(() => {
     let active = true;
@@ -70,6 +74,7 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
         prompt: prompt.trim(),
         seed,
         name: name.trim() || null,
+        lyrics: lyrics.trim() || null,
         duration_seconds: basis?.duration_seconds ?? null,
         bpm: basis?.bpm ?? null,
       });
@@ -110,6 +115,15 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
             className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] flex-1 min-w-0" />
         </div>
       </div>
+
+      {conVoz && (
+        <div className="flex flex-col gap-2">
+          <span className="label">LETRA (opcional: con letra canta, sin ella es instrumental)</span>
+          <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)}
+            placeholder="Escribe la letra… si la dejas vacía solo sonará la base musical"
+            className="bg-transparent outline-none resize-none text-[13px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[70px] font-medium border-l-2 border-[var(--acc-line)] pl-4 py-1.5" />
+        </div>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <button onClick={launch} disabled={busy || !prompt.trim()} className="btn btn-signal h-10 px-6">

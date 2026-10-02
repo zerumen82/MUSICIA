@@ -6,6 +6,7 @@ import {
 import { api } from '../api';
 import RemixPanel from './RemixPanel';
 import RemixIAPanel from './RemixIAPanel';
+import { structureLyric } from '../vocal';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
@@ -105,19 +106,21 @@ export default function Uploads() {
   // Lanza la re-creación con IA. Recibe { prompt, seed, duration_seconds, bpm }
   // desde RemixIAPanel (que pre-rellena con el análisis DSP); si falta algo,
   // cae al análisis local. Con semilla fija se pueden comparar versiones A/B.
-  const runAIGeneration = async ({ prompt, seed = null, name = null, duration_seconds = null, bpm = null } = {}) => {
+  const runAIGeneration = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null } = {}) => {
     setError(null);
     setGenerating(true);
     const a = lastAnalysis?.analysis ?? {};
     const dur = duration_seconds ?? a.duration_seconds ?? 30;
+    const letra = lyrics ? structureLyric(lyrics) : null;
     try {
       const created = await api.generateMusic({
         prompt: (prompt ?? '').trim() || 'pieza musical inspirada en una referencia con carácter similar',
-        // La re-creación es instrumental: sin letra no se puede pedir voz al motor
-        instrumental: true,
-        lyrics: null,
+        // Con letra canta; sin letra el motor haría un instrumental (spec A3).
+        instrumental: !letra,
+        lyrics: letra,
         duration_seconds: Math.min(Math.max(dur, 10), 240),
         bpm: bpm ?? a.bpm ?? null,
+        language: letra ? 'es' : null,
         seed,
         output_name: name,
       });

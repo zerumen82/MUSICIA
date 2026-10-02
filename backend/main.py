@@ -158,6 +158,17 @@ class RenameRequest(BaseModel):
     new_name: str = Field(min_length=1, description="Nombre que elige el usuario, con o sin extensión")
 
 
+class WriteLyricsRequest(BaseModel):
+    """Petición de letra automática al LM local del motor (spec A3)."""
+
+    prompt: str = Field(min_length=1, description="Descripción del tema y del estilo")
+    lyrics: str = Field(default="", description="Letra previa del usuario: se estructura y mejora")
+    language: str | None = None
+    duration_seconds: float | None = None
+    bpm: int | None = None
+    key_scale: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Utilidades
 # ---------------------------------------------------------------------------
@@ -938,6 +949,69 @@ async def audio_process(request: AudioProcessRequest) -> dict[str, Any]:
         "status": "success",
         "file_name": output_path.name,
         "duration_seconds": round(duration_ms / 1000.0, 2),
+    }
+
+
+@app.post("/music/write_lyrics")
+async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
+    """Letra automática desde el LM local del motor (híbrido: el usuario edita).
+
+    Delega en `/format_input` del motor, que devuelve la letra con marcas
+    `[Verse]/[Chorus]/[Bridge]` y los metadatos que él mismo propone. Si el
+    motor no está activo se responde 503 con la acción concreta, como en
+    `/music/generate` (fail-fast T7).
+    """
+    health = await music.health()
+    if not health.get("reachable"):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "El motor de música no está activo. Abre Musicia.exe y vuelve a intentarlo."
+            ),
+        )
+    try:
+        result = await music.write_lyrics(
+            caption=request.prompt,
+            lyrics=request.lyrics,
+            language=request.language,
+            duration_seconds=request.duration_seconds,
+            bpm=request.bpm,
+            key_scale=request.key_scale,
+        )
+    except MusicEngineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    lyrics_text = str(result.get("lyrics") or "")
+    if not lyrics_text.strip():
+        raise HTTPException(
+            status_code=502,
+            detail="El motor no devolvió letra. Escribe la tuya: el campo está editable.",
+        )
+
+    # El LM local (0.6B) a menudo devuelve solo estructura marcada como
+    # instrumental. No lo disimulamos: se avisa y el usuario escribe (NO FAKE).
+    outside_brackets = re.sub(r"\[[^\]]*\]", " ", lyrics_text)
+    words = re.findall(r"[^\W\d_]{2,}", outside_brackets, flags=re.UNICODE)
+    instrumental_only = "instrumental" in lyrics_text.lower() and len(words) < 12
+    warning = None
+    if instrumental_only:
+        warning = (
+            "El LM local no ha compuesto letra (solo estructura). "
+            "Escribe tú el texto: la app le añade [verso]/[estribillo] al generar."
+        )
+
+    bpm = result.get("bpm")
+    if not isinstance(bpm, (int, float)) or not 40 <= bpm <= 220:
+        bpm = None  # el LM a veces propone 300 bpm: se descarta
+
+    return {
+        "lyrics": lyrics_text,
+        "caption": result.get("caption"),
+        "bpm": bpm,
+        "key_scale": result.get("key_scale"),
+        "time_signature": result.get("time_signature"),
+        "vocal_language": result.get("vocal_language") or request.language,
+        "warning": warning,
     }
 
 

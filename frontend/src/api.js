@@ -44,6 +44,16 @@ export const api = {
     }
   },
 
+  /** Letra automática con el LM local del motor (borrador editable). */
+  writeLyrics: async (payload) => {
+    try {
+      const { data } = await client.post('/music/write_lyrics', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
   musicStatus: async (jobId) => {
     try {
       const { data } = await client.get(`/music/status/${jobId}`)

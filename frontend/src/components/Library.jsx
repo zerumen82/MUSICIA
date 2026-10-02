@@ -5,6 +5,7 @@ import {
 import { api, API_BASE_URL } from '../api';
 import RemixPanel from './RemixPanel';
 import RemixIAPanel from './RemixIAPanel';
+import { structureLyric } from '../vocal';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 const fmtDate = (iso) => new Date(iso).toLocaleString();
@@ -57,17 +58,19 @@ export default function Library() {
   };
 
   // Re-creación IA de una pista de la biblioteca: mismo panel que en SUBIR.
-  const runIAFromLibrary = async ({ prompt, seed = null, name = null, duration_seconds = null, bpm = null } = {}) => {
+  const runIAFromLibrary = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null } = {}) => {
     setError(null);
     setIaBusy(true);
     setIaNote(null);
+    const letra = lyrics ? structureLyric(lyrics) : null;
     try {
       const created = await api.generateMusic({
         prompt: (prompt ?? '').trim() || 'pieza musical inspirada en una referencia con carácter similar',
-        instrumental: true,
-        lyrics: null,
+        instrumental: !letra,
+        lyrics: letra,
         duration_seconds: Math.min(Math.max(duration_seconds ?? 30, 10), 240),
         bpm: bpm ?? null,
+        language: letra ? 'es' : null,
         seed,
         output_name: name,
       });

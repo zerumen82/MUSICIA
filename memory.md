@@ -712,3 +712,49 @@ prueba ejecutada y resultado, con fecha.
   componentes ya probados. Sin cambios solicitados.
 - **Lección**: los nombres de fichero son parte del producto (el usuario los
   ve en cada pantalla); el hash del backend nunca debió salir a la UI.
+
+## 2026-10-02 (V) — [A3] CANCIÓN CON VOZ: bug de la letra + selector de voz
+- **Síntoma del usuario**: en CREAR → CANCIÓN CON VOZ "cumple con la música
+  pero no añade la letra"; y "no acabo de ver dónde se cambia el nombre".
+- **CAUSA RAÍZ (no era la UI)**: `GenerationDefaults.language = "en"` viajaba
+  como `vocal_language` en TODAS las generaciones. El motor construye
+  `# Languages\n{lang}\n\n# Lyric\n{letra}` (prompt_utils.py); con `"en"` y
+  letra en castellano la pista salía instrumental. Además el motor espera
+  marcas de estructura: un párrafo plano canta mal.
+- **Decisiones del usuario (ask_user)**: selector de género (mujer/hombre),
+  timbre, estilo de canto y emoción; letra **híbrida** (LM la propone, el
+  usuario corrige o escribe).
+- **Implementación**:
+  - Backend: `POST /music/write_lyrics` → proxy a `/format_input` del motor
+    (`MusicService.write_lyrics`, ruta en config). Sanitiza el BPM que devuelve
+    el LM (descarta 300 bpm) y **detecta cuando solo devuelve estructura
+    instrumental** → devuelve `warning` en vez de meter basura (NO FAKE).
+  - `frontend/src/vocal.js` (nuevo): DATOS de género/timbre/estilo/emoción
+    (descriptores en inglés, etiquetas en español) + `buildVocalTags()` +
+    `structureLyric()` + `hasLyricStructure()`.
+  - CREAR: bloque VOZ CANTADA (4 grupos de chips + IDIOMA), botón
+    "ESCRIBIR LA LETRA POR MÍ" (con aviso si el LM no compone), aviso
+    permanente sobre estructura, y `language`/`lyrics` ya estructurada al
+    enviar. **NOMBRE** movido a campo protagonista de ancho completo (el
+    usuario no lo veía por estar apretado en una fila).
+  - SUBIR/BIBLIOTECA: LETRA opcional en el panel IA cuando kind es voz/mixta →
+    `instrumental: !letra` (antes era instrumental fijo).
+- **TESTER — PASS con detalle**:
+  - lint 0 errores, build OK (311.66 kB / gzip 97.82 kB).
+  - `/music/write_lyrics` real: devuelve letra estructurada; con el LM actual
+    (0.6B) llega a devolver solo "Instrumental" → `warning` correcto y BPM
+    absurdo (300) filtrado a 100. **Limitación real del modelo**: el LM no
+    compone letras con calidad; la app lo dice, no lo disimula.
+  - `/format_input` verificado en bruto contra el motor (2 llamadas): con
+    "voz cantada" en el prompt el caption cambia de instrumental a con voz.
+  - Generación real con voz: `POST /music/generate` {instrumental:false,
+    lyrics con [Verse]/[Chorus], language:"es", 45 s} → **succeeded 100 %**;
+    `Prueba Con Voz.mp3` 45.0 s / 720.812 bytes en disco.
+  - Pendiente: revisión humana del audio (sí canta o no). Fichero dejado a
+    propósito en la biblioteca para que el usuario lo escuche.
+- **REVIEWER — APPROVE con 1 corrección aplicada**: detecté y arreglé que
+  `language` salía duplicado en `Uploads.runAIGeneration` y que faltaba la
+  etiqueta NOMBRE en el panel IA.
+- **Lección**: el fallo "no canta" estaba en un default del backend
+  (`language: "en"`), no en la UI: cuando el motor no hace lo pedido, hay que
+  leer su código de conditioning antes de culpar a la interfaz.

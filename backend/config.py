@@ -42,6 +42,7 @@ class AcestepSettings:
     result_path: str = "/query_result"
     audio_path: str = "/v1/audio"
     models_path: str = "/v1/models"
+    format_input_path: str = "/format_input"
     request_timeout: float = 60.0
     poll_interval: float = 3.0
     job_timeout: float = 1800.0
