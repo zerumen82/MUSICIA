@@ -582,3 +582,133 @@ prueba ejecutada y resultado, con fecha.
   vivía después de él en el archivo (el corte se llevó RemixPromptPanel);
   (2) la bandeja (Tray) complementa al single-instance lock: la ventana
   nunca se pierde, solo se esconde.
+
+## 2026-10-02 — Fix prompt en SUBIR verificado + servicios reiniciados + repo en GitHub
+- **Qué**:
+  - Reclamación del usuario repetida ("SUBÍ LA CANCIÓN Y NO ME DEJA METER
+    PROMPT") → causa raíz confirmada: la API corría código VIEJO sin
+    `/audio/remix_prompt`, y el panel viejo se quedaba en "PREPARANDO
+    SUGERENCIA…" bloqueado. Ya aplicado el fix de `RemixPromptPanel`
+    (textarea SIEMPRE visible/editable, fallback sin backend, flag `touched`).
+  - **Verificado**: `npx eslint src --max-warnings=0` (0 errores) +
+    `npm run build` OK (bundle 299.4 kB / gzip 94.4 kB).
+  - **Servicios reiniciados** (stop_local + start_local): API :8000 OK, motor
+    :8001 OK (models_initialized=false hasta la 1ª generación, que recargará
+    modelo ~2-3 min extra). Endpoint `/audio/remix_prompt` verificado vivo:
+    responde validación 422 (ya no 404).
+  - **README.md creado** con descripción del proyecto (arquitectura, pestañas,
+    puesta en marcha, privacidad local).
+  - **Repo subido a GitHub**: `git init -b main` (el proyecto NO era repo),
+    `.gitignore` raíz nuevo (excluye vendor/ 17 GB, venvs, outputs, logs,
+    node_modules, config.json), commit raíz `e863c35` (61 archivos, 14.494
+    líneas) y push a `git@github.com:zerumen82/MUSICIA.git` branch `main`
+    (SSH funcionó a la primera).
+- **Resultado**: todo el código actual está en GitHub; la API tiene el
+  endpoint nuevo; el frontend compila el fix del prompt. Falta SOLO que el
+  usuario repruebe: SUBIR canción → confirmar tipo → el textarea del prompt
+  debe aparecer YA visible y editable → GENERAR CON IA.
+- **Nota**: para futuros pushes, `git push` a secas (tracking ya configurado).
+
+## 2026-10-02 (II) — Re-test flujo SUBIR + fix BPM duplicado
+- **Qué** (petición del usuario: reprobar SUBIR):
+  - E2e backend con la canción REAL del usuario (`89a08f15-01-Animales-muertos.mp3`):
+    `/audio/uploads` la lista OK; `/audio/remix_prompt` (kind=music y mixta)
+    devuelve prompt + basis (167 bpm, 81.4 s, bass_ratio 0.385, dyn 14.2 dB).
+  - **Bug detectado y corregido**: el BPM salía triplicado ("167 bpm, 167
+    bpm, 167 bpm"). Causa: `enhance_prompt` lo añadía a `parts` Y otra vez
+    vía `unique_adds`, y `remix_prompt` ya lo había metido antes. Fix en
+    `prompt_enhancer.py`: solo `additions.append` y solo si el prompt base
+    no lo contiene ya (`if bpm and f"{bpm} bpm" not in low`). Verificado:
+    ahora "167 bpm" aparece UNA vez en music y mixta.
+  - Revisión del código de `RemixPromptPanel` (Uploads.jsx): textarea
+    incondicional (línea ~353), flag `touched`, fallback con nota si el
+    backend falla, botón GENERAR CON IA deshabilitado solo si prompt vacío.
+    Flujo confirmado: subida → hipótesis → P1 tipo → P2 acción → panel con
+    prompt para recreate/backing/extend.
+  - API reiniciada con el fix (stop/start local, health OK).
+- **Pendiente**: validación visual del usuario (reabrir Musicia.exe para
+  cargar el dist nuevo) y probar generar desde el prompt editado.
+
+## 2026-10-02 (III) — OTRA VERSIÓN del mismo tema: RemixIAPanel compartido
+- **Qué** (usuario: "una vez la he subido y lo ha creado no hay mecanismos
+  para hacer otra versión del mismo tema" + "quiero más opciones cuando
+  subes un audio, más opciones de remix... que cambien según el prompt"):
+  - Diagnóstico: tras generar, en SUBIR no había botón de re-lanzar y en
+    BIBLIOTECA solo había remix DSP (Shuffle) y AJUSTES — ninguna vía para
+    re-crear con IA sobre una pista existente.
+  - **Nuevo componente compartido `RemixIAPanel.jsx`** (usado por SUBIR y
+    BIBLIOTECA):
+    - Prompt SIEMPRE visible/editable, pre-rellenado desde
+      `/audio/remix_prompt` (análisis DSP real del fichero).
+    - **10 chips de variantes que REESCRIBEN el prompt** (toggle añade/quita
+      su frase): MÁS ENERGÍA, MÁS CALMA, OSCURA, LUMINOSA, ACÚSTICA,
+      ELECTRÓNICA, ORQUESTAL, LO-FI, ÉPICA, MINIMAL.
+    - **Dado de semilla**: semilla aleatoria por defecto, clic para fijar
+      una concreta (misma base → resultado distinto, comparable A/B), X para
+      volver a aleatoria. Backend ya aceptaba `seed`.
+    - Botón GENERAR OTRA VERSIÓN + muestra la base (bpm/duración).
+  - **SUBIR**: `RemixPromptPanel` eliminado (el corte de la extracción
+    anterior se lleva bien esta vez); `runAIGeneration` simplificada: firma
+    única `({prompt, seed, duration_seconds, bpm})` con fallback al análisis
+    local; `seed` pasa al payload.
+  - **BIBLIOTECA**: nuevo botón ✨ (Sparkles) por pista junto a Shuffle →
+    despliega RemixIAPanel con kind=musica; `runIAFromLibrary` lanza el job
+    y anota el job_id; exclusión mutua con remix/AJUSTES.
+  - Lint 0 errores, build OK (301.9 kB / gzip 95.0 kB).
+- **Pendiente**: reiniciar la app (cerrar ventana + reabrir Musicia.exe —
+  NO hace falta reiniciar la API, solo cambió frontend) y que el usuario
+  pruebe: BIBLIOTECA → ✨ en una pista → chips + prompt + dado → GENERAR
+  OTRA VERSIÓN.
+- **Lección**: los "mecanismos de iteración" (re-lanzar, variar, encadenar)
+  son parte del flujo, no un extra: si el resultado final no tiene camino
+  para el paso siguiente, el flujo está incompleto.
+
+## 2026-10-02 (IV) — [E1] Nombres en todo el ciclo de vida (crear/editar/remix)
+- **Qué** (usuario: "quiero que puedas poner nombre a la canción resultante
+  tanto al crear como en la edición como en el remix"):
+  - Spec primero: [E1] en spec/02-REQUISITOS.md con las 3 decisiones del
+    usuario (sin nombre → `pista-sin-nombre[-N]`; duplicados → `(2)`, `(3)`;
+    renombrable en Biblioteca y Subidas).
+  - **Backend**:
+    - `MusicGenRequest.output_name` (ya no se fuerza `{hash}-{prompt}`).
+    - `_unique_output_path()`: desambigua numerando; `DEFAULT_STEM =
+      "pista-sin-nombre"`.
+    - `_derive_stem()`: hereda el nombre de la fuente + marca (`-remix`,
+      `-edit`) SIN encadenar (`-remix-remix`) y quita el prefijo hash de
+      subidas.
+    - `_find_audio()`: localiza en outputs/ o uploads/.
+    - **NUEVO `PATCH /music/audio/{name}`** con `RenameRequest{new_name}`:
+      renombra en el directorio donde vive, sanea y numera si el destino
+      existe.
+    - `_safe_name()` REESCRITA: el nombre que escribe el usuario se respeta
+      (espacios, acentos, paréntesis); se quitan solo caracteres prohibidos
+      en Windows y las barras se convierten en guion (antes perdía texto).
+  - **Frontend**: campo NOMBRE en CREAR (junto a SEMILLA), en `RemixPanel`
+    (DSP, con sugerencia `-remix`) y en `RemixIAPanel` (IA, con sugerencia
+    `(versión IA)`); renombrado en línea con lápiz → input → GUARDAR /
+    CANCELAR en Biblioteca y Subidas; `api.renameAudio()`. Al renombrar el
+    audio analizado, SUBIR actualiza `lastAnalysis` al nombre nuevo (si no,
+    los botones Following-usaban el nombre viejo → 404).
+- **TESTER — PASS** (evidencia ejecutada):
+  - `npx eslint src --max-warnings=0` → 0 errores; `npm run build` OK
+    (305.75 kB / gzip 95.89 kB).
+  - Generación REAL con nombre: `POST /music/generate {output_name:
+    "Prueba Nombre Real"}` → succeeded 100 % en ~56 s; fichero
+    `Prueba Nombre Real.mp3` 15.0 s / 240.812 bytes (ffprobe), servida por
+    API HTTP 200 y primera en `/music/library`.
+  - Remixes DSP reales: nombre propio → `Mi Canción Favorita.mp3`; repetido →
+    `Mi Canción Favorita (2).mp3`; sin nombre → `01-Animales-muertos-remix.mp3`
+    (sin hash); remix del remix → `01-Animales-muertos-remix (2).mp3`
+    (NO `-remix-remix`).
+  - Renombrado: outputs ✅, **uploads/** ✅, destino ocupado → `(3)` ✅,
+    inexistente → 404 ✅, `../../evil` → saneado a `evil.mp3` ✅,
+    `AC/DC: Back in Black?` → `AC - DC Back in Black.mp3` ✅.
+  - Ficheros de prueba borrados al terminar (biblioteca del usuario intacta).
+  - Pendiente de tester humano: los campos de nombre y el renombrado en línea
+    solo están verificados por build, aún no pulsados en la app.
+- **REVIEWER — APPROVE**: revisados backend/main.py (helpers + 4 call sites)
+  y los 6 archivos del frontend. Sin residuos de la implementación previa;
+  `runRemix` propaga `output_name` correctamente; el panel IA comparte
+  componentes ya probados. Sin cambios solicitados.
+- **Lección**: los nombres de fichero son parte del producto (el usuario los
+  ve en cada pantalla); el hash del backend nunca debió salir a la UI.

@@ -96,6 +96,7 @@ class MusicGenRequest(BaseModel):
     prompt: str = Field(min_length=1, description="Descripción del estilo musical")
     lyrics: str | None = Field(default=None, description="Letra; obligatoria si no es instrumental")
     instrumental: bool | None = None
+    output_name: str | None = Field(default=None, description="Nombre de la canción que elige el usuario")
     duration_seconds: float | None = None
     bpm: int | None = None
     key_scale: str | None = None
@@ -151,16 +152,30 @@ class RemixPromptRequest(BaseModel):
     kind: str = "musica"   # musica | voz | mixta | otro
 
 
+class RenameRequest(BaseModel):
+    """Nuevo nombre de una pista existente (biblioteca o subidas)."""
+
+    new_name: str = Field(min_length=1, description="Nombre que elige el usuario, con o sin extensión")
+
+
 # ---------------------------------------------------------------------------
 # Utilidades
 # ---------------------------------------------------------------------------
 
 
 def _safe_name(raw: str | None, fallback: str, suffix: str = "") -> str:
-    """Nombre de fichero seguro (sin rutas ni caracteresProblemáticos)."""
-    stem = Path(raw).name if raw else ""
-    stem = re.sub(r"[^\w.-]+", "-", stem).strip("-.") or fallback
-    stem = stem[: settings.generation.max_slug_chars]
+    """Nombre de fichero seguro (sin rutas ni caracteres problemáticos).
+
+    Conserva espacios, acentos y paréntesis para que el nombre que escribe
+    el usuario sea el nombre real de su canción; solo elimina lo que Windows
+    prohíbe en ficheros y lo que rompería una URL.
+    """
+    stem = re.sub(r"[\\/]+", " - ", raw or "")   # separadores → guion, nunca recortan texto
+    stem = Path(stem).name
+    stem = re.sub(r"[\\:*?\"<>|]+", " ", stem)   # prohibidos en Windows
+    stem = re.sub(r"[^\w .()\-]", "", stem, flags=re.UNICODE)
+    stem = re.sub(r"\s+", " ", stem).strip(" .-")
+    stem = stem[: settings.generation.max_slug_chars].strip(" .-") or fallback
     if suffix and not stem.lower().endswith(suffix):
         stem = f"{stem}{suffix}"
     return stem
@@ -172,6 +187,53 @@ def _resolve_output(output_name: str) -> Path:
     if settings.outputs_dir not in candidate.parents:
         raise HTTPException(status_code=400, detail="Nombre de fichero no válido")
     return candidate
+
+
+# Prefijo de las pistas que el usuario no ha nombrado (decisión del usuario, spec E1).
+DEFAULT_STEM = "pista-sin-nombre"
+
+
+def _unique_output_path(stem: str, suffix: str) -> Path:
+    """Ruta libre para `stem` en outputs/, numerando: nombre, (2), (3)…
+
+    Nunca pisa una pista existente: el usuario elige el nombre y la app
+    desambigua sola (spec/02 Épica E).
+    """
+    candidate = _resolve_output(_safe_name(stem, DEFAULT_STEM, suffix=suffix))
+    index = 2
+    while candidate.exists():
+        candidate = _resolve_output(
+            _safe_name(f"{stem} ({index})", DEFAULT_STEM, suffix=suffix)
+        )
+        index += 1
+        if index > 500:
+            raise HTTPException(status_code=409, detail="Demasiadas versiones con ese nombre")
+    return candidate
+
+
+def _find_audio(name: str) -> Path:
+    """Localiza un audio en outputs/ o en uploads/ (el que exista de verdad)."""
+    for resolver in (_resolve_output, _resolve_upload):
+        try:
+            candidate = resolver(name)
+        except HTTPException:
+            continue
+        if candidate.exists():
+            return candidate
+    raise HTTPException(status_code=404, detail="Audio no encontrado")
+
+
+def _derive_stem(source_name: str, marker: str) -> str:
+    """Stem heredado de una fuente + marca (remix, ajuste, ia…), sin acumular.
+
+    'mi-cancion-remix.mp3' + 'remix' -> 'mi-cancion-remix' (no '-remix-remix').
+    """
+    stem = Path(source_name).stem
+    stem = re.sub(r"^[0-9a-f]{8}-", "", stem, flags=re.IGNORECASE)  # prefijo de subida
+    suffix = f"-{marker}"
+    if stem.lower().endswith(suffix):
+        stem = stem[: -len(suffix)]
+    return f"{stem}{suffix}"
 
 
 def _now() -> str:
@@ -387,9 +449,10 @@ async def generate_music(
     """Envía la generación al motor local y sigue el resultado en segundo plano."""
     job_id = uuid.uuid4().hex
     audio_format = request.audio_format or settings.generation.audio_format
-    output_name = _safe_name(
-        f"{job_id}-{request.prompt}", job_id, suffix=f".{audio_format}"
-    )
+    # Nombre elegido por el usuario; si no, "pista-sin-nombre" numerado (spec E1).
+    suffix = f".{audio_format}"
+    stem = _safe_name(request.output_name, DEFAULT_STEM)
+    output_name = _unique_output_path(stem, suffix).name
 
     # Fail-fast (deuda T7): si el motor no responde, no colgar la petición.
     health = await music.health()
@@ -772,8 +835,9 @@ async def audio_remix(request: RemixRequest) -> dict[str, Any]:
     if not 0 <= request.fade_out_ms <= PROC_MAX_FADE_MS:
         raise HTTPException(status_code=400, detail="fade_out_ms fuera de rango (0-10000)")
 
-    output_name = request.output_name or f"{Path(request.file_name).stem}-remix.mp3"
-    output_path = _resolve_output(_safe_name(output_name, "remix", suffix=".mp3"))
+    output_name = request.output_name
+    stem = _safe_name(output_name, DEFAULT_STEM) if output_name else _derive_stem(request.file_name, "remix")
+    output_path = _unique_output_path(stem, ".mp3")
 
     try:
         from pydub import AudioSegment
@@ -843,8 +907,8 @@ async def audio_process(request: AudioProcessRequest) -> dict[str, Any]:
     if not source.exists():
         raise HTTPException(status_code=404, detail="Audio de origen no encontrado")
 
-    output_name = request.output_name or f"{Path(request.file_name).stem}-edit.mp3"
-    output_path = _resolve_output(_safe_name(output_name, "edit", suffix=".mp3"))
+    stem = _safe_name(request.output_name, DEFAULT_STEM) if request.output_name else _derive_stem(request.file_name, "edit")
+    output_path = _unique_output_path(stem, ".mp3")
 
     if not PROC_MIN_GAIN_DB <= request.gain_db <= PROC_MAX_GAIN_DB:
         raise HTTPException(status_code=400, detail="gain_db fuera de rango (-24 a +24)")
@@ -875,6 +939,32 @@ async def audio_process(request: AudioProcessRequest) -> dict[str, Any]:
         "file_name": output_path.name,
         "duration_seconds": round(duration_ms / 1000.0, 2),
     }
+
+
+@app.patch("/music/audio/{name}")
+async def rename_audio(name: str, request: RenameRequest) -> dict[str, Any]:
+    """Renombra un audio de outputs/ o uploads/ (spec E1), sin pisar otros.
+
+    El nombre se sanea con `_safe_name` y si ya existe se numera: nombre,
+    (2), (3)… Renombrar en línea no rompe referencias porque las URLs viajan
+    siempre por nombre, nunca por ruta.
+    """
+    source = _find_audio(name)
+    stem = _safe_name(request.new_name, DEFAULT_STEM)
+    # Desambigua dentro del MISMO directorio donde vive el fichero.
+    suffix = source.suffix or ".mp3"
+    target = source.with_name(f"{stem}{suffix}")
+    index = 2
+    while target.exists() and target != source:
+        target = source.with_name(f"{stem} ({index}){suffix}")
+        index += 1
+        if index > 500:
+            raise HTTPException(status_code=409, detail="Demasiadas versiones con ese nombre")
+    if target == source:
+        return {"status": "unchanged", "name": source.name}
+    source.rename(target)
+    logger.info(f"Audio renombrado: {source.name} -> {target.name}")
+    return {"status": "renamed", "name": target.name, "renamed_from": source.name}
 
 
 # ---------------------------------------------------------------------------

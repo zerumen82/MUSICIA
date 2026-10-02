@@ -70,3 +70,29 @@ obtener un MP3, **para** crear música sin saber producir.
 
 ### [D3] [P2] [propuesta] Empaquetado instalable
 - [ ] electron-builder → instalador Windows con icono propio
+
+## Épica E — Biblioteca y nomenclatura
+
+### [E1] [P1] [verificada] Nombrar la música en todo el ciclo de vida
+**Como** usuario, **quiero** poner nombre a mis canciones al crearlas, al
+editar las ya creadas y al hacer remixes, **para** reconocerlas de un
+vistazo y no ver `cd6809482...-synthwa.mp3`.
+
+**Decisiones del usuario (2026-10-02, ask_user)**
+- Sin nombre escrito → genérico numerado: `pista-sin-nombre`, `pista-sin-nombre-2`…
+- Si el nombre ya existe → sufijo de numeración `(2)`, `(3)`; nunca se pisa nada.
+- Renombrable en Biblioteca **y** en Subidas.
+
+**Criterios de aceptación**
+- [x] CREAR: campo de nombre opcional; si se rellena, el MP3 sale con ese nombre
+- [x] Sin nombre → `pista-sin-nombre[-N].mp3` (nunca hash + prompt)
+- [x] REMIX (IA) y RE-CREACIÓN: campo de nombre propio en el panel compartido
+- [x] REMIX (DSP) y AJUSTES: heredan nombre de la fuente con sufijo, no `-remix-remix`
+- [x] Biblioteca y Subidas: renombrado en línea (endpoint de rename) que no pisa
+      ficheros ajenos (busca en outputs/ y uploads/)
+- [x] Nombres seguros: sin rutas ni caracteres especiales (`_safe_name`)
+- [x] Verificación real: crear, renombrar, remix y comprobar nombres en disco (memory.md)
+
+**Endpoint nuevo**: `PATCH /music/audio/{name}` con `{ new_name }` →
+resuelve outputs/ y uploads/, sanea, desambigua con sufijo y devuelve
+`{ name, renamed_from }`.

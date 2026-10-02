@@ -163,9 +163,10 @@ def enhance_prompt(prompt: str, bpm: int | None = None, mood: str | None = None)
     if mood_key:
         additions.extend(MOOD_WORDS[mood_key])
 
-    if bpm:
+    if bpm and f"{bpm} bpm" not in low:
+        # Solo una vez: ya está en additions y unique_adds lo incorpora al
+        # final; si el prompt original ya traía el BPM, no se duplica.
         additions.append(f"{bpm} bpm")
-        parts.append(f"{bpm} bpm")
 
     # Deduplicar conservando orden
     seen: set[str] = set()

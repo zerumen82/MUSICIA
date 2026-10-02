@@ -82,6 +82,7 @@ export default function Composer({ initialMode = 'music' }) {
   const [key, setKey] = useState('');
   const [duration, setDuration] = useState(60);
   const [seed, setSeed] = useState(''); // vacío = aleatorio (use_random_seed del config)
+  const [songName, setSongName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState(loadHistory);
@@ -162,7 +163,7 @@ export default function Composer({ initialMode = 'music' }) {
     }
   }, [remember]);
 
-  const launchGeneration = async (finalPrompt, seedValue) => {
+  const launchGeneration = async (finalPrompt, seedValue, nameOverride = undefined) => {
     const meta = { prompt: finalPrompt, title: finalPrompt, duration: Number(duration) };
     const conVoz = mode === 'voice';
     const created = await api.generateMusic({
@@ -173,6 +174,8 @@ export default function Composer({ initialMode = 'music' }) {
       bpm: bpm ?? null,
       key_scale: key || null,
       seed: seedValue,
+      // Nombre elegido por el usuario; vacío = "pista-sin-nombre" numerado.
+      output_name: (nameOverride ?? songName).trim() ? (nameOverride ?? songName).trim() : null,
     });
     return { created, meta };
   };
@@ -371,6 +374,11 @@ export default function Composer({ initialMode = 'music' }) {
                 value={duration} onChange={(e) => setDuration(Number(e.target.value))}
                 className="flex-1 min-w-0" aria-label="Duración" />
               <span className="num w-12 text-right">{fmt(duration)}</span>
+            </div>
+            <div className="flex items-center gap-2.5 shrink-0">
+              <span className="label">NOMBRE</span>
+              <input type="text" value={songName} onChange={(e) => setSongName(e.target.value)}
+                placeholder="sin nombre" className="w-44 px-3 py-2 text-[13px]" title="Nombre del MP3 que se guardará" />
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
               <span className="label">SEMILLA</span>

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause,
-  SlidersHorizontal, Music, Mic2, Sparkles, CheckCircle2, HelpCircle,
+  SlidersHorizontal, Music, Mic2, Sparkles, CheckCircle2, HelpCircle, Pencil, Check,
 } from 'lucide-react';
 import { api } from '../api';
 import RemixPanel from './RemixPanel';
+import RemixIAPanel from './RemixIAPanel';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
@@ -47,6 +48,8 @@ export default function Uploads() {
   const [playing, setPlaying] = useState(null);
   const [remixState, setRemixState] = useState(null); // resultado o error del remix
   const [generating, setGenerating] = useState(false);
+  const [renameName, setRenameName] = useState(null); // item en renombrado
+  const [renameValue, setRenameValue] = useState('');
   const inputRef = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -99,62 +102,52 @@ export default function Uploads() {
     }
   };
 
-  const runAIGeneration = async (analysisOrNull, kind, promptOverride = null) => {
+  // Lanza la re-creación con IA. Recibe { prompt, seed, duration_seconds, bpm }
+  // desde RemixIAPanel (que pre-rellena con el análisis DSP); si falta algo,
+  // cae al análisis local. Con semilla fija se pueden comparar versiones A/B.
+  const runAIGeneration = async ({ prompt, seed = null, name = null, duration_seconds = null, bpm = null } = {}) => {
     setError(null);
     setGenerating(true);
-    const a = analysisOrNull
-      ? analysisOrNull.analysis
-      : lastAnalysis.analysis;
-    // Con prompt editado por el usuario, se usa tal cual;
-    // si no, se compone desde el análisis como antes.
-    if (promptOverride) {
-      try {
-        const created = await api.generateMusic({
-          prompt: promptOverride.trim(),
-          instrumental: true,
-          lyrics: null,
-          duration_seconds: Math.min(Math.max(a.duration_seconds || 30, 10), 240),
-          bpm: a.bpm ?? null,
-        });
-        setRemixState({
-          ok: true, job: true, job_id: created.job_id,
-          note: 'Generación IA lanzada con tu prompt. Mira el progreso en CREAR.',
-        });
-      } catch (e) {
-        setRemixState({ ok: false, error: e.message });
-      } finally {
-        setGenerating(false);
-      }
-      return;
-    }
-    const parts = [];
-    if (kind === 'voz') {
-      parts.push('base musical suave para acompañar una voz protagonista');
-    } else {
-      parts.push('pieza musical inspirada en una referencia con carácter similar');
-    }
-    if (a.bpm) parts.push(`${a.bpm} bpm`);
-    if (a.bass_ratio >= 0.55) parts.push('con presencia de graves marcada');
-    else parts.push('con mezcla equilibrada y brillante');
-    if (a.dynamics_std_db < 9) parts.push('textura continua y fluida');
-    else parts.push('dinámica expresiva');
+    const a = lastAnalysis?.analysis ?? {};
+    const dur = duration_seconds ?? a.duration_seconds ?? 30;
     try {
       const created = await api.generateMusic({
-        prompt: parts.join(', '),
+        prompt: (prompt ?? '').trim() || 'pieza musical inspirada en una referencia con carácter similar',
         // La re-creación es instrumental: sin letra no se puede pedir voz al motor
         instrumental: true,
         lyrics: null,
-        duration_seconds: Math.min(Math.max(a.duration_seconds, 10), 240),
-        bpm: a.bpm ?? null,
+        duration_seconds: Math.min(Math.max(dur, 10), 240),
+        bpm: bpm ?? a.bpm ?? null,
+        seed,
+        output_name: name,
       });
       setRemixState({
         ok: true, job: true, job_id: created.job_id,
-        note: 'Generación IA lanzada con los parámetros del análisis. Mira el progreso en CREAR.',
+        note: 'Generación IA lanzada con tu prompt. Mira el progreso en CREAR.',
       });
     } catch (e) {
       setRemixState({ ok: false, error: e.message });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const commitRename = async (oldName) => {
+    const next = renameValue.trim();
+    setRenameName(null);
+    if (!next || next === oldName) return;
+    setError(null);
+    try {
+      const res = await api.renameAudio(oldName, next);
+      // Si el renombrado es del audio analizado, el panel sigue apuntando al
+      // fichero viejo: se actualiza al nombre real que devolvió la API.
+      if (lastAnalysis?.file_name === oldName) {
+        setLastAnalysis({ ...lastAnalysis, file_name: res.name });
+      }
+      if (playing === oldName) setPlaying(null);
+      await refresh();
+    } catch (e) {
+      setError(e.message);
     }
   };
 
@@ -273,7 +266,7 @@ export default function Uploads() {
             {chosenAction === 'remix' && <RemixPanel onRun={runRemix} result={remixState} fileName={lastAnalysis.file_name} />}
 
             {(chosenAction === 'recreate' || chosenAction === 'backing' || chosenAction === 'extend') && (
-              <RemixPromptPanel fileName={lastAnalysis.file_name} kind={confirmKind}
+              <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind}
                 onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
             )}
 
@@ -307,7 +300,28 @@ export default function Uploads() {
                 {playing === item.name ? <Pause size={10} className="text-[#0c0f04]" fill="currentColor" />
                   : <Play size={10} className="text-[var(--muted)]" fill="currentColor" />}
               </button>
-              <span className="mono text-[11.5px] text-zinc-200 truncate flex-1 min-w-0">{item.name}</span>
+              {renameName === item.name ? (
+                <>
+                  <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void commitRename(item.name);
+                      if (e.key === 'Escape') setRenameName(null);
+                    }}
+                    className="px-3 py-1.5 text-[12px] mono bg-transparent outline-none border border-[var(--acc-line)] flex-1 min-w-0" />
+                  <button onClick={() => void commitRename(item.name)} className="btn btn-signal h-7 px-2.5 shrink-0">
+                    <Check size={11} /> GUARDAR
+                  </button>
+                  <button onClick={() => setRenameName(null)} className="btn btn-ghost h-7 px-2.5 shrink-0">CANCELAR</button>
+                </>
+              ) : (
+                <>
+                  <span className="mono text-[11.5px] text-zinc-200 truncate flex-1 min-w-0">{item.name}</span>
+                  <button onClick={() => { setRenameValue(item.name.replace(/\.[^.]+$/, '')); setRenameName(item.name); }}
+                    className="btn btn-ghost h-7 px-2 shrink-0" title="Cambiar nombre">
+                    <Pencil size={11} />
+                  </button>
+                </>
+              )}
               <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
               <a href={api.uploadUrl(item.name)} download className="btn btn-ghost h-7 px-2 shrink-0"><Download size={11} /></a>
               <button onClick={() => remove(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
@@ -324,50 +338,4 @@ export default function Uploads() {
 }
 
 /* Panel de remix DSP: sliders de tempo/pitch/gain + reverse + fades. */
-
-/* Panel de re-creación con IA: sugiere un prompt desde el análisis, editable desde el segundo uno. */
-function RemixPromptPanel({ fileName, kind, onLaunch, generating, jobNote }) {
-  const [prompt, setPrompt] = useState('');
-  const [additions, setAdditions] = useState([]);
-  const [touched, setTouched] = useState(false); // si el usuario escribió, no se sobreescribe
-  const [note, setNote] = useState(null);
-
-  useEffect(() => {
-    let active = true;
-    api.remixPrompt({ file_name: fileName, kind })
-      .then((d) => {
-        if (!active) return;
-        setAdditions(d.additions ?? []);
-        if (!touched) setPrompt(d.prompt);
-      })
-      .catch(() => {
-        // Sin sugerencia del backend, el usuario escribe libre: no bloqueamos nada
-        if (active) setNote('No pude preparar la sugerencia automática; escribe tu prompt libremente.');
-      });
-    return () => { active = false; };
-  }, [fileName, kind, touched]);
-
-  return (
-    <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
-      <span className="label">RE-CREACIÓN CON IA · ESCRIBE TU PROMPT (SUGERIDO AUTOMÁTICAMENTE)</span>
-      <textarea
-        value={prompt}
-        onChange={(e) => { setPrompt(e.target.value); setTouched(true); }}
-        placeholder="Describe cómo quieres el remix: mismo estilo pero más energético, versión acústica…"
-        className="bg-transparent outline-none resize-none text-[13.5px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[88px] font-medium border-l-2 border-[var(--acc-line)] pl-4 py-1.5"
-      />
-      {additions.length > 0 && !touched && (
-        <p className="mono text-[9.5px] text-[var(--faint)] leading-relaxed">
-          Añadido por las reglas de producción: {additions.join(' · ')}
-        </p>
-      )}
-      {note && <p className="mono text-[9.5px] text-[var(--warn)]">{note}</p>}
-      <button onClick={() => onLaunch(null, kind, prompt)}
-      disabled={generating || !prompt.trim()} className="btn btn-signal h-10 px-6 self-start">
-        {generating ? <><Loader2 size={13} className="animate-spin" /> LANZANDO…</>
-          : <><Sparkles size={13} /> GENERAR CON IA</>}
-      </button>
-      {jobNote && <p className="mono text-[10.5px] st-ok">{jobNote}</p>}
-    </div>
-  );
-}
+/* Panel de re-creación con IA: ahora es RemixIAPanel (compartido con BIBLIOTECA). */

@@ -14,6 +14,7 @@ export default function RemixPanel({ onRun, result, fileName }) {
   const [fadeIn, setFadeIn] = useState(0);
   const [fadeOut, setFadeOut] = useState(0);
   const [trim, setTrim] = useState({ trim_start_s: 0, trim_end_s: null });
+  const [name, setName] = useState(''); // nombre del resultado; vacío = hereda + '-remix'
   const [running, setRunning] = useState(false);
 
   const onSelection = (sel) => {
@@ -31,6 +32,7 @@ export default function RemixPanel({ onRun, result, fileName }) {
       fade_out_ms: fadeOut,
       trim_start_s: trim.trim_start_s,
       trim_end_s: trim.trim_end_s === '' || trim.trim_end_s === null ? null : Number(trim.trim_end_s),
+      output_name: name.trim() ? name.trim() : null,
     });
     setRunning(false);
   };
@@ -71,6 +73,12 @@ export default function RemixPanel({ onRun, result, fileName }) {
           className={`btn h-8 px-3 shrink-0 ${reverse ? 'btn-signal' : 'btn-ghost'}`}>
           INVERTIR
         </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="label shrink-0">NOMBRE</span>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+          placeholder={fileName ? `${fileName.replace(/\.[^.]+$/, '')}-remix` : 'nombre del remix'}
+          className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] flex-1 min-w-0" />
       </div>
       <div className="flex items-center gap-3">
         <button onClick={run} disabled={!dirty || running} className="btn btn-signal h-10 px-6">

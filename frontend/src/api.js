@@ -74,6 +74,16 @@ export const api = {
     }
   },
 
+  /** Renombra una pista (biblioteca o subida). Si el nombre existe, la app numera. */
+  renameAudio: async (name, newName) => {
+    try {
+      const { data } = await client.patch(`/music/audio/${encodeURIComponent(name)}`, { new_name: newName })
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
   /** Post-proceso real: gain (dB), fades (ms) y recorte (s). */
   processAudio: async (payload) => {
     try {
