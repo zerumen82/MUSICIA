@@ -14,6 +14,44 @@ const STOP_SCRIPT = path.join(__dirname, '..', 'scripts', 'stop_local.ps1');
 let willQuit = false;
 let mainWindow = null;
 let tray = null;
+let uiWatchTimer = null;
+
+/**
+ * Recarga la ventana cuando el bundle servido por la API cambia.
+ *
+ * Por qué: la X minimiza a la bandeja y el single-instance lock restaura la
+ * ventana existente, así que tras un `npm run build` la app seguía mostrando
+ * la UI vieja y parecía que el cambio no se aplicaba. Con esto, tras el build
+ * la ventana se recarga sola.
+ */
+function startUiWatch() {
+  const intervalMs = 4000;
+  const fingerprint = (html) => {
+    const m = /assets\/index-[A-Za-z0-9_-]+\.(js|css)/g;
+    return (html.match(m) || []).join('|');
+  };
+  let last = null;
+
+  const poll = async () => {
+    if (willQuit || !mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      const res = await fetch(API_URL, { cache: 'no-store' });
+      const html = await res.text();
+      const current = fingerprint(html);
+      if (last === null) { last = current; return; }
+      if (current && current !== last) {
+        last = current;
+        console.log(`[UI:RECARGA] bundle nuevo detectado (${current}), recargando`);
+        mainWindow.reload();
+      }
+    } catch {
+      // La API puede estar apagándose: silencioso, el siguiente ciclo reintenta.
+    }
+  };
+
+  uiWatchTimer = setInterval(poll, intervalMs);
+  poll();
+}
 
 /**
  * Salida segura con elección del usuario. `action`: 'ask' | 'stop-all' | 'keep'.
@@ -127,6 +165,7 @@ function createWindow() {
     // sin esto, Electron puede servir un bundle viejo y la UI rompe.
     mainWindow.webContents.session.clearCache().then(() => {
       mainWindow.loadURL(API_URL);
+      startUiWatch();
     });
   }
 
@@ -146,6 +185,21 @@ function createWindow() {
     mainWindow.show();
     mainWindow.focus();
   });
+  // Clic derecho: atajo para recargar la UI y para salir de verdad.
+  tray.on('right-click', () => {
+    tray.popUpContextMenu(Menu.buildFromTemplate([
+      { label: 'Mostrar', click: () => { mainWindow.show(); mainWindow.focus(); } },
+      { label: 'Recargar interfaz', click: () => mainWindow.reload() },
+      { type: 'separator' },
+      {
+        label: 'Salir',
+        click: async () => {
+          const ok = await exitApp('ask');
+          if (ok) console.log('[SALIDA] cerrada desde la bandeja');
+        },
+      },
+    ]));
+  });
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -154,6 +208,10 @@ app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  if (uiWatchTimer) clearInterval(uiWatchTimer);
 });
 
 app.on('activate', () => {
