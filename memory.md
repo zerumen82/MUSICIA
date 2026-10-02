@@ -810,3 +810,25 @@ prueba ejecutada y resultado, con fecha.
 - **Lección**: con bandeja + single-instance, "reiniciar la app" no es cerrar
   y abrir: hay que realinear la ventana con el bundle servido. La recarga
   automática evita la trampa en adelante.
+
+## 2026-10-02 (VIII) — Visibilidad de la voz y prueba de que llega al motor
+- **Síntoma**: "mejor pero se pierde visualización, en canción + voz, y no sé si
+  cumple con lo seleccionado".
+- **Qué se añadió** (CREAR → CANCIÓN CON VOZ):
+  - El bloque de voz vuelve a tener borde y encabezado **VOZ CANTADA** (se había
+    integrado sin contenedor y se perdía de vista).
+  - Línea **ELIGIDO**: resumen siempre visible en verde de lo elegido
+    (p. ej. `FEMENINA · SUAVE · POP · ÍNTIMA · ESPAÑOL`) o `AUTO · el motor
+    decide la voz` si no hay nada. Sin abrir ningún desplegable.
+  - Botón **VER LO QUE SE ENVÍA**: panel de transparencia con lo EXACTO que
+    recibe el motor — DESCRIPCIÓN (prompt final), IDIOMA VOZ (vocal_language),
+    VOCALES (los tags en inglés que se injectan), TIPO (CON VOZ/INSTRUMENTAL) y
+    la LETRA ya estructurada. Responde directamente a la duda del usuario.
+- **TESTER — PASS**: lint 0, build OK (314.82 kB / gzip 98.64 kB); el bundle
+  servido contiene "ELIGIDO"; la detección de cambios del `startUiWatch()`
+  comprobada contra la API real (huella anterior != actual → recarga).
+- **Nota**: el build de esta iteración se hizo CON la app abierta, justo el
+  escenario que fallaba antes; la ventana debería haberse recargado sola.
+- **Lección**: cuando el usuario dice "no sé si cumple lo que elegí", la
+  respuesta no es un Toast: es mostrar el payload. La transparencia ya era un
+  patrón del proyecto (prompt mejorado) y se extendió a la voz.
