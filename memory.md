@@ -788,3 +788,25 @@ prueba ejecutada y resultado, con fecha.
 - **Lección**: al añadir un endpoint lento hay que revisar el timeout del
   cliente, no solo el backend; y los controles muchos van en desplegables
   (una línea) en vez de activar la pantalla entera.
+
+## 2026-10-02 (VII) — Por qué el usuario "no veía" los cambios de UI
+- **Síntoma**: "no me has cambiado nada en la UI de las voces como te dije".
+- **Diagnóstico con evidencia**: el bundle nuevo SÍ se servía
+  (`http://127.0.0.1:8000/` → `assets/index-46PhbxgV.js`, que contiene
+  "GÉNERO", "ESCRIBIRLA POR", "AUTO"). El problema era el ciclo de vida de la
+  ventana: **la X minimiza a la bandeja** y el `single-instance lock` restaura
+  la ventana existente → reabrir Musicia.exe NUNCA recarga la página; `clearCache()`
+  solo corre en un arranque real: todos los "cerrar y reabrir" servían el
+  bundle viejo.
+- **Fix**: `main.cjs` → `startUiWatch()`: cada 4 s pide el index a la API,
+  compara la huella de los assets (`assets/index-*.js|css`) y si cambia hace
+  `mainWindow.reload()` (log `[UI:RECARGA]`). Además, menú de bandeja con
+  clic derecho: Mostrar / **Recargar interfaz** / Salir.
+- **Estado tras el fix**: `node --check main.cjs` OK, lint OK, Electron
+  relanzado desde el agente (4 procesos) y sirviendo `index-46PhbxgV.js`
+  (el bundle con los desplegables de voz).
+- **Aviso**: los MP3 de `backend/outputs/` estaban vacíos (el usuario los
+  borró desde la biblioteca; solo quedan las subidas). Eran pistas de prueba.
+- **Lección**: con bandeja + single-instance, "reiniciar la app" no es cerrar
+  y abrir: hay que realinear la ventana con el bundle servido. La recarga
+  automática evita la trampa en adelante.
