@@ -83,6 +83,92 @@ def _estimate_bpm(envelope_rms: list[float], frames_per_second: float) -> int | 
     return int(round(60.0 * frames_per_second / best_lag))
 
 
+# Trama fina solo para el groove: a 40 ms el tempo se cuantiza demasiado
+# (~4 % de error) y la alineación arrastra ese error a la mezcla.
+GROOVE_FRAME_MS = 10
+
+
+def detect_groove(path: Path) -> dict:
+    """Tempo + fase del golpe: lo que hace que dos pistas encajen.
+
+    Devuelve {bpm, period_ms, phase_ms, confidence}. `phase_ms` es el instante
+    del primer golpe respecto al inicio del fichero: es lo que hay que
+    desplazar una pista para que su bateria caiga donde cae la otra.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el audio: {path}")
+    audio = AudioSegment.from_file(path)
+    if len(audio) < GROOVE_FRAME_MS * 8 * 20:  # menos de ~1.6 s no sirve
+        raise ValueError("Audio demasiado corto para detectar el groove")
+
+    mono = audio.set_channels(1).set_frame_rate(ANALYSIS_RATE).set_sample_width(2)
+    samples = list(mono.get_array_of_samples())
+    frame_len = int(ANALYSIS_RATE * GROOVE_FRAME_MS / 1000)
+    fps = 1000.0 / GROOVE_FRAME_MS
+
+    rms: list[float] = []
+    for start in range(0, len(samples) - frame_len + 1, frame_len):
+        frame = samples[start:start + frame_len]
+        rms.append(math.sqrt(sum(x * x for x in frame) / frame_len))
+    if len(rms) < fps * 8:
+        raise ValueError("Audio demasiado corto para detectar el groove")
+
+    bpm = _estimate_bpm(rms, fps)
+    if not bpm:
+        raise ValueError("No se ha detectado un tempo claro (sin periodicidad)")
+    period_frames = fps * 60.0 / bpm
+
+    # Fase: se pliega la envolvente de energía sobre el periodo del tempo y se
+    # busca el máximo -> ese frame es el golpe.
+    mean = sum(rms) / len(rms)
+    onset = [max(0.0, x - mean) for x in rms]
+    period_int = max(1, int(round(period_frames)))
+    bins: list[float] = [0.0] * period_int
+    for i, value in enumerate(onset):
+        bins[i % period_int] += value
+    peak = max(range(len(bins)), key=lambda i: bins[i])
+    phase_frames = peak
+    if phase_frames > period_int / 2:  # cerca de 0: mejor al inicio
+        phase_frames -= period_int
+
+    # Refinado del tempo: interpolación parabólica sobre el máximo de la
+    # autocorrelación da un BPM decimal mucho más fiel que el lag entero.
+    bpm = _refine_bpm(onset, fps, bpm) or bpm
+
+    strength = (max(bins) - sum(bins) / len(bins)) / (max(bins) or 1)
+    return {
+        "bpm": round(float(bpm), 2),
+        "period_ms": round(60000.0 / float(bpm), 1),
+        "phase_ms": round(phase_frames / fps * 1000.0, 1),
+        "confidence": round(max(0.0, min(1.0, strength)), 3),
+    }
+
+
+def _refine_bpm(onset: list[float], fps: float, bpm_guess: int) -> float | None:
+    """BPM decimal por interpolación parabólica del pico de autocorrelación."""
+    period = fps * 60.0 / bpm_guess
+    lo, hi = max(1, int(period * 0.85)), int(period * 1.18) + 1
+    scores: list[tuple[int, float]] = []
+    n = len(onset)
+    denom = sum(x * x for x in onset) or 1.0
+    for lag in range(lo, min(hi, n - 1)):
+        acc = 0.0
+        for i in range(n - lag):
+            acc += onset[i] * onset[i + lag]
+        scores.append((lag, acc / denom))
+    if not scores:
+        return None
+    peak_index = max(range(len(scores)), key=lambda i: scores[i][1])
+    y0 = scores[peak_index - 1][1] if peak_index > 0 else scores[peak_index][1]
+    y1 = scores[peak_index][1]
+    y2 = scores[peak_index + 1][1] if peak_index + 1 < len(scores) else y1
+    denominator = y0 - 2 * y1 + y2
+    delta = 0.5 * (y0 - y2) / denominator if denominator != 0 else 0.0
+    delta = max(-1.0, min(1.0, delta))
+    refined_lag = scores[peak_index][0] + delta
+    return 60.0 * fps / refined_lag
+
+
 def analyze_audio(path: Path) -> dict:
     """Analiza un audio real y devuelve features + hipótesis explicada.
 

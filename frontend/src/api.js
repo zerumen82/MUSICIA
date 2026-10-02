@@ -22,6 +22,10 @@ const client = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 export const LYRICS_TIMEOUT_MS = 300000
 const lyricsClient = axios.create({ baseURL: API_BASE_URL, timeout: LYRICS_TIMEOUT_MS })
 
+/** Las operaciones de estudio (análisis rítmico, separación) tardan minutos. */
+export const STUDIO_TIMEOUT_MS = 900000
+const slowClient = axios.create({ baseURL: API_BASE_URL, timeout: STUDIO_TIMEOUT_MS })
+
 const describeError = (error) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === 'string') return detail
@@ -56,6 +60,36 @@ export const api = {
   writeLyrics: async (payload) => {
     try {
       const { data } = await lyricsClient.post('/music/write_lyrics', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Propuesta de cuadre de tempo/fase de una pareja de pistas (sin mezclar). */
+  mixPlan: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/mix/plan', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** ¿Está instalado el motor de separación de voces? */
+  separateStatus: async () => {
+    try {
+      const { data } = await slowClient.get('/audio/separate/status')
+      return data
+    } catch (error) {
+      return { available: false, device: 'cpu', message: describeError(error) }
+    }
+  },
+
+  /** Extrae voces y base de una pista (motor local; tarda minutos). */
+  separate: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/separate', payload)
       return data
     } catch (error) {
       throw new Error(describeError(error))

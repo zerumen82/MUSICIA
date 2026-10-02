@@ -35,14 +35,17 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from config import PROJECT_ROOT, get_settings
-from audio_analysis import analyze_audio
+from audio_analysis import analyze_audio, detect_groove
 from audio_service import (
     MAX_GAIN_DB as PROC_MAX_GAIN_DB,
     MAX_FADE_MS as PROC_MAX_FADE_MS,
     MIN_GAIN_DB as PROC_MIN_GAIN_DB,
     process_audio,
 )
-from mixer_service import MixerService
+from mixer_service import TARGET_LUFS, MixerService, plan_alignment
+from separator_service import SeparatorService
+from separator_service import is_available as separator_available
+from separator_service import pick_device
 from prompt_enhancer import enhance_prompt
 from music_service import GenerationRequest, MusicEngineError, MusicService
 from tts_service import TTSService
@@ -90,6 +93,22 @@ class MixRequest(BaseModel):
     output_name: str | None = None
     base_volume: float = 0
     vocal_volume: float = 0
+    align: bool = Field(default=False, description="Cuadrar tempo y fase de la voz con la base")
+    normalize_lufs: bool = Field(default=True, description="Normalizar a -14 LUFS con pico -1 dBTP")
+
+
+class MixPlanRequest(BaseModel):
+    """Pide la propuesta de alineación ANTES de mezclar (transparencia)."""
+
+    base_track: str
+    vocal_track: str
+
+
+class SeparateRequest(BaseModel):
+    """Extrae la voz de una pista (voces + base) para poder remezclar."""
+
+    file_name: str
+    output_name: str | None = None
 
 
 class MusicGenRequest(BaseModel):
@@ -406,9 +425,8 @@ async def get_voices() -> Any:
 
 @app.post("/audio/mix")
 async def mix_audio(request: MixRequest) -> dict[str, Any]:
-    output_path = _resolve_output(
-        _safe_name(request.output_name, settings.mixer.default_output_name)
-    )
+    stem = _safe_name(request.output_name, settings.mixer.default_output_name)
+    output_path = _unique_output_path(stem, ".mp3")
     for label, gain in (
         ("base_volume", request.base_volume),
         ("vocal_volume", request.vocal_volume),
@@ -432,19 +450,115 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Pista no encontrada: {name}")
 
     try:
-        MixerService.mix_tracks(
+        alignment = None
+        if request.align:
+            alignment = _mix_alignment(request.base_track, request.vocal_track)
+        info = MixerService.mix_tracks(
             _resolve_track(request.base_track),
             _resolve_track(request.vocal_track),
             str(output_path),
             request.base_volume,
             request.vocal_volume,
+            alignment=alignment,
+            normalize_lufs=request.normalize_lufs,
         )
     except HTTPException:
         raise
     except Exception as exc:
         logger.error(f"Mezcla falló: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"status": "success", "file_path": str(output_path)}
+    return {
+        "status": "success",
+        "file_path": str(output_path),
+        "file_name": output_path.name,
+        "alignment": info.get("applied", False),
+        "loudness": info.get("loudness", {}),
+        "target_lufs": TARGET_LUFS,
+    }
+
+
+def _mix_alignment(base_name: str, vocal_name: str) -> dict | None:
+    """Calcula el plan de cuadre de una pareja de pistas (None si no se puede)."""
+    def _resolve(name: str) -> Path:
+        candidate = _resolve_output(name)
+        if candidate.exists():
+            return candidate
+        upload = _resolve_upload(name)
+        if upload.exists():
+            return upload
+        raise HTTPException(status_code=404, detail=f"Pista no encontrada: {name}")
+
+    try:
+        base_groove = detect_groove(_resolve(base_name))
+        vocal_groove = detect_groove(_resolve(vocal_name))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No se puede cuadrar automáticamente: {exc}",
+        ) from exc
+    return plan_alignment(base_groove, vocal_groove)
+
+
+@app.post("/audio/mix/plan")
+async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
+    """Propone el ajuste para cuadrar las baterías, sin mezclar nada.
+
+    Responde tempo y fase de cada pista y el ajuste exacto (ratio + desfase)
+    que se aplicaría, para que el usuario lo vea antes de darle a MEZCLAR.
+    """
+    plan = _mix_alignment(request.base_track, request.vocal_track)
+    assert plan is not None
+    return {
+        "plan": plan,
+        "explanation": (
+            f"La base va a {plan['base_bpm']:.0f} bpm y la voz a "
+            f"{plan['vocal_bpm']:.0f} bpm: se ajusta el tempo "
+            f"×{plan['tempo_ratio']:.3f} y se desplaza la voz "
+            f"{plan['delay_ms']:+.0f} ms para que la batería cuadre. "
+            "El tono no cambia."
+        ),
+    }
+
+
+@app.get("/audio/separate/status")
+async def audio_separate_status() -> dict[str, Any]:
+    """¿Está el motor de separación instalado? (la UI lo dice, no lo inventa)"""
+    return {
+        "available": separator_available(),
+        "device": pick_device(),
+        "message": (
+            "Separación de voces disponible."
+            if separator_available()
+            else "Separación no instalada: sigue usándose el mezclado normal."
+        ),
+    }
+
+
+@app.post("/audio/separate")
+async def audio_separate(request: SeparateRequest) -> dict[str, Any]:
+    """Extrae voces y base de una pista real (motor local, sin nube)."""
+    source = _find_audio(request.file_name)
+    stem = _safe_name(
+        request.output_name or Path(request.file_name).stem, "separacion"
+    )
+    stem = Path(stem).stem  # sin extensión: el servicio añade -voces/-base
+    try:
+        result = SeparatorService.separate(
+            source, settings.outputs_dir, _safe_name(stem, "separacion")
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Separación falló: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "status": "success",
+        "source": source.name,
+        "device": result["device"],
+        "vocals": result["vocals"],
+        "base": result["base"],
+    }
 
 
 @app.get("/music/config")

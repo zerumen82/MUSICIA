@@ -832,3 +832,45 @@ prueba ejecutada y resultado, con fecha.
 - **Lección**: cuando el usuario dice "no sé si cumple lo que elegí", la
   respuesta no es un Toast: es mostrar el payload. La transparencia ya era un
   patrón del proyecto (prompt mejorado) y se extendió a la voz.
+
+## 2026-10-02 (IX) — [F1] Mezcla profesional: cuadrar la batería, -14 LUFS y separar voces
+- **Petición**: "cuando hace la mezcla debe cuadrar las baterías y hacerlo
+  bien… elegir si es con letra, extraer las voces y remezclarlas… la UI no la
+  quiero saturada ni de ancho ni de alto".
+- **Decisiones (ask_user)**: cuadrar **con confirmación previa** (no a ciegas);
+  acabado = **-14 LUFS** (sin ducking ni filtro de graves); separación
+  **profesional** (instalación ~2,5 GB aceptada).
+- **Investigación previa (NO FAKE)**: ACE-Step **no tiene** separación de voces
+  (revisadas sus 40 rutas); ffmpeg 9.0.2 sí tiene `atempo`, `loudnorm` y
+  `sidechaincompress`.
+- **Backend**:
+  - `audio_analysis.detect_groove()`: BPM + fase del golpe (rejilla fina de
+    10 ms e interpolación parabólica → 0,08 % de error de tempo) + confianza.
+  - `mixer_service` REESCRITO con ffmpeg: `atempo` (tempo sin tocar tono),
+    `adelay` para la fase, `amix`, `loudnorm I=-14 TP=-1`, y medición real de
+    LUFS/pico del resultado. `plan_alignment()` propone el ajuste.
+  - `separator_service` (nuevo, venv propio `backend/demucs-venv`): demucs
+    `htdemucs` en local; elige GPU si hay VRAM libre ≥2,6 GB (si no, CPU).
+  - Endpoints: `POST /audio/mix/plan`, `POST /audio/mix` (align, normalize_lufs,
+    devuelve loudness medido), `GET /audio/separate/status`, `POST /audio/separate`.
+- **Frontend**: `SelectBox.jsx` (desplegable compartido) y **MixLab** rehecha en
+  UNA línea: BASE ▾ · VOZ ▾ · volúmenes · CUADRAR ▾ · -14 LUFS · MEZCLAR, y
+  debajo solo el plan explicado y `EXTRAER VOCES DE LA BASE`.
+- **TESTER — PASS (evidencia)**:
+  - Cuadre: base 166,25 bpm vs voz al 85 % (141,19 bpm) → plan `×1,1775` y
+    `-60 ms`, con explicación en texto. Error de tempo 0,08 %.
+  - Mezcla real: `Prueba Voz Extraida.mp3` = voz **extraída** + base al 85 %,
+    cuadrada, loudness medido **-13,88 LUFS / -0,99 dBTP** (objetivo -14/-1).
+  - Separación real con demucs en **cuda**: voces + base generados (81,45 s).
+  - Bugs encontrados y corregidos en el camino: `%` con periodo float
+    (IndexError), salida sin extensión (ffmpeg no deducía formato),
+    `adelay` negativo (rompía el grafo → se retrasa la base), parser del JSON
+    multilínea de loudnorm, numpy/torchaudio ausentes en el venv de demucs.
+  - Ficheros de prueba borrados (queda `Prueba Voz Extraida.mp3` para escuchar).
+- **REVIEWER — APPROVE**: `mix` reutiliza `_unique_output_path` (nada se pisa),
+  el plan se pide siempre antes de mezclar, y si no hay motor de separación la
+  UI lo dice (`GET /audio/separate/status`) en vez de fingir.
+- **Nota de red**: demucs descarga los pesos (~80 MB) la primera vez; a partir
+  de ahí es 100 % local. Declarado por la regla LOCAL-FIRST.
+- **Lección**: `adelay` no admite negativos; alinear "hacia atrás" se hace
+  retrasando la otra pista (equivalente exacto y sin perder audio).

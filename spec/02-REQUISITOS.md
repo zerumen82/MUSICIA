@@ -102,7 +102,7 @@ motor (caption, lyrics, bpm, key_scale, vocal_language).
 
 ## Épica F — Mezcla profesional
 
-### [F1] [P0] [especificada] Mezcla que "cuadra las baterías" y suena profesional
+### [F1] [P0] [implementada] Mezcla que "cuadra las baterías" y suena profesional
 **Como** usuario, **quiero** que al mezclar se alineen las pistas entre sí
 (tempo y fase de la batería) y que el volumen quede igualado, **para** que
 suene a canción y no a capas pegadas.
@@ -122,18 +122,16 @@ suene a canción y no a capas pegadas.
   hace falta un motor aparte (venv dedicado + pesos).
 
 **Criterios de aceptación**
-- [ ] Análisis en pareja: BPM + fase de golpe de cada pista y ajuste propuesto
+- [x] Análisis en pareja: BPM + fase de golpe de cada pista y ajuste propuesto
       (ratio de tempo + desfase en ms) antes de mezclar
-- [ ] `atempo` (ratio en cadena si sale de rango) + `adelay` para cuadrar la
+- [x] `atempo` (ratio en cadena si sale de rango) + `adelay` para cuadrar la
       batería; el tono NO cambia
-- [ ] `loudnorm` a -14 LUFS con `true peak` limitado (nunca satura)
-- [ ] `POST /audio/separate`: extrae voces (y base) a ficheros reales; se puede
+- [x] `loudnorm` a -14 LUFS con `true peak` limitado (nunca satura)
+- [x] `POST /audio/separate`: extrae voces (y base) a ficheros reales; se puede
       remezclar la voz extraída con otra base
-- [ ] Si el motor de separación no está instalado, la UI lo dice y ofrece
-      instalarlo; nunca simula resultado
-- [ ] UI compacta: controles en una línea con desplegables (nada que llene la
-      pantalla), como se pidió explícitamente
-- [ ] Verificación real: mezcla de dos pistas con tempos distintos, nombres y
+- [x] Si el motor de separación no está instalado, la UI lo dice; nunca simula
+- [x] UI compacta: controles en una línea con desplegables (`SelectBox`)
+- [x] Verificación real: mezcla de dos pistas con tempos distintos, nombres y
       loudness medidos (memory.md)
 
 

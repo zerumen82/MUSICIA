@@ -1,27 +1,40 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Play, Pause, Loader2, AlertTriangle, SlidersHorizontal, Download, Layers } from 'lucide-react';
+import {
+  Play, Pause, Loader2, AlertTriangle, Download, Layers, Scissors, AlignLeft, Check,
+} from 'lucide-react';
 import { api } from '../api';
+import SelectBox from './SelectBox';
 
 /**
- * Mixer real: conecta con POST /audio/mix (pydub, mezcla 2 pistas con
- * ganancia en dB). Elige base (biblioteca) + voz (subidas) y mezcla.
+ * MIX en una sola línea (el usuario pidió no saturar la pantalla):
+ * BASE ▾ · VOZ ▾ · volumen · CUADRAR ▾ · -14 LUFS · MEZCLAR.
+ * Debajo, solo si hace falta: el plan de cuadre explicado y el resultado.
  */
 export default function MixLab() {
   const [library, setLibrary] = useState([]);
   const [uploads, setUploads] = useState([]);
-  const [base, setBase] = useState(null);
-  const [vocal, setVocal] = useState(null);
+  const [base, setBase] = useState('');
+  const [vocal, setVocal] = useState('');
   const [baseVol, setBaseVol] = useState(0);
   const [vocalVol, setVocalVol] = useState(0);
   const [mixing, setMixing] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [plan, setPlan] = useState(null);        // propuesta de cuadre
+  const [planNote, setPlanNote] = useState(null);
+  const [planning, setPlanning] = useState(false);
+  const [align, setAlign] = useState('si');      // si | no  (decidir antes de mezclar)
+  const [normalize, setNormalize] = useState(true);
+  const [separator, setSeparator] = useState(null); // {available, device}
+  const [separating, setSeparating] = useState(false);
+  const [stems, setStems] = useState(null);      // {vocals, base}
 
   const refresh = useCallback(async () => {
     try {
-      const [lib, ups] = await Promise.all([api.library(), api.uploads()]);
+      const [lib, ups, sep] = await Promise.all([api.library(), api.uploads(), api.separateStatus()]);
       setLibrary(lib.items ?? []);
       setUploads(ups.items ?? []);
+      setSeparator(sep);
     } catch (e) {
       setError(e.message);
     }
@@ -31,22 +44,33 @@ export default function MixLab() {
 
   const canMix = base && vocal && !mixing;
 
+  // Al elegir base y voz se pide la propuesta de cuadre (no se mezcla nada).
+  useEffect(() => {
+    if (!base || !vocal) { setPlan(null); setPlanNote(null); return undefined; }
+    let active = true;
+    setPlanning(true);
+    api.mixPlan({ base_track: base, vocal_track: vocal })
+      .then((d) => { if (active) { setPlan(d.plan); setPlanNote(d.explanation); } })
+      .catch((e) => { if (active) { setPlan(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
+      .finally(() => { if (active) setPlanning(false); });
+    return () => { active = false; };
+  }, [base, vocal]);
+
   const doMix = async () => {
     setError(null);
     setResult(null);
     setMixing(true);
     try {
-      const name = `mix-${Date.now()}.mp3`;
       const res = await api.mixTracks({
         base_track: base,
         vocal_track: vocal,
-        output_name: name,
+        output_name: `mix-${Date.now()}`,
         base_volume: baseVol,
         vocal_volume: vocalVol,
+        align: align === 'si',
+        normalize_lufs: normalize,
       });
-      // El backend devuelve file_path; el nombre real viene ahí:
-      const realName = String(res.file_path ?? name).split(/[\\/]/).pop();
-      setResult(realName);
+      setResult(res.file_name ?? res.file_path);
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -55,12 +79,34 @@ export default function MixLab() {
     }
   };
 
+  const doSeparate = async () => {
+    setError(null);
+    setSeparating(true);
+    try {
+      const res = await api.separate({ file_name: base, output_name: `${base.replace(/\.[^.]+$/, '')}-separado` });
+      setStems(res);
+      setBase(res.base);
+      setVocal(res.vocals);
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSeparating(false);
+    }
+  };
+
+  const trackOptions = (items) => items.map((i) => ({ id: i.name, label: i.name, title: i.name }));
+  const ALIGN_OPTIONS = [
+    { id: 'si', label: 'CUADRAR', title: 'Igala el tempo y el golpe de la batería' },
+    { id: 'no', label: 'SIN CUADRAR', title: 'Mezcla tal cual, sin tocar el tempo' },
+  ];
+
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-[1300px] mx-auto w-full px-16 py-12 flex flex-col gap-6">
+      <div className="max-w-[1300px] mx-auto w-full px-16 py-12 flex flex-col gap-5">
         <div className="flex items-center gap-4">
-          <h2 className="h-title text-[20px]">MIX</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">instrumental + voz = canción completa</span>
+          <h2 className="h-title text-[20px]">MEZCLA</h2>
+          <span className="mono text-[12px] text-[var(--faint)]">cuadra la batería, iguala el volumen y separa la voz</span>
         </div>
 
         {error && (
@@ -69,69 +115,83 @@ export default function MixLab() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-8">
-          {/* Base */}
-          <div className="flex flex-col gap-3">
-            <span className="label">1 · BASE (de tu biblioteca)</span>
-            {library.length === 0 && (
-              <p className="mono text-[10px] text-[var(--faint)]">Sin pistas. Genera una en CREAR.</p>
-            )}
-            {library.map((item) => (
-              <button key={item.name} onClick={() => setBase(item.name)}
-                className={`text-left px-3 py-2 border transition-colors ${base === item.name ? 'border-[var(--acc-line)] bg-[var(--acc-dim)]' : 'border-[var(--line)] hover:border-[var(--line-strong)]'}`}>
-                <span className="block mono text-[11px] text-zinc-200 truncate">{item.name}</span>
-              </button>
-            ))}
-            {base && (
-              <div className="flex items-center gap-3">
-                <span className="label shrink-0">VOLUMEN</span>
-                <input type="range" min={-24} max={12} step={1} value={baseVol}
-                  onChange={(e) => setBaseVol(Number(e.target.value))} className="flex-1" />
-                <span className={`num w-14 text-right ${baseVol > 0 ? 'st-warn' : ''}`}>{baseVol > 0 ? '+' : ''}{baseVol} dB</span>
-              </div>
-            )}
+        {/* TODO EN UNA LÍNEA */}
+        <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
+          <SelectBox label="BASE" options={trackOptions(library.length ? library : uploads)} value={base}
+            onChange={setBase} placeholder="elige la base" />
+          <SelectBox label="VOZ" options={trackOptions(uploads.length ? uploads : library)} value={vocal}
+            onChange={setVocal} placeholder="elige la voz" />
+
+          <div className="flex items-center gap-2">
+            <span className="label">BASE</span>
+            <input type="range" min={-24} max={12} step={1} value={baseVol}
+              onChange={(e) => setBaseVol(Number(e.target.value))} className="w-20" />
+            <span className="num w-12 text-right">{baseVol > 0 ? '+' : ''}{baseVol}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="label">VOZ</span>
+            <input type="range" min={-24} max={12} step={1} value={vocalVol}
+              onChange={(e) => setVocalVol(Number(e.target.value))} className="w-20" />
+            <span className="num w-12 text-right">{vocalVol > 0 ? '+' : ''}{vocalVol}</span>
           </div>
 
-          {/* Voz */}
-          <div className="flex flex-col gap-3">
-            <span className="label">2 · VOZ (de tus subidas)</span>
-            {uploads.length === 0 && (
-              <p className="mono text-[10px] text-[var(--faint)]">Sin subidas. Sube tu voz en UPLOADS.</p>
-            )}
-            {uploads.map((item) => (
-              <button key={item.name} onClick={() => setVocal(item.name)}
-                className={`text-left px-3 py-2 border transition-colors ${vocal === item.name ? 'border-[var(--acc-line)] bg-[var(--acc-dim)]' : 'border-[var(--line)] hover:border-[var(--line-strong)]'}`}>
-                <span className="block mono text-[11px] text-zinc-200 truncate">{item.name}</span>
-              </button>
-            ))}
-            {vocal && (
-              <div className="flex items-center gap-3">
-                <span className="label shrink-0">VOLUMEN</span>
-                <input type="range" min={-24} max={12} step={1} value={vocalVol}
-                  onChange={(e) => setVocalVol(Number(e.target.value))} className="flex-1" />
-                <span className={`num w-14 text-right ${vocalVol > 0 ? 'st-warn' : ''}`}>{vocalVol > 0 ? '+' : ''}{vocalVol} dB</span>
-              </div>
-            )}
-          </div>
-        </div>
+          <SelectBox options={ALIGN_OPTIONS} value={align} onChange={setAlign} />
+          <button onClick={() => setNormalize((v) => !v)}
+            className={`btn h-8 px-2.5 gap-1.5 ${normalize ? 'btn-signal' : 'btn-ghost'}`}
+            title="Normaliza el volumen final a -14 LUFS con pico máximo -1 dBTP">
+            {normalize ? <Check size={12} /> : null} -14 LUFS
+          </button>
 
-        {/* Mezclar */}
-        <div className="flex items-center gap-4 pt-4 border-t border-[var(--line)]">
-          <button onClick={doMix} disabled={!canMix} className="btn btn-signal h-10 px-7">
+          <button onClick={doMix} disabled={!canMix} className="btn btn-signal h-9 px-5 ml-auto">
             {mixing ? <><Loader2 size={14} className="animate-spin" /> MEZCLANDO…</>
               : <><Layers size={14} /> MEZCLAR</>}
           </button>
-          {!base || !vocal ? (
-            <span className="mono text-[10px] text-[var(--faint)]">elige una base y una voz para mezclar</span>
-          ) : (
-            <span className="mono text-[10px] text-[var(--faint)]">{base} + {vocal}</span>
-          )}
         </div>
+
+        {/* Segunda línea: acciones de estudio */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={doSeparate} disabled={!base || separating}
+            className="btn btn-ghost h-8 px-3 gap-1.5"
+            title={separator?.available
+              ? 'Separa la voz de la base con el motor local (1-3 min la primera vez)'
+              : 'Motor de separación no instalado'}>
+            {separating ? <><Loader2 size={12} className="animate-spin" /> SEPARANDO…</>
+              : <><Scissors size={12} /> EXTRAER VOCES DE LA BASE</>}
+          </button>
+          {separator?.available && (
+            <span className="mono text-[10px] text-[var(--faint)]">
+              separación lista ({separator.device === 'cuda' ? 'GPU' : 'CPU'})
+            </span>
+          )}
+          {stems && (
+            <span className="mono text-[10px] text-[var(--acc)]">
+              ya tienes: {stems.vocals} + {stems.base}
+            </span>
+          )}
+          {planning && <span className="mono text-[10px] text-[var(--faint)]">midiendo el groove…</span>}
+        </div>
+
+        {/* Lo que se va a hacer (transparencia antes de mezclar) */}
+          {planNote && (
+            <div className="flex items-start gap-2 border-l-2 border-[var(--acc-line)] pl-4 py-1">
+              <AlignLeft size={13} className="text-[var(--acc)] mt-0.5 shrink-0" />
+              <div>
+                <span className="label">{align === 'si' ? 'SE VA A CUADRAR ASÍ' : 'NO SE CUADRA'}</span>
+                <p className="mono text-[10.5px] text-[var(--muted)] leading-relaxed">{planNote}</p>
+                {plan && (
+                  <p className="mono text-[10px] text-[var(--faint)] mt-1">
+                    tempo ×{plan.tempo_ratio.toFixed(3)} · desfase {plan.delay_ms > 0 ? '+' : ''}{plan.delay_ms} ms ·
+                    {' '}compás {plan.period_ms} ms · seguridad groove {Math.round((plan.base_confidence ?? 0) * 100)}%
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
         {result && (
           <div className="flex items-center gap-4 py-4 border-t border-[var(--line)] fade-up">
             <div className="w-10 h-10 rounded-[4px] bg-[var(--acc-dim)] border border-[var(--acc-line)] flex items-center justify-center shrink-0">
-              <SlidersHorizontal size={16} className="text-[var(--acc)]" />
+              <Layers size={16} className="text-[var(--acc)]" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="mono text-[10px] tracking-[0.12em] text-[var(--acc)] mb-1.5">MEZCLA LISTA · {result}</p>
