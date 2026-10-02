@@ -1,6 +1,7 @@
 # Venvs y dependencias pesadas
 backend/venv/
 backend/acestep-venv/
+backend/demucs-venv/
 vendor/
 
 # Motor ACE-Step (se instala aparte, 17 GB con modelos)

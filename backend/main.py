@@ -978,8 +978,31 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
             bpm=request.bpm,
             key_scale=request.key_scale,
         )
-    except MusicEngineError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        # El LM puede no estar listo (arranque en frío). Si el usuario escribió
+        # frases, nunca fallamos: se construye la canción con ellas.
+        logger.warning(f"write_lyrics: motor no disponible ({exc})")
+        if request.lyrics.strip():
+            return {
+                "lyrics": request.lyrics.strip(),
+                "source": "tus_frases",
+                "caption": request.prompt,
+                "bpm": None,
+                "key_scale": None,
+                "time_signature": None,
+                "vocal_language": request.language,
+                "warning": (
+                    "El motor de letras todavía no estaba listo; he construido la "
+                    "canción con tus frases. Pulsa GENERAR cuando quieras."
+                ),
+            }
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "El motor de letras no está listo todavía (arrancando). "
+                "Escribe dos frases y pulsa otra vez ESCRIBIRLA POR MÍ."
+            ),
+        ) from exc
 
     lyrics_text = str(result.get("lyrics") or "")
     if not lyrics_text.strip():
@@ -988,17 +1011,46 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
             detail="El motor no devolvió letra. Escribe la tuya: el campo está editable.",
         )
 
-    # El LM local (0.6B) a menudo devuelve solo estructura marcada como
-    # instrumental. No lo disimulamos: se avisa y el usuario escribe (NO FAKE).
+    # El LM local (0.6B) a menudo devuelve solo estructura instrumental o
+    # degenera en texto repetido. No lo disimulamos: si el usuario ya escribió
+    # algo, se devuelve SU texto (la app lo estructura); si no, se avisa.
     outside_brackets = re.sub(r"\[[^\]]*\]", " ", lyrics_text)
     words = re.findall(r"[^\W\d_]{2,}", outside_brackets, flags=re.UNICODE)
     instrumental_only = "instrumental" in lyrics_text.lower() and len(words) < 12
+
+    # ¿Ha aportado algo nuevo sobre lo que escribió el usuario?
+    user_words = {
+        w.lower() for w in re.findall(r"[^\W\d_]{3,}", request.lyrics, flags=re.UNICODE)
+    }
+    new_words = {w.lower() for w in words} - user_words
+
+    # ¿Es texto degenerado (una línea repetida en bucle)?
+    lines = [l.strip() for l in lyrics_text.splitlines() if l.strip()]
+    repetition = 0.0
+    if lines:
+        counts: dict[str, int] = {}
+        for line in lines:
+            counts[line] = counts.get(line, 0) + 1
+        repetition = max(counts.values()) / len(lines)
+    degenerate = repetition >= 0.4 and len(lines) >= 4
+
+    useless = instrumental_only or degenerate or (request.lyrics.strip() and len(new_words) < 8)
     warning = None
-    if instrumental_only:
-        warning = (
-            "El LM local no ha compuesto letra (solo estructura). "
-            "Escribe tú el texto: la app le añade [verso]/[estribillo] al generar."
-        )
+    source = "modelo"
+    if useless:
+        if request.lyrics.strip():
+            # El usuario puso sus frases: se usan esas, no se le devuelve nada.
+            lyrics_text = request.lyrics.strip()
+            source = "tus_frases"
+            warning = (
+                "El motor no ha ampliado tu letra; he construido la canción "
+                "con tus frases (verso, estribillo y puente)."
+            )
+        else:
+            warning = (
+                "El LM local no ha compuesto letra. Escribe dos frases y pulsa "
+                "otra vez ESCRIBIRLA POR MÍ: la canción se construye con ellas."
+            )
 
     bpm = result.get("bpm")
     if not isinstance(bpm, (int, float)) or not 40 <= bpm <= 220:
@@ -1006,6 +1058,7 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
 
     return {
         "lyrics": lyrics_text,
+        "source": source,
         "caption": result.get("caption"),
         "bpm": bpm,
         "key_scale": result.get("key_scale"),

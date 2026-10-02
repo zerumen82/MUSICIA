@@ -94,3 +94,40 @@ export function structureLyric(text) {
 export function hasLyricStructure(text) {
   return MARKERS.test(text || '');
 }
+
+/**
+ * Convierte un par de frases sueltas en una letra completa usando SOLO sus
+ * palabras (nada inventado): las frases van como verso y se repiten como
+ * estribillo, que es lo que hace una canción con dos frases.
+ * Es el respaldo cuando el motor no sabe expandir la letra.
+ */
+export function expandLyric(text) {
+  const raw = (text || '').trim();
+  if (!raw) return '';
+  if (hasLyricStructure(raw)) return raw;
+
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < lines.length; i += 2) {
+    const body = lines.slice(i, i + 2).join('\n');
+    chunks.push(body);
+  }
+  const [first, second] = chunks;
+  const extra = chunks.slice(2);
+
+  const parts = ['[Intro]'];
+  if (chunks.length === 1) {
+    // Solo un bloque de frases: verso, estribillo y puente con lo mismo.
+    parts.push(`[Verse]\n${first}`);
+    parts.push(`[Chorus]\n${first}`);
+    parts.push(`[Bridge]\n${first}`);
+  } else {
+    parts.push(`[Verse]\n${first}`);
+    parts.push(`[Chorus]\n${second}`);
+    for (const [i, chunk] of extra.entries()) {
+      parts.push(`${i % 2 === 0 ? 'Verse' : 'Chorus'}\n${chunk}`);
+    }
+  }
+  parts.push('[Outro]');
+  return parts.join('\n\n');
+}

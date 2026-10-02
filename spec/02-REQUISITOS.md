@@ -100,7 +100,42 @@ motor (caption, lyrics, bpm, key_scale, vocal_language).
 ### [D3] [P2] [propuesta] Empaquetado instalable
 - [ ] electron-builder → instalador Windows con icono propio
 
-## Épica E — Biblioteca y nomenclatura
+## Épica F — Mezcla profesional
+
+### [F1] [P0] [especificada] Mezcla que "cuadra las baterías" y suena profesional
+**Como** usuario, **quiero** que al mezclar se alineen las pistas entre sí
+(tempo y fase de la batería) y que el volumen quede igualado, **para** que
+suene a canción y no a capas pegadas.
+
+**Decisiones del usuario (ask_user 2026-10-02)**
+- Alineación: **mostrar lo que se va a hacer y pedir confirmación** (nunca
+  aplicarla a ciegas).
+- Acabado activado por defecto: **normalización a -14 LUFS** (con margen para
+  no saturar). Ducking y filtro de graves: NO se activan.
+- Separación de voces: **profesional** (modelo de separación real en local,
+  instalación de ~2,5 GB, 1-3 min por pista).
+
+**Capacidad real del entorno (verificado)**
+- ffmpeg 9.0.2 tiene `atempo`, `loudnorm` y `sidechaincompress` → alineación
+  de tempo sin cambiar tono y loudness profesional, sin dependencias nuevas.
+- ACE-Step 1.5 **NO tiene** separación de voces (revisadas todas sus rutas):
+  hace falta un motor aparte (venv dedicado + pesos).
+
+**Criterios de aceptación**
+- [ ] Análisis en pareja: BPM + fase de golpe de cada pista y ajuste propuesto
+      (ratio de tempo + desfase en ms) antes de mezclar
+- [ ] `atempo` (ratio en cadena si sale de rango) + `adelay` para cuadrar la
+      batería; el tono NO cambia
+- [ ] `loudnorm` a -14 LUFS con `true peak` limitado (nunca satura)
+- [ ] `POST /audio/separate`: extrae voces (y base) a ficheros reales; se puede
+      remezclar la voz extraída con otra base
+- [ ] Si el motor de separación no está instalado, la UI lo dice y ofrece
+      instalarlo; nunca simula resultado
+- [ ] UI compacta: controles en una línea con desplegables (nada que llene la
+      pantalla), como se pidió explícitamente
+- [ ] Verificación real: mezcla de dos pistas con tempos distintos, nombres y
+      loudness medidos (memory.md)
+
 
 ### [E1] [P1] [verificada] Nombrar la música en todo el ciclo de vida
 **Como** usuario, **quiero** poner nombre a mis canciones al crearlas, al

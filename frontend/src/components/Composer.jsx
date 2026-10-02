@@ -8,7 +8,7 @@ import QualityWizard from './QualityWizard';
 import JobsPanel from './JobsPanel';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
-  buildVocalTags, structureLyric, hasLyricStructure,
+  buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
 } from '../vocal';
 
 const UI = {
@@ -226,11 +226,18 @@ export default function Composer({ initialMode = 'music' }) {
         bpm: bpm ?? null,
         key_scale: key || null,
       });
-      if (data.warning) {
-        // El LM no compone letra aquí: no pisamos lo que haya escrito el usuario.
-        setLyricsWarning(data.warning);
+      if (data.source === 'tus_frases' || (data.warning && !lyrics.trim())) {
+        // El motor no compone: si el usuario escribió frases, se construyen
+        // con ellas. Si no escribió nada, solo se avisa (nunca inventamos).
+        if (data.source === 'tus_frases') {
+          setLyrics(expandLyric(lyrics.trim()));
+          setLyricsWarning(data.warning);
+        } else {
+          setLyricsWarning(data.warning);
+        }
       } else {
         setLyrics(structureLyric(data.lyrics || ''));
+        setLyricsWarning(data.warning ?? null);
         setEnhanceInfo({
           original: seedPrompt,
           enhanced: data.caption ?? seedPrompt,
@@ -536,7 +543,7 @@ export default function Composer({ initialMode = 'music' }) {
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <span className="label">LETRA</span>
                   <button onClick={autoWriteLyrics} disabled={writingLyrics}
-                    title="El motor local propone un borrador que puedes corregir; si no compone, escribe tú"
+                    title="Construye la canción a partir de las frases que hayas escrito; el motor intenta ampliarlas"
                     className="btn btn-ghost h-8 px-3">
                     {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 2 min)…</>
                       : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
@@ -546,7 +553,7 @@ export default function Composer({ initialMode = 'music' }) {
                 <textarea
                   value={lyrics}
                   onChange={(e) => { setLyrics(e.target.value); if (lyricsWarning) setLyricsWarning(null); }}
-                  placeholder="Escribe la letra tal cual, verso a verso. La app le añade [verso] y [estribillo] si hace falta."
+                  placeholder="Con dos frases basta: la canción se construye con ellas. Pulsa ESCRIBIRLA POR MÍ y las convierto en verso y estribillo."
                   className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[96px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
                 />
 
