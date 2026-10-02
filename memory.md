@@ -874,3 +874,41 @@ prueba ejecutada y resultado, con fecha.
   de ahí es 100 % local. Declarado por la regla LOCAL-FIRST.
 - **Lección**: `adelay` no admite negativos; alinear "hacia atrás" se hace
   retrasando la otra pista (equivalente exacto y sin perder audio).
+
+## 2026-10-02 (X) — [F2] REMIXER de bootlegs (8 acciones + crossfade)
+- **Petición**: "que la IA para meterle música, sacar parte de la música y
+  cambios/bases, o ambas" y "más cosas que se te ocurran para bootlegs". Sin
+  transcripción (decisión del usuario).
+- **Nuevo en el REMIXER** (un desplegable de acciones, una línea de estado):
+  1. **VOZ + MÚSICA DESDE PROMPT** — separa la voz, genera base nueva con el
+     prompt y mezcla (con cuadre si es seguro).
+  2. **SOLO BASE NUEVA DESDE PROMPT** — instrumental nuevo generado.
+  3. **INSTRUMENTAL** / **ACAPELLA** — demucs en un clic.
+  4. **LOOP DE 4 COMPASES** — calcula los segundos con el tempo real.
+  5. **MEDIO TIEMPO** / **DOBLE TIEMPO** — el clásico del bootleg.
+  6. **FORZAR TEMPO A** — a un BPM concreto.
+  7. **CROSSFADE** (en MEZCLA): 2+ pistas fundidas e igualadas por tempo.
+- **Backend**: `POST /audio/remix/ai` + `GET /audio/remix/ai/{job}` (job con
+  fases reales: separar → generar → descargar → cuadrar → mezclar),
+  `/audio/groove/{name}`, `/audio/tempo`, `/audio/loop`, `/audio/crossfade`,
+  y en el mixer `force_tempo`, `make_loop`, `crossfade`.
+- **UI compacta (petición explícita del usuario)**: `RemixActions.jsx` = un
+  desplegable + un campo de prompt/bpm que solo aparece si la acción lo
+  pide + UNA línea de estado. Nada de bloques abiertos.
+- **TESTER — PASS con 2 bugs serious encontrados y corregidos**:
+  - Loop (1,5 s) ✅ · Forzar 90 bpm: 166,25 → **89,77 bpm** (0,26 % error) ✅ ·
+    Crossfade de 2 pistas a **-14,51 LUFS** ✅ · Remix IA completo en ~230 s
+    (separación + base techno + mezcla) ✅.
+  - **BUG 1 (destrozaba el audio)**: la voz extraída se detectaba a 349 bpm
+    con confianza 0,04 y se "cuadraba" con ratio 0,24 → voz a un cuarto de
+    velocidad. Ahora `plan_alignment` devuelve None si la confianza del groove
+    es < 0,12 o si el ratio sale de 0,8-1,25, y la mezcla avisa en `note`:
+    verificado con el caso real (`plan: null` + "se mezclará sin tocar").
+  - **BUG 2 (octava)**: el detector se quedaba en el doble del tempo en
+    medio tiempo (163 en vez de 83). Corrección de octava (primer lag con
+    ≥90 % del pico): ahora **166,25 → 83,09** (la mitad exacta).
+  - **Calidad**: loudnorm en **dos pasadas** (render → medición → render con
+    `measured_*`): de -15,76 a **-14,4 LUFS**.
+- **Lección**: cuando el detector no tiene confianza, la respuesta correcta
+  es NO tocar el audio y decirlo; "cuadrar" sin criterio destruye la pista.
+- Ficheros de prueba borrados (biblioteca del usuario intacta).

@@ -100,7 +100,25 @@ motor (caption, lyrics, bpm, key_scale, vocal_language).
 ### [D3] [P2] [propuesta] Empaquetado instalable
 - [ ] electron-builder → instalador Windows con icono propio
 
-## Épica F — Mezcla profesional
+## Épica F — Mezcla y remixes (bootlegs)
+
+### [F2] [P1] [implementada] REMIXER con IA y acciones de bootleg
+**Como** usuario, **quiero** remixir de verdad: poner música nueva con la IA
+sobre mi voz, sacar instrumentales o acápelas, hacer loops, medio/doble tiempo y
+fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
+
+**Criterios de aceptación**
+- [x] Acciones de un clic: VOZ + MÚSICA DESDE PROMPT, SOLO BASE DESDE PROMPT,
+      INSTRUMENTAL, ACAPELLA, LOOP DE 4 COMPASES, MEDIO/DOBLE TIEMPO,
+      FORZAR TEMPO A y CROSSFADE
+- [x] El remix con IA encadena pasos con progreso real (separar → generar →
+      cuadrar → mezclar), nunca "colgado"
+- [x] Nunca se cuadra si el tempo no es fiable: se avisa en vez de destrozar
+- [x] UI compacta: un desplegable de acciones + una línea de estado
+- [x] Verificación real: loop, forzado a 90 bpm (0,26 % de error), crossfade a
+      -14,5 LUFS y remix IA completo en ~230 s (memory.md)
+- [ ] Pendiente de oído humano: escuchar el resultado de las acciones
+
 
 ### [F1] [P0] [implementada] Mezcla que "cuadra las baterías" y suena profesional
 **Como** usuario, **quiero** que al mezclar se alineen las pistas entre sí

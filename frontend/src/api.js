@@ -96,6 +96,65 @@ export const api = {
     }
   },
 
+  /** Tempo y fase del golpe de una pista. */
+  groove: async (name) => {
+    try {
+      const { data } = await slowClient.get(`/audio/groove/${encodeURIComponent(name)}`)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Fuerza el tempo: 'half' | 'double' | 'bpm' (medio/doble tiempo para bootlegs). */
+  setTempo: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/tempo', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Exporta un loop de la pista. */
+  makeLoop: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/loop', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Funde varias pistas igualando tempo y nivel (mezcla de DJ). */
+  crossfade: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/crossfade', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Remix con IA: base nueva desde prompt + voz original (con job). */
+  remixAi: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/remix/ai', payload)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  remixAiStatus: async (jobId) => {
+    try {
+      const { data } = await slowClient.get(`/audio/remix/ai/${jobId}`)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
   musicStatus: async (jobId) => {
     try {
       const { data } = await client.get(`/music/status/${jobId}`)

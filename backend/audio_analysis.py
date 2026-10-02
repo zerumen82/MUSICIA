@@ -86,6 +86,9 @@ def _estimate_bpm(envelope_rms: list[float], frames_per_second: float) -> int | 
 # Trama fina solo para el groove: a 40 ms el tempo se cuantiza demasiado
 # (~4 % de error) y la alineación arrastra ese error a la mezcla.
 GROOVE_FRAME_MS = 10
+# Un pico de autocorrelación que llega al 90 % del máximo ya cuenta como tempo
+# real: así se corrige el error de octava (medio/doble tiempo).
+OCTAVE_TOLERANCE = 0.9
 
 
 def detect_groove(path: Path) -> dict:
@@ -116,12 +119,23 @@ def detect_groove(path: Path) -> dict:
     bpm = _estimate_bpm(rms, fps)
     if not bpm:
         raise ValueError("No se ha detectado un tempo claro (sin periodicidad)")
-    period_frames = fps * 60.0 / bpm
 
-    # Fase: se pliega la envolvente de energía sobre el periodo del tempo y se
-    # busca el máximo -> ese frame es el golpe.
     mean = sum(rms) / len(rms)
     onset = [max(0.0, x - mean) for x in rms]
+
+    # Corrección de octava: la autocorrelación es fuerte también en el doble
+    # del periodo (p. ej. en medio tiempo) y devolvería el tempo equivocado.
+    # Se busca el LAG MÁS CORTO que alcanza el 90 % del mejor pico.
+    scores = _autocorr_scores(onset, fps, bpm)
+    best_score = max(score for _, score in scores)
+    chosen_lag, chosen_score = scores[-1]
+    for lag, score in scores:  # van de lag corto (tempo alto) a largo
+        if score >= best_score * OCTAVE_TOLERANCE:
+            chosen_lag, chosen_score = lag, score
+            break
+
+    # Fase: se pliega la envolvente sobre el periodo del golpe.
+    period_frames = float(chosen_lag)
     period_int = max(1, int(round(period_frames)))
     bins: list[float] = [0.0] * period_int
     for i, value in enumerate(onset):
@@ -131,9 +145,8 @@ def detect_groove(path: Path) -> dict:
     if phase_frames > period_int / 2:  # cerca de 0: mejor al inicio
         phase_frames -= period_int
 
-    # Refinado del tempo: interpolación parabólica sobre el máximo de la
-    # autocorrelación da un BPM decimal mucho más fiel que el lag entero.
-    bpm = _refine_bpm(onset, fps, bpm) or bpm
+    # Refinado decimal del tempo sobre el pico elegido.
+    bpm = _refine_peak(scores, fps) or (60.0 * fps / chosen_lag)
 
     strength = (max(bins) - sum(bins) / len(bins)) / (max(bins) or 1)
     return {
@@ -141,21 +154,27 @@ def detect_groove(path: Path) -> dict:
         "period_ms": round(60000.0 / float(bpm), 1),
         "phase_ms": round(phase_frames / fps * 1000.0, 1),
         "confidence": round(max(0.0, min(1.0, strength)), 3),
+        "duration_seconds": round(len(audio) / 1000.0, 2),
     }
 
 
-def _refine_bpm(onset: list[float], fps: float, bpm_guess: int) -> float | None:
-    """BPM decimal por interpolación parabólica del pico de autocorrelación."""
+def _autocorr_scores(onset: list[float], fps: float, bpm_guess: int) -> list[tuple[int, float]]:
+    """Autocorrelación normalizada alrededor del tempo estimado (lag, score)."""
     period = fps * 60.0 / bpm_guess
-    lo, hi = max(1, int(period * 0.85)), int(period * 1.18) + 1
-    scores: list[tuple[int, float]] = []
+    lo, hi = max(1, int(period * 0.35)), int(period * 2.6) + 1
     n = len(onset)
     denom = sum(x * x for x in onset) or 1.0
+    scores: list[tuple[int, float]] = []
     for lag in range(lo, min(hi, n - 1)):
         acc = 0.0
         for i in range(n - lag):
             acc += onset[i] * onset[i + lag]
         scores.append((lag, acc / denom))
+    return scores
+
+
+def _refine_peak(scores: list[tuple[int, float]], fps: float) -> float | None:
+    """BPM decimal por interpolación parabólica del pico de autocorrelación."""
     if not scores:
         return None
     peak_index = max(range(len(scores)), key=lambda i: scores[i][1])
@@ -165,8 +184,7 @@ def _refine_bpm(onset: list[float], fps: float, bpm_guess: int) -> float | None:
     denominator = y0 - 2 * y1 + y2
     delta = 0.5 * (y0 - y2) / denominator if denominator != 0 else 0.0
     delta = max(-1.0, min(1.0, delta))
-    refined_lag = scores[peak_index][0] + delta
-    return 60.0 * fps / refined_lag
+    return 60.0 * fps / (scores[peak_index][0] + delta)
 
 
 def analyze_audio(path: Path) -> dict:

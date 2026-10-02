@@ -5,6 +5,7 @@ import {
 import { api, API_BASE_URL } from '../api';
 import RemixPanel from './RemixPanel';
 import RemixIAPanel from './RemixIAPanel';
+import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
@@ -220,21 +221,23 @@ export default function Library() {
 
               {/* Remix de esta pista (encadenable: el resultado vuelve a la biblioteca) */}
               {remixName === item.name && (
-                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
-                  <span className="label block mb-1">REMIX · {item.name}</span>
-                  <RemixPanel
-                    fileName={item.name}
-                    onRun={async (params) => {
-                      setError(null);
-                      try {
-                        await api.remix({ file_name: item.name, ...params });
-                        await refresh();
-                        setRemixName(null);
-                      } catch (e) {
-                        setError(e.message);
-                      }
-                    }}
-                  />
+                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)] flex flex-col gap-4">
+                  <div>
+                    <span className="label block mb-1">REMIX · {item.name}</span>
+                    <RemixPanel
+                      fileName={item.name}
+                      onRun={async (params) => {
+                        setError(null);
+                        try {
+                          await api.remix({ file_name: item.name, ...params });
+                          await refresh();
+                        } catch (e) {
+                          setError(e.message);
+                        }
+                      }}
+                    />
+                  </div>
+                  <RemixActions fileName={item.name} onDone={() => refresh()} />
                 </div>
               )}
 

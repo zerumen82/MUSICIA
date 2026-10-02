@@ -42,7 +42,10 @@ from audio_service import (
     MIN_GAIN_DB as PROC_MIN_GAIN_DB,
     process_audio,
 )
-from mixer_service import TARGET_LUFS, MixerService, plan_alignment
+from mixer_service import (
+    TARGET_LUFS, MixerService, crossfade, force_tempo, make_loop, measure_loudness,
+    plan_alignment,
+)
 from separator_service import SeparatorService
 from separator_service import is_available as separator_available
 from separator_service import pick_device
@@ -108,6 +111,41 @@ class SeparateRequest(BaseModel):
     """Extrae la voz de una pista (voces + base) para poder remezclar."""
 
     file_name: str
+    output_name: str | None = None
+
+
+class TempoRequest(BaseModel):
+    """Fuerza el tempo de una pista (para bootlegs: medio/doble tiempo)."""
+
+    file_name: str
+    bpm: float | None = Field(default=None, description="Tempo objetivo en BPM")
+    mode: str = Field(default="half", description="half | double | bpm")
+    output_name: str | None = None
+
+
+class LoopRequest(BaseModel):
+    """Exporta un loop (fragmento) de una pista."""
+
+    file_name: str
+    seconds: float = Field(gt=1, le=120)
+    output_name: str | None = None
+
+
+class CrossfadeRequest(BaseModel):
+    """Funde varias pistas igualando su tempo (estilo DJ)."""
+
+    tracks: list[str]
+    fade_seconds: float = 4.0
+    output_name: str | None = None
+
+
+class AiRemixRequest(BaseModel):
+    """Remix con IA: base nueva generada + voz (opcional) de la pista original."""
+
+    file_name: str
+    prompt: str = Field(min_length=3, description="Estilo de la base nueva")
+    keep_vocals: bool = Field(default=True, description="Reutilizar la voz extraída")
+    bpm: float | None = None
     output_name: str | None = None
 
 
@@ -474,11 +512,19 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
         "alignment": info.get("applied", False),
         "loudness": info.get("loudness", {}),
         "target_lufs": TARGET_LUFS,
+        "note": (
+            None if alignment else
+            "No se aplicó cuadre: el tempo no era fiable o el ajuste era excesivo."
+        ),
     }
 
 
 def _mix_alignment(base_name: str, vocal_name: str) -> dict | None:
-    """Calcula el plan de cuadre de una pareja de pistas (None si no se puede)."""
+    """Calcula el plan de cuadre de una pareja de pistas.
+
+    Devuelve None si no es seguro cuadrar (groove poco fiable o ajuste
+    demasiado grande): es preferible mezclar sin tocar a destrozarla.
+    """
     def _resolve(name: str) -> Path:
         candidate = _resolve_output(name)
         if candidate.exists():
@@ -507,7 +553,14 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
     que se aplicaría, para que el usuario lo vea antes de darle a MEZCLAR.
     """
     plan = _mix_alignment(request.base_track, request.vocal_track)
-    assert plan is not None
+    if plan is None:
+        return {
+            "plan": None,
+            "explanation": (
+                "No se puede cuadrar con seguridad (el tempo de alguna pista no "
+                "es fiable o el ajuste sería enorme). Se mezclará sin tocar el tempo."
+            ),
+        }
     return {
         "plan": plan,
         "explanation": (
@@ -518,6 +571,223 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
             "El tono no cambia."
         ),
     }
+
+
+@app.get("/audio/groove/{name}")
+async def audio_groove(name: str) -> dict[str, Any]:
+    """Tempo y fase del golpe de una pista (lo que usa el cuadre y el remixer)."""
+    try:
+        return detect_groove(_find_audio(name))
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/audio/tempo")
+async def audio_tempo(request: TempoRequest) -> dict[str, Any]:
+    """Fuerza el tempo: a un BPM concreto, a medio tiempo o a doble tiempo."""
+    source = _find_audio(request.file_name)
+    try:
+        current = detect_groove(source)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if request.mode == "bpm":
+        if not request.bpm:
+            raise HTTPException(status_code=400, detail="Indica el BPM objetivo")
+        factor = float(request.bpm) / float(current["bpm"])
+        marker = f"{round(request.bpm)}bpm"
+    elif request.mode == "double":
+        factor, marker = 2.0, "doble"
+    else:
+        factor, marker = 0.5, "medio"
+
+    stem = request.output_name or _derive_stem(request.file_name, marker)
+    out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+    try:
+        info = force_tempo(source, out, factor)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    try:
+        after = detect_groove(out)
+    except ValueError:
+        after = None
+    return {
+        "status": "success",
+        "source_bpm": current["bpm"],
+        "result_bpm": after["bpm"] if after else None,
+        **info,
+    }
+
+
+@app.post("/audio/loop")
+async def audio_loop(request: LoopRequest) -> dict[str, Any]:
+    """Saca un loop de la pista como pista nueva (esencial para bootlegs)."""
+    source = _find_audio(request.file_name)
+    stem = request.output_name or f"{Path(request.file_name).stem}-loop{int(request.seconds)}s"
+    out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+    try:
+        info = make_loop(source, out, request.seconds)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "success", "source": source.name, **info}
+
+
+@app.post("/audio/crossfade")
+async def audio_crossfade(request: CrossfadeRequest) -> dict[str, Any]:
+    """Funde 2 o más pistas igualando su tempo y su volumen (mezcla de DJ)."""
+    if len(request.tracks) < 2:
+        raise HTTPException(status_code=400, detail="Indica al menos dos pistas")
+    sources = [_find_audio(name) for name in request.tracks]
+    stem = request.output_name or f"crossfade-{len(sources)}"
+    out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+    try:
+        info = crossfade(sources, out, request.fade_seconds)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "success", "tracks_used": sources, "loudness": measure_loudness(out), **info}
+
+
+remix_jobs: dict[str, dict[str, Any]] = {}
+
+
+@app.post("/audio/remix/ai")
+async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Remix con IA en pasos visibles: separa la voz, crea la base y mezcla.
+
+    Es lo que pide un bootleg: la misma voz con música nueva hecha desde un
+    prompt. Cada paso se refleja en `phase`/`events` para que la UI nunca
+    parezca colgada.
+    """
+    source = _find_audio(request.file_name)
+    health = await music.health()
+    if not health.get("reachable"):
+        raise HTTPException(
+            status_code=503,
+            detail="El motor de música no está activo. Abre Musicia.exe y vuelve a intentarlo.",
+        )
+
+    try:
+        groove = detect_groove(source)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    job_id = uuid.uuid4().hex
+    stem = _safe_name(request.output_name or Path(request.file_name).stem, DEFAULT_STEM)
+    remix_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "running",
+        "phase": "Preparando",
+        "events": [],
+        "source": source.name,
+        "prompt": request.prompt,
+        "base_bpm": groove["bpm"],
+        "started": time.monotonic(),
+    }
+    background_tasks.add_task(_run_ai_remix, job_id, source, request, groove, Path(stem).stem)
+    return {"status": "accepted", "job_id": job_id, "base_bpm": groove["bpm"]}
+
+
+async def _run_ai_remix(
+    job_id: str, source: Path, request: AiRemixRequest, groove: dict, stem: str
+) -> None:
+    """Ejecuta el remix con IA paso a paso (stem → base IA → mezcla)."""
+    job = remix_jobs[job_id]
+    started = time.monotonic()
+
+    def step(text: str) -> None:
+        job["phase"] = text
+        job["events"].append({"t": round(time.monotonic() - started, 1), "text": text})
+        del job["events"][:-30]
+        job["elapsed_seconds"] = round(time.monotonic() - started, 1)
+        logger.info(f"[remix {job_id[:8]}] {text}")
+
+    try:
+        vocals_path: Path | None = None
+        if request.keep_vocals:
+            step("Separando la voz de la pista original…")
+            stems = SeparatorService.separate(source, settings.outputs_dir, f"{stem}-orig")
+            vocals_path = settings.outputs_dir / stems["vocals"]
+            step(f"Voz separada ({stems['device']}): {stems['vocals']}")
+
+        step("Pidiendo al motor una base nueva con tu prompt…")
+        # La base nueva dura lo mismo que la original, con tope de 4 minutos
+        # para que el remix no se eternice (el motor va a x1 tiempo real).
+        duration = min(float(groove.get("duration_seconds") or 60), settings.generation.max_duration_seconds, 240)
+        task_id, _ = await music.submit(
+            GenerationRequest(
+                prompt=request.prompt,
+                lyrics=None,
+                instrumental=True,
+                duration_seconds=duration,
+                bpm=int(round(request.bpm or groove["bpm"])),
+            )
+        )
+
+        def on_update(status: Any) -> None:
+            job["engine_progress"] = status.progress
+            job["engine_phase"] = status.progress_text or status.stage
+
+        final = await music.wait(task_id, on_update=on_update)
+        if not final.succeeded:
+            raise MusicEngineError(final.error or "El motor terminó con error")
+        track = next((item for item in final.tracks if item.file), None)
+        if track is None:
+            raise MusicEngineError("El motor no devolvió audio")
+
+        step("Descargando la base generada…")
+        base_path = _unique_output_path(_safe_name(f"{stem}-base", DEFAULT_STEM), ".mp3")
+        await music.download(track.file, base_path)
+
+        if vocals_path is None:
+            step("Base lista (sin voz: instrumental nuevo).")
+            job.update(
+                status="succeeded",
+                phase="Base lista",
+                result={"base": base_path.name, "with_vocals": False},
+                loudness=measure_loudness(base_path),
+            )
+            return
+
+        step("Cuadrando la voz con la base nueva y mezclando…")
+        try:
+            vocal_groove = detect_groove(vocals_path)
+            alignment = plan_alignment(detect_groove(base_path), vocal_groove)
+        except ValueError:
+            alignment = None
+        if alignment is None:
+            step("El tempo de la voz no es fiable: se mezcla sin cuadrar (no se toca la voz).")
+        mixed = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+        info = MixerService.mix_tracks(
+            str(base_path), str(vocals_path), str(mixed),
+            alignment=alignment, normalize_lufs=True,
+        )
+        step("Mezcla lista y normalizada a -14 LUFS.")
+        job.update(
+            status="succeeded",
+            phase="Listo",
+            result={
+                "mix": mixed.name,
+                "base": base_path.name,
+                "vocals": vocals_path.name,
+                "with_vocals": True,
+                "alignment": alignment,
+            },
+            loudness=info.get("loudness", {}),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Remix IA falló ({job_id}): {exc}")
+        job.update(status="failed", phase="Error", error=str(exc),
+                   elapsed_seconds=round(time.monotonic() - started, 1))
+
+
+@app.get("/audio/remix/ai/{job_id}")
+async def audio_remix_ai_status(job_id: str) -> dict[str, Any]:
+    """Progreso real del remix con IA (pasos, eventos y resultado)."""
+    job = remix_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Ese remix no existe")
+    return job
 
 
 @app.get("/audio/separate/status")

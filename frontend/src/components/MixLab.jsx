@@ -28,6 +28,8 @@ export default function MixLab() {
   const [separator, setSeparator] = useState(null); // {available, device}
   const [separating, setSeparating] = useState(false);
   const [stems, setStems] = useState(null);      // {vocals, base}
+  const [fadeTracks, setFadeTracks] = useState([]); // crossfade: 2+ pistas
+  const [fading, setFading] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -96,6 +98,26 @@ export default function MixLab() {
   };
 
   const trackOptions = (items) => items.map((i) => ({ id: i.name, label: i.name, title: i.name }));
+
+  const toggleFadeTrack = (name) => {
+    setFadeTracks((prev) => (prev.includes(name)
+      ? prev.filter((n) => n !== name)
+      : [...prev, name].slice(-4)));
+  };
+
+  const doCrossfade = async () => {
+    setError(null);
+    setFading(true);
+    try {
+      const res = await api.crossfade({ tracks: fadeTracks, fade_seconds: 4 });
+      setResult(res.file_name);
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setFading(false);
+    }
+  };
   const ALIGN_OPTIONS = [
     { id: 'si', label: 'CUADRAR', title: 'Igala el tempo y el golpe de la batería' },
     { id: 'no', label: 'SIN CUADRAR', title: 'Mezcla tal cual, sin tocar el tempo' },
@@ -169,6 +191,23 @@ export default function MixLab() {
             </span>
           )}
           {planning && <span className="mono text-[10px] text-[var(--faint)]">midiendo el groove…</span>}
+        </div>
+
+        {/* CROSSFADE: marca 2+ pistas y las funde (estilo DJ) */}
+        <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
+          <span className="label shrink-0">CROSSFADE</span>
+          {[...library, ...uploads].slice(0, 12).map((item) => (
+            <button key={item.name} onClick={() => toggleFadeTrack(item.name)}
+              className={`btn h-7 px-2 ${fadeTracks.includes(item.name) ? 'btn-signal' : 'btn-ghost'}`}
+              title={item.name}>
+              <span className="mono text-[10.5px]">{item.name.replace(/\.[^.]+$/, '').slice(0, 22)}</span>
+            </button>
+          ))}
+          <button onClick={doCrossfade} disabled={fadeTracks.length < 2 || fading}
+            className="btn btn-signal h-8 px-4 ml-auto">
+            {fading ? <><Loader2 size={13} className="animate-spin" /> FUNDIENDO…</>
+              : <><Play size={12} /> FUNDIR {fadeTracks.length || ''}</>}
+          </button>
         </div>
 
         {/* Lo que se va a hacer (transparencia antes de mezclar) */}

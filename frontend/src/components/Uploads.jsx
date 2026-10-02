@@ -6,6 +6,7 @@ import {
 import { api } from '../api';
 import RemixPanel from './RemixPanel';
 import RemixIAPanel from './RemixIAPanel';
+import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
@@ -266,7 +267,15 @@ export default function Uploads() {
             )}
 
             {/* Acción elegida: panel específico */}
-            {chosenAction === 'remix' && <RemixPanel onRun={runRemix} result={remixState} fileName={lastAnalysis.file_name} />}
+            {chosenAction === 'remix' && (
+              <div className="flex flex-col gap-4">
+                <RemixPanel onRun={runRemix} result={remixState} fileName={lastAnalysis.file_name} />
+                <RemixActions fileName={lastAnalysis.file_name} onDone={async () => {
+                  await refresh();
+                  setRemixState(null);
+                }} />
+              </div>
+            )}
 
             {(chosenAction === 'recreate' || chosenAction === 'backing' || chosenAction === 'extend') && (
               <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind}
