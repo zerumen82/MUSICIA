@@ -193,11 +193,24 @@ export default function Composer({ initialMode = 'music' }) {
     return parts.join(', ');
   };
 
+  /** Prompt final tal y como se enviará (para la vista de transparencia). */
+  const finalPrompt = buildPrompt();
+
   /** "Escribir la letra por mí": el LM local propone un borrador editable. */
   /** Quita todas las elecciones de voz y vuelve a AUTO. */
   const resetVocal = () => {
     setVocal({ gender: '', timbre: '', style: '', emotion: '' });
   };
+
+  /** Resumen legible de lo elegido (siempre visible, sin abrir desplegables). */
+  const vocalSummary = [
+    [VOCAL_GENDER, vocal.gender], [VOCAL_TIMBRE, vocal.timbre],
+    [VOCAL_STYLE, vocal.style], [VOCAL_EMOTION, vocal.emotion],
+    [VOCAL_LANGUAGES, vocalLang],
+  ]
+    .map(([list, id]) => list.find((o) => o.id === id)?.label)
+    .filter(Boolean)
+    .join(' · ');
 
   const autoWriteLyrics = async () => {
     setError(null);
@@ -457,10 +470,10 @@ export default function Composer({ initialMode = 'music' }) {
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
           {mode === 'voice' && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="label shrink-0">VOZ</span>
+                <span className="label shrink-0">VOZ CANTADA</span>
                 <VocalSelect label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
                   onChange={(v) => setVocal({ ...vocal, gender: v })} />
                 <VocalSelect label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
@@ -477,23 +490,57 @@ export default function Composer({ initialMode = 'music' }) {
                 </button>
               </div>
 
+              {/* Resumen: siempre se ve qué has elegido (sin abrir nada). */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="label shrink-0">ELIGIDO</span>
+                <span className={`mono text-[11px] ${vocalSummary ? 'text-[var(--acc)]' : 'text-[var(--faint)]'}`}>
+                  {vocalSummary || 'AUTO · el motor decide la voz'}
+                </span>
+                <button onClick={() => setShowLyricPreview((s) => !s)} className="btn btn-ghost h-7 px-2.5"
+                  title="Ver exactamente lo que recibe el motor: prompt, idioma y letra">
+                  {showLyricPreview ? 'OCULTAR DETALLE' : 'VER LO QUE SE ENVÍA'}
+                </button>
+              </div>
+
+              {showLyricPreview && (
+                <div className="flex flex-col gap-1.5 bg-[var(--surface-2)] border border-[var(--line)] p-4">
+                  <span className="label">ESTO ES EXACTAMENTE LO QUE RECIBE EL MOTOR</span>
+                  <dl className="mono text-[10.5px] text-[var(--muted)] flex flex-col gap-1">
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">DESCRIPCIÓN</dt>
+                      <dd className="text-zinc-200">{finalPrompt || '(vacía)'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">IDIOMA VOZ</dt>
+                      <dd className="text-zinc-200">{vocalLang}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">VOCALES</dt>
+                      <dd className="text-zinc-200">{buildVocalTags(vocal) || 'AUTO (instrumental)'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">TIPO</dt>
+                      <dd className="text-zinc-200">{lyrics.trim() ? 'CON VOZ (instrumental = no)' : 'INSTRUMENTAL'}</dd>
+                    </div>
+                    {lyrics.trim() !== '' && (
+                      <div className="flex gap-2">
+                        <dt className="text-[var(--faint)] shrink-0 w-[110px]">LETRA</dt>
+                        <dd className="text-zinc-200 whitespace-pre-wrap">{structureLyric(lyrics.trim())}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              )}
+
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <span className="label">LETRA</span>
-                  <div className="flex items-center gap-2">
-                    {lyrics.trim() !== '' && (
-                      <button onClick={() => setShowLyricPreview((s) => !s)} className="btn btn-ghost h-8 px-2.5"
-                        title="Ver exactamente lo que se envía al motor">
-                        {showLyricPreview ? 'OCULTAR' : 'VER LO QUE SE CANTA'}
-                      </button>
-                    )}
-                    <button onClick={autoWriteLyrics} disabled={writingLyrics}
-                      title="El motor local propone un borrador que puedes corregir; si no compone, escribe tú"
-                      className="btn btn-ghost h-8 px-3">
-                      {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 2 min)…</>
-                        : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
-                    </button>
-                  </div>
+                  <button onClick={autoWriteLyrics} disabled={writingLyrics}
+                    title="El motor local propone un borrador que puedes corregir; si no compone, escribe tú"
+                    className="btn btn-ghost h-8 px-3">
+                    {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 2 min)…</>
+                      : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
+                  </button>
                 </div>
 
                 <textarea
@@ -502,12 +549,6 @@ export default function Composer({ initialMode = 'music' }) {
                   placeholder="Escribe la letra tal cual, verso a verso. La app le añade [verso] y [estribillo] si hace falta."
                   className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[96px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
                 />
-
-                {showLyricPreview && lyrics.trim() !== '' && (
-                  <pre className="mono text-[10.5px] text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--line)] p-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                    {structureLyric(lyrics.trim())}
-                  </pre>
-                )}
 
                 <p className="mono text-[10px] text-[var(--faint)]">
                   {lyricsWarning
