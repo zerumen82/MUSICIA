@@ -14,6 +14,14 @@ export const JOB_POLL_INTERVAL_MS = 3000
 
 const client = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 
+/**
+ * El LM local del motor tarda bastante en componer una letra (carga el modelo
+ * la primera vez y luego generates). Con el timeout normal de 30 s el botón
+ * "escribir la letra por mí" moria siempre, así que usa su propio cliente.
+ */
+export const LYRICS_TIMEOUT_MS = 300000
+const lyricsClient = axios.create({ baseURL: API_BASE_URL, timeout: LYRICS_TIMEOUT_MS })
+
 const describeError = (error) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === 'string') return detail
@@ -47,7 +55,7 @@ export const api = {
   /** Letra automática con el LM local del motor (borrador editable). */
   writeLyrics: async (payload) => {
     try {
-      const { data } = await client.post('/music/write_lyrics', payload)
+      const { data } = await lyricsClient.post('/music/write_lyrics', payload)
       return data
     } catch (error) {
       throw new Error(describeError(error))

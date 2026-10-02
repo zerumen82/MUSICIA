@@ -758,3 +758,33 @@ prueba ejecutada y resultado, con fecha.
 - **Lección**: el fallo "no canta" estaba en un default del backend
   (`language: "en"`), no en la UI: cuando el motor no hace lo pedido, hay que
   leer su código de conditioning antes de culpar a la interfaz.
+
+## 2026-10-02 (VI) — Selector de voz compacto + "escribir letra por mí" arreglado
+- **Síntomas del usuario**: (1) el selector de voz "se ha llenado la pantalla,
+  menos agradable de usar" → pidió desplegables en una línea; (2) "no se
+  entiende cómo funciona" lo de la letra; (3) "le pulsé escribir letra por mí y
+  no va".
+- **Rediseño (respuesta a 1 y 2)**:
+  - Los 4 grupos de chips + idioma pasan a **una sola línea de desplegables**
+    (`VocalSelect`: botón con etiqueta + valor actual, la lista solo ocupa
+    espacio al abrirse, clic fuera para cerrar) + botón de reiniciar (↺) que
+    devuelve todo a AUTO. Fuera los `ChipGroup` (eliminados).
+  - La letra se explica en una línea y se añade **"VER LO QUE SE CANTA"**:
+    previsualiza exactamente el texto estructurado que se enviará al motor
+    (fin de la duda "no entiendo cómo funciona").
+  - Text del botón: "ESCRIBIRLA POR MÍ", y en espera "EL MOTOR ESCRIBE (hasta
+    2 min)…".
+- **Causa raíz de 3 (bug real)**: `api.js` usa un axios con
+  `timeout: 30000` para TODO. El LM del motor tardaba 25 s en caliente y
+  **80-90 s en la primera llamada tras arrancar** (carga del modelo), así que el
+  botón moría por timeout. Fix: cliente propio `lyricsClient` con
+  `LYRICS_TIMEOUT_MS = 300000`.
+- **TESTER — PASS**: lint 0, build OK (313.24 kB / gzip 98.30 kB); medición
+  real de `/music/write_lyrics`: 25 s en caliente (con el LM actual sigue
+  devolviendo solo estructura → `warning`, correcto y honesto).
+- **REVIEWER — APPROVE**: los chips viejos eliminados (sin código muerto), el
+  desplegable cierra al pulsar fuera y respeta el patrón visual existente
+  (`btn`/`btn-signal`/`--surface-2`).
+- **Lección**: al añadir un endpoint lento hay que revisar el timeout del
+  cliente, no solo el backend; y los controles muchos van en desplegables
+  (una línea) en vez de activar la pantalla entera.

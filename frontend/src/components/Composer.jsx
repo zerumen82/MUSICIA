@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Loader2, AlertTriangle, Download, Trash2, Music4, Sparkles,
-  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather,
+  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, ChevronDown, RotateCcw,
 } from 'lucide-react';
 import { api, JOB_POLL_INTERVAL_MS } from '../api';
 import QualityWizard from './QualityWizard';
@@ -70,19 +70,47 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-/** Fila de chips conmutables para los selectores de voz (spec A3). */
-function ChipGroup({ label, options, value, onChange }) {
+/**
+ * Selector desplegable de voz: cabe en una línea y solo ocupa espacio cuando
+ * lo abres. Es lo que pide el usuario frente a los chips (pantalla llena).
+ */
+function VocalSelect({ label, options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [open]);
+
+  const current = options.find((o) => o.id === value);
+
   return (
-    <div className="flex items-center gap-3 flex-wrap">
-      <span className="label shrink-0 w-[86px]">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => (
-          <button key={o.id} onClick={() => onChange(value === o.id ? '' : o.id)}
-            className={`btn h-7 px-2.5 text-[11px] ${value === o.id ? 'btn-signal' : 'btn-ghost'}`}>
-            {o.label}
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen((o) => !o)}
+        className={`btn h-8 px-2.5 gap-1.5 ${current ? 'btn-signal' : 'btn-ghost'}`}>
+        <span className="label">{label}</span>
+        <span className="mono text-[11px]">{current ? current.label : 'AUTO'}</span>
+        <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+      </button>
+      {open && (
+        <div className="absolute z-30 top-full left-0 mt-1 min-w-[170px] border border-[var(--line-strong)] bg-[var(--surface-2)] p-1 flex flex-col shadow-lg">
+          <button onClick={() => { onChange(''); setOpen(false); }}
+            className="text-left px-3 py-1.5 hover:bg-[var(--acc-dim)]">
+            <span className="label">AUTO</span>
           </button>
-        ))}
-      </div>
+          {options.map((o) => (
+            <button key={o.id} onClick={() => { onChange(o.id); setOpen(false); }}
+              className={`text-left px-3 py-1.5 hover:bg-[var(--acc-dim)] ${value === o.id ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
+              <span className="mono text-[11.5px]">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -116,6 +144,7 @@ export default function Composer({ initialMode = 'music' }) {
   const [vocalLang, setVocalLang] = useState('es'); // vocal_language que viaja al motor (A3)
   const [writingLyrics, setWritingLyrics] = useState(false);
   const [lyricsWarning, setLyricsWarning] = useState(null);
+  const [showLyricPreview, setShowLyricPreview] = useState(false);
   const aliveRef = useRef(true);
 
   const maxDuration = config?.max_duration_seconds ?? UI.maxDurationFallback;
@@ -165,6 +194,11 @@ export default function Composer({ initialMode = 'music' }) {
   };
 
   /** "Escribir la letra por mí": el LM local propone un borrador editable. */
+  /** Quita todas las elecciones de voz y vuelve a AUTO. */
+  const resetVocal = () => {
+    setVocal({ gender: '', timbre: '', style: '', emotion: '' });
+  };
+
   const autoWriteLyrics = async () => {
     setError(null);
     setLyricsWarning(null);
@@ -423,54 +457,68 @@ export default function Composer({ initialMode = 'music' }) {
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
           {mode === 'voice' && (
-            <div className="flex flex-col gap-4 border border-[var(--line)] p-5">
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <span className="label">VOZ CANTADA · ELIGE CÓMO SUENA</span>
-                <div className="flex items-center gap-2.5">
-                  <span className="label">IDIOMA</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {VOCAL_LANGUAGES.map((l) => (
-                      <button key={l.id} onClick={() => setVocalLang(l.id)}
-                        className={`btn h-7 px-2.5 text-[11px] ${vocalLang === l.id ? 'btn-signal' : 'btn-ghost'}`}>
-                        {l.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <ChipGroup label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
-                onChange={(v) => setVocal({ ...vocal, gender: v })} />
-              <ChipGroup label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
-                onChange={(v) => setVocal({ ...vocal, timbre: v })} />
-              <ChipGroup label="CANTADO" options={VOCAL_STYLE} value={vocal.style}
-                onChange={(v) => setVocal({ ...vocal, style: v })} />
-              <ChipGroup label="EMOCIÓN" options={VOCAL_EMOTION} value={vocal.emotion}
-                onChange={(v) => setVocal({ ...vocal, emotion: v })} />
-
-              <div className="flex items-center justify-between gap-4 flex-wrap">
-                <span className="label">LETRA PARA LA VOZ CANTADA</span>
-                <button onClick={autoWriteLyrics} disabled={writingLyrics}
-                  title="El LM local propone un borrador; luego lo editas como quieras"
-                  className="btn btn-ghost px-3 h-8">
-                  {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> ESCRIBIENDO…</>
-                    : <><Feather size={12} /> ESCRIBIR LA LETRA POR MÍ</>}
+            <div className="flex flex-col gap-3">
+              {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="label shrink-0">VOZ</span>
+                <VocalSelect label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
+                  onChange={(v) => setVocal({ ...vocal, gender: v })} />
+                <VocalSelect label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
+                  onChange={(v) => setVocal({ ...vocal, timbre: v })} />
+                <VocalSelect label="CANTADO" options={VOCAL_STYLE} value={vocal.style}
+                  onChange={(v) => setVocal({ ...vocal, style: v })} />
+                <VocalSelect label="EMOCIÓN" options={VOCAL_EMOTION} value={vocal.emotion}
+                  onChange={(v) => setVocal({ ...vocal, emotion: v })} />
+                <VocalSelect label="IDIOMA" options={VOCAL_LANGUAGES} value={vocalLang}
+                  onChange={setVocalLang} />
+                <button onClick={resetVocal} className="btn btn-ghost h-8 px-2.5"
+                  title="Quitar todas las elecciones de voz">
+                  <RotateCcw size={12} />
                 </button>
               </div>
-              <textarea
-                value={lyrics}
-                onChange={(e) => setLyrics(e.target.value)}
-                placeholder="Escribe tu letra aquí, o pulsa ESCRIBIR LA LETRA POR MÍ y edítala…"
-                className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
-              />
-              <p className="mono text-[10px] text-[var(--faint)]">
-                {lyricsWarning && <span className="text-[var(--warn)] block mb-1">{lyricsWarning}</span>}
-                {lyrics.trim() === ''
-                  ? 'Sin letra el motor hace un instrumental.'
-                  : hasLyricStructure(lyrics)
-                    ? 'Letra con estructura: se canta tal cual.'
-                    : 'Le añadimos [verso]/[estribillo] automáticamente al generar (puedes escribirlos tú).'}
-              </p>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <span className="label">LETRA</span>
+                  <div className="flex items-center gap-2">
+                    {lyrics.trim() !== '' && (
+                      <button onClick={() => setShowLyricPreview((s) => !s)} className="btn btn-ghost h-8 px-2.5"
+                        title="Ver exactamente lo que se envía al motor">
+                        {showLyricPreview ? 'OCULTAR' : 'VER LO QUE SE CANTA'}
+                      </button>
+                    )}
+                    <button onClick={autoWriteLyrics} disabled={writingLyrics}
+                      title="El motor local propone un borrador que puedes corregir; si no compone, escribe tú"
+                      className="btn btn-ghost h-8 px-3">
+                      {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 2 min)…</>
+                        : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  value={lyrics}
+                  onChange={(e) => { setLyrics(e.target.value); if (lyricsWarning) setLyricsWarning(null); }}
+                  placeholder="Escribe la letra tal cual, verso a verso. La app le añade [verso] y [estribillo] si hace falta."
+                  className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[96px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
+                />
+
+                {showLyricPreview && lyrics.trim() !== '' && (
+                  <pre className="mono text-[10.5px] text-[var(--muted)] bg-[var(--surface-2)] border border-[var(--line)] p-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                    {structureLyric(lyrics.trim())}
+                  </pre>
+                )}
+
+                <p className="mono text-[10px] text-[var(--faint)]">
+                  {lyricsWarning
+                    ? <span className="text-[var(--warn)]">{lyricsWarning}</span>
+                    : lyrics.trim() === ''
+                      ? 'Sin letra el motor hace un instrumental. Con letra, canta.'
+                      : hasLyricStructure(lyrics)
+                        ? 'Ya tiene marcas de estructura: se canta tal cual.'
+                        : 'Se enviará con [verso]/[estribillo] añadidos automáticamente.'}
+                </p>
+              </div>
             </div>
           )}
           <div className="flex items-center gap-4 flex-wrap">
