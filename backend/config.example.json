@@ -6,27 +6,44 @@
   "acestep": {
     "base_url": "http://127.0.0.1:8001",
     "request_timeout": 60.0,
+    "health_timeout": 3.0,
     "poll_interval": 3.0,
+    "poll_max_misses": 8,
     "job_timeout": 1800.0
   },
   "generation": {
     "duration_seconds": 120.0,
     "instrumental": true,
-    "language": "en",
+    "language": "es",
     "inference_steps": 8,
     "guidance_scale": 7.0,
     "audio_format": "mp3",
     "model": "acestep-v15-turbo",
+    "allowed_models": ["acestep-v15-turbo"],
     "lm_model": "acestep-5Hz-lm-0.6B",
     "lm_backend": "pt",
-    "max_duration_seconds": 600.0
+    "max_duration_seconds": 600.0,
+    "cover_strength": 0.6,
+    "remix_cover_strength": 0.2,
+    "remix_cover_strength_no_melody": 0.1,
+    "remix_cover_strength_like_original": 0.5
   },
   "tts": {
     "default_voice": "es-ES-AlvaroNeural"
   },
   "mixer": {
     "min_gain_db": -60.0,
-    "max_gain_db": 12.0
+    "max_gain_db": 12.0,
+    "loop_bars": 4,
+    "beats_per_bar": 4,
+    "arrange_shorter_than": 0.85,
+    "vocal_silence_db": -36.0,
+    "vocal_min_silence_s": 0.28,
+    "vocal_min_phrase_s": 0.45,
+    "vocal_frame_ms": 20,
+    "vocal_slice_fade_s": 0.02,
+    "max_vocal_phrases": 24,
+    "fallback_bar_seconds": 2.0
   },
   "paths": {
     "outputs_dir": "./outputs"

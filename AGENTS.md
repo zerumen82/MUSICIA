@@ -16,7 +16,7 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
 - Test: no hay tests unitarios; la verificación oficial es la ejecución real (ver reglas)
 
 ## Architecture
-- `backend/` — FastAPI: TTS (edge-tts), mezcla (pydub), análisis DSP, post-proceso, generación con ACE-Step
+- `backend/` — FastAPI: generación ACE-Step 1.5, voz cantada por el mismo motor, locución edge-tts, mezcla ffmpeg (atempo/loudnorm), separación demucs, DSP y análisis con pydub
 - `frontend/` — React 19 + Vite + Tailwind + Tone.js; app de escritorio via Electron (`frontend/main.cjs`, CommonJS porque el package.json es `"type": "module"`; contextIsolation + sandbox)
   - En producción Electron carga `http://127.0.0.1:8000` (la API sirve la UI); en dev sin build, carga `http://localhost:5173`
 - `.agents/` — definiciones de agentes (music-orchestrator, music-composer, audio-engineer)
@@ -39,7 +39,7 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
 - `scripts/` — arranque/parada del stack local y prueba de humo end-to-end
 - `vendor/ACE-Step-1.5/` — motor de música (repo externo, venv propio Python 3.12)
 - Data flow (producto): petición → music-orchestrator → music-composer (spec) → audio-engineer (generación real) → verificación → bitácora en memory.md
-- Data flow (metodología): usuario (orchestrator supremo) → sd-coordinator [pregunta antes de decidir] → sd-editor + sd-tester → PASS con evidencia → HECHO
+- Data flow (metodología): usuario (orchestrator supremo) → sd-coordinator [pregunta antes de decidir] → sd-scout + sd-researcher → sd-editor → sd-reviewer (APPROVE) → sd-tester (PASS) → memory.md → HECHO
   - Motor: `POST /music/generate` → ACE-Step `/release_task` → sondeo `/query_result` → descarga `/v1/audio` → verificación con pydub → `GET /music/audio/{name}`
 
 ## Conventions

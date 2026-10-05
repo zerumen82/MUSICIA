@@ -1,19 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { AudioWaveform, Mic2, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AudioWaveform, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut } from 'lucide-react';
 import Composer from './components/Composer';
-import VoiceLab from './components/VoiceLab';
 import Library from './components/Library';
 import Uploads from './components/Uploads';
 import MixLab from './components/MixLab';
-import { api } from './api';
+import { api, JOB_POLL_INTERVAL_MS } from './api';
 
 // Nota: el Mixer decorativo original se sustituye por MixLab (mezcla real
 // vía POST /audio/mix). Sequencer sigue retirado (deuda T2 de spec/03).
 const TABS = [
   { id: 'composer', icon: AudioWaveform, label: 'CREAR', hint: 'canciones IA' },
   { id: 'uploads', icon: FileUp, label: 'SUBIR', hint: 'tu audio + remix' },
-  { id: 'mix', icon: SlidersHorizontal, label: 'MEZCLA', hint: 'base + voz' },
-  { id: 'voice', icon: Mic2, label: 'VOZ', hint: 'texto a voz' },
+  { id: 'mix', icon: SlidersHorizontal, label: 'MEZCLA', hint: 'base + voz cantada' },
   { id: 'library', icon: LibraryIcon, label: 'BIBLIOTECA', hint: 'tus MP3' },
 ];
 
@@ -22,20 +20,51 @@ const POLL_HEALTH_MS = 10000;
 function App() {
   const [tab, setTab] = useState('composer');
   const [engine, setEngine] = useState({ checked: false, ok: false });
+  const [modelName, setModelName] = useState('');
+  const [activeJob, setActiveJob] = useState(null);
+  const activeJobRef = useRef(null);
+
+  useEffect(() => {
+    activeJobRef.current = activeJob;
+  }, [activeJob]);
 
   useEffect(() => {
     let alive = true;
     const check = async () => {
-      try {
-        const health = await api.engineHealth();
-        if (alive) setEngine({ checked: true, ok: Boolean(health?.engine?.reachable) });
-      } catch {
-        if (alive) setEngine({ checked: true, ok: false });
+      const health = await api.engineHealth();
+      if (!alive) return;
+      if (health?.engine?.reachable) {
+        setEngine({ checked: true, ok: true });
+        return;
       }
+      // Sin respuesta, motor ocupado o canción en curso: no se pinta apagado.
+      if (health?.engine?.unknown || health?.engine?.busy || activeJobRef.current) return;
+      setEngine({ checked: true, ok: false });
     };
     check();
+    api.musicModels().then((info) => {
+      if (!alive || !info) return;
+      const name = [info.loaded || info.configured, info.loaded_lm].filter(Boolean).join(' · ');
+      setModelName(name);
+    }).catch(() => {});
     const t = setInterval(check, POLL_HEALTH_MS);
     return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const data = await api.musicJobs();
+        const active = (data.items ?? []).find((job) => job.status === 'queued' || job.status === 'running');
+        if (alive) setActiveJob(active ?? null);
+      } catch {
+        // Un fallo de red no borra la fase que ya se estaba viendo.
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, JOB_POLL_INTERVAL_MS);
+    return () => { alive = false; clearInterval(timer); };
   }, []);
 
   return (
@@ -67,12 +96,11 @@ function App() {
           ))}
         </nav>
 
-        {/* Salida: dispara el diálogo de cierre seguro (apagar motor / dejar activo) */}
+        {/* SALIR apaga motor y API y cierra el proceso. No hay diálogo. */}
         <button
           onClick={() => {
-            // Cierra TODO sin preguntar: UI + API + motor (libera VRAM)
+            // Única salida: apaga UI + API + motor. La X de la ventana no hace nada.
             if (window.musica?.exit) window.musica.exit('stop-all');
-            else window.close();
           }}
           className="nav-item mt-4 hover:!text-red-300 hover:!border-[rgba(255,92,92,0.4)]"
           title="Salir de Musicia"
@@ -86,17 +114,18 @@ function App() {
           <div className="panel-2 px-3 py-2.5 flex items-center gap-2.5">
             <span
               className={`w-2 h-2 rounded-full shrink-0 ${
-                engine.checked
-                  ? engine.ok
+                !engine.checked
+                  ? 'bg-[var(--faint)]'
+                  : engine.ok
                     ? 'bg-[var(--acc)] shadow-[0_0_8px_var(--acc)]'
                     : 'bg-[var(--err)]'
-                  : 'bg-[var(--warn)] animate-pulse'
               }`}
             />
             <span className="mono text-[9.5px] tracking-[0.1em] uppercase text-[var(--muted)] leading-tight">
-              {engine.checked
-                ? engine.ok ? 'MOTOR ACTIVO' : 'MOTOR APAGADO'
-                : 'CONECTANDO…'}
+              <span className="block">
+                {!engine.checked ? 'MOTOR' : engine.ok ? 'MOTOR ACTIVO' : 'MOTOR APAGADO'}
+              </span>
+              {modelName ? <span className="block normal-case tracking-normal text-[var(--faint)]">{modelName}</span> : null}
             </span>
           </div>
         </div>
@@ -110,25 +139,32 @@ function App() {
             <span className="label">{TABS.find((t) => t.id === tab)?.label}</span>
             <span className="text-[var(--faint)] mono text-[11px]">/</span>
             <span className="mono text-[11px] text-[var(--muted)]">{TABS.find((t) => t.id === tab)?.hint}</span>
+            {activeJob && (
+              <span className="mono text-[10.5px] text-[var(--acc)] truncate max-w-[420px]">
+                {activeJob.phase || 'Trabajando…'}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-5">
             <span className="mono text-[10.5px] text-[var(--faint)] tracking-[0.12em]">100% LOCAL · SIN NUBE</span>
-            <span className={`mono text-[10.5px] tracking-[0.12em] px-2.5 py-1 border ${
-              engine.checked && engine.ok
-                ? 'text-[var(--acc)] border-[var(--acc-line)]'
-                : 'text-[var(--muted)] border-[var(--line-strong)]'
-            }`}>
-              MOTOR IA LOCAL
-            </span>
+            {engine.checked && (
+              <span className={`mono text-[10.5px] tracking-[0.12em] px-2.5 py-1 border ${
+                engine.ok
+                  ? 'text-[var(--acc)] border-[var(--acc-line)]'
+                  : 'text-[var(--err)] border-[rgba(255,92,92,0.45)]'
+              }`}>
+                {engine.ok ? 'ACTIVO' : 'APAGADO'}
+              </span>
+            )}
           </div>
         </header>
 
-        <main className="flex-1 min-h-0 overflow-y-auto">
-          {tab === 'composer' && <Composer />}
-          {tab === 'uploads' && <Uploads />}
-          {tab === 'mix' && <MixLab />}
-          {tab === 'voice' && <VoiceLab />}
-          {tab === 'library' && <Library />}
+        <main className="flex-1 min-h-0 overflow-hidden">
+          {/* Montadas siempre: cambiar de pestaña no borra la letra ni el sondeo. */}
+          <div className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} /></div>
+          <div className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads /></div>
+          <div className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab /></div>
+          <div className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library /></div>
         </main>
       </div>
     </div>

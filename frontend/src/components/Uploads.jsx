@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause,
-  SlidersHorizontal, Music, Mic2, Sparkles, CheckCircle2, HelpCircle, Pencil, Check,
+  Music, Mic2, Sparkles, CheckCircle2, HelpCircle, Pencil, Check,
 } from 'lucide-react';
-import { api } from '../api';
-import RemixPanel from './RemixPanel';
+import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
@@ -21,20 +20,20 @@ const KIND_OPTIONS = [
 /* Acciones que la app ofrece según lo que el usuario confirma que es el audio. */
 const ACTIONS_BY_KIND = {
   musica: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Tempo, tono, reverse, gain, fades — resultado instantáneo en local.' },
-    { id: 'recreate', title: 'Re-crear con IA', desc: 'Genera una pista nueva inspirada en el análisis (duración, BPM, graves).' },
-    { id: 'extend', title: 'Crear base similar', desc: 'Usa el BPM detectado y el carácter para crear algo en la misma línea.' },
+    { id: 'remix', title: 'Remix del audio', desc: 'Abre el remixer: versión, voz, tempo, loop y el ajuste local.' },
+    { id: 'recreate', title: 'Re-crear con IA', desc: 'Versión nueva sobre este audio, con el prompt que escribas.' },
+    { id: 'extend', title: 'Rehacer un tramo', desc: 'Regenera un trozo de esta pista. El resto se queda.' },
   ],
   voz: [
-    { id: 'remix', title: 'Procesar la voz', desc: 'Limpieza de niveles, tempo, recorte, fades — instantáneo en local.' },
-    { id: 'backing', title: 'Crear base para la voz', desc: 'Genera con IA una base musical a medida del análisis de la voz.' },
+    { id: 'remix', title: 'Procesar la voz', desc: 'Abre el remixer sobre esta voz.' },
+    { id: 'backing', title: 'Crear base para la voz', desc: 'Base nueva, de la misma duración que este audio, con el prompt que escribas.' },
   ],
   mixta: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Tempo, tono, reverse, gain, fades — instantáneo en local.' },
-    { id: 'recreate', title: 'Re-creación IA', desc: 'Versión nueva del tema con el motor, usando BPM y carácter del análisis.' },
+    { id: 'remix', title: 'Remix del audio', desc: 'Abre el remixer: versión, voz, tempo, loop y el ajuste local.' },
+    { id: 'recreate', title: 'Re-creación IA', desc: 'Versión nueva del tema, con el prompt que escribas.' },
   ],
   otro: [
-    { id: 'remix', title: 'Efectos sobre el audio', desc: 'Tempo, tono, reverse, gain, fades — instantáneo en local.' },
+    { id: 'remix', title: 'Efectos sobre el audio', desc: 'Abre el remixer sobre este audio.' },
   ],
 };
 
@@ -52,6 +51,7 @@ export default function Uploads() {
   const [generating, setGenerating] = useState(false);
   const [renameName, setRenameName] = useState(null); // item en renombrado
   const [renameValue, setRenameValue] = useState('');
+  const [remixName, setRemixName] = useState(null); // subida abierta en la mesa de remix
   const inputRef = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -59,7 +59,7 @@ export default function Uploads() {
       const data = await api.uploads();
       setItems(data.items ?? []);
     } catch (e) {
-      setError(e.message);
+      if (!isTransportBlip(e.message)) setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -92,42 +92,45 @@ export default function Uploads() {
     setChosenAction(null);
   };
 
-  const runRemix = async (params) => {
+  // Re-creación: cover del audio, sin duración y sin el BPM medido.
+  // Crear base: pieza nueva de la duración del audio. El BPM medido no se manda.
+  const runAIGeneration = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null, source_kind = null } = {}) => {
     setError(null);
-    setRemixState(null);
-    try {
-      const res = await api.remix({ file_name: lastAnalysis.file_name, ...params });
-      setRemixState({ ok: true, ...res });
-      await refresh();
-    } catch (e) {
-      setRemixState({ ok: false, error: e.message });
+    const text = (prompt ?? '').trim();
+    if (!text) {
+      setError('Escribe un prompt antes de la versión');
+      return;
     }
-  };
-
-  // Lanza la re-creación con IA. Recibe { prompt, seed, duration_seconds, bpm }
-  // desde RemixIAPanel (que pre-rellena con el análisis DSP); si falta algo,
-  // cae al análisis local. Con semilla fija se pueden comparar versiones A/B.
-  const runAIGeneration = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null } = {}) => {
-    setError(null);
     setGenerating(true);
     const a = lastAnalysis?.analysis ?? {};
-    const dur = duration_seconds ?? a.duration_seconds ?? 30;
     const letra = lyrics ? structureLyric(lyrics) : null;
+    const esBaseNueva = chosenAction === 'backing';
+    let duration = null;
+    if (esBaseNueva) {
+      const measured = Number(duration_seconds ?? a.duration_seconds);
+      if (Number.isFinite(measured) && measured > 0) {
+        const cfg = await api.musicConfig().catch(() => null);
+        const max = Number(cfg?.max_duration_seconds);
+        duration = Number.isFinite(max) && max > 0 ? Math.min(measured, max) : measured;
+      }
+    }
     try {
       const created = await api.generateMusic({
-        prompt: (prompt ?? '').trim() || 'pieza musical inspirada en una referencia con carácter similar',
-        // Con letra canta; sin letra el motor haría un instrumental (spec A3).
+        prompt: text,
         instrumental: !letra,
         lyrics: letra,
-        duration_seconds: Math.min(Math.max(dur, 10), 240),
-        bpm: bpm ?? a.bpm ?? null,
-        language: letra ? 'es' : null,
+        bpm: bpm ?? null,
         seed,
         output_name: name,
+        ...(esBaseNueva
+          ? { duration_seconds: duration }
+          : { source_name: lastAnalysis.file_name, source_kind: source_kind ?? 'upload', task_type: 'cover' }),
       });
       setRemixState({
         ok: true, job: true, job_id: created.job_id,
-        note: 'Generación IA lanzada con tu prompt. Mira el progreso en CREAR.',
+        note: esBaseNueva
+          ? 'Base nueva lanzada. El progreso está en la barra de arriba.'
+          : 'Versión lanzada sobre este audio. El progreso está en la barra de arriba.',
       });
     } catch (e) {
       setRemixState({ ok: false, error: e.message });
@@ -142,12 +145,13 @@ export default function Uploads() {
     if (!next || next === oldName) return;
     setError(null);
     try {
-      const res = await api.renameAudio(oldName, next);
+      const res = await api.renameAudio(oldName, next, 'upload');
       // Si el renombrado es del audio analizado, el panel sigue apuntando al
       // fichero viejo: se actualiza al nombre real que devolvió la API.
       if (lastAnalysis?.file_name === oldName) {
         setLastAnalysis({ ...lastAnalysis, file_name: res.name });
       }
+      if (remixName === oldName) setRemixName(res.name);
       if (playing === oldName) setPlaying(null);
       await refresh();
     } catch (e) {
@@ -159,6 +163,7 @@ export default function Uploads() {
     try {
       await api.deleteUpload(name);
       if (playing === name) setPlaying(null);
+      if (remixName === name) setRemixName(null);
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -167,7 +172,7 @@ export default function Uploads() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-[1300px] mx-auto w-full px-16 py-12 flex flex-col gap-6">
+      <div className="max-w-[1300px] mx-auto w-full px-6 py-8 xl:px-10 flex flex-col gap-6">
         {/* Cabecera + zona de subida */}
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">AUDIO PROPIO</h2>
@@ -176,7 +181,7 @@ export default function Uploads() {
         </div>
 
         <div
-          className="border border-dashed border-[var(--line-strong)] py-14 flex flex-col items-center gap-4 cursor-pointer hover:border-[var(--acc-line)] transition-colors"
+          className={`border border-dashed border-[var(--line-strong)] flex flex-col items-center cursor-pointer hover:border-[var(--acc-line)] transition-colors ${lastAnalysis ? 'py-4 gap-2' : 'py-14 gap-4'}`}
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
@@ -196,7 +201,11 @@ export default function Uploads() {
           ) : (
             <>
               <Upload size={22} className="text-[var(--muted)]" />
-              <span className="text-[13.5px] text-[var(--muted)]">Arrastra un <b className="text-zinc-300">.mp3</b> o <b className="text-zinc-300">.wav</b> aquí, o haz clic (máx. 50 MB)</span>
+              <span className="text-[13.5px] text-[var(--muted)] text-center px-4">
+                {lastAnalysis
+                  ? 'Subir otro .mp3 o .wav'
+                  : <>Arrastra un <b className="text-zinc-300">.mp3</b> o <b className="text-zinc-300">.wav</b> aquí, o haz clic (máx. 50 MB)</>}
+              </span>
             </>
           )}
         </div>
@@ -243,7 +252,7 @@ export default function Uploads() {
               <div className="flex flex-wrap gap-1.5">
                 {KIND_OPTIONS.map(({ id, label, icon: Icon }) => (
                   <button key={id} onClick={() => confirmType(id)}
-                    className={`btn h-8 px-3 ${confirmKind === id ? 'btn-signal' : 'btn-ghost'}`}>
+                    className={`btn btn-ghost h-8 px-3 ${confirmKind === id ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}>
                     <Icon size={12} /> {label}
                   </button>
                 ))}
@@ -268,17 +277,19 @@ export default function Uploads() {
 
             {/* Acción elegida: panel específico */}
             {chosenAction === 'remix' && (
-              <div className="flex flex-col gap-4">
-                <RemixPanel onRun={runRemix} result={remixState} fileName={lastAnalysis.file_name} />
-                <RemixActions fileName={lastAnalysis.file_name} onDone={async () => {
-                  await refresh();
-                  setRemixState(null);
-                }} />
-              </div>
+              <RemixActions fileName={lastAnalysis.file_name} sourceKind="upload" onDone={async () => {
+                await refresh();
+                setRemixState(null);
+              }} />
+            )}
+            {chosenAction === 'extend' && (
+              <RemixActions fileName={lastAnalysis.file_name} sourceKind="upload" initialAction="tramo" onDone={async () => {
+                await refresh();
+              }} />
             )}
 
-            {(chosenAction === 'recreate' || chosenAction === 'backing' || chosenAction === 'extend') && (
-              <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind}
+            {(chosenAction === 'recreate' || chosenAction === 'backing') && (
+              <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind} sourceKind="upload"
                 onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
             )}
 
@@ -306,37 +317,53 @@ export default function Uploads() {
         )}
         <div className="flex flex-col">
           {items.map((item) => (
-            <div key={item.name} className="flex items-center gap-4 py-2.5 px-3 -mx-3 border-b border-[var(--line)] hover:bg-[var(--surface-2)] transition-colors">
-              <button onClick={() => setPlaying(playing === item.name ? null : item.name)}
-                className={`w-7 h-7 rounded-[3px] flex items-center justify-center shrink-0 border ${playing === item.name ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)]'}`}>
-                {playing === item.name ? <Pause size={10} className="text-[#0c0f04]" fill="currentColor" />
-                  : <Play size={10} className="text-[var(--muted)]" fill="currentColor" />}
-              </button>
-              {renameName === item.name ? (
-                <>
-                  <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void commitRename(item.name);
-                      if (e.key === 'Escape') setRenameName(null);
-                    }}
-                    className="px-3 py-1.5 text-[12px] mono bg-transparent outline-none border border-[var(--acc-line)] flex-1 min-w-0" />
-                  <button onClick={() => void commitRename(item.name)} className="btn btn-signal h-7 px-2.5 shrink-0">
-                    <Check size={11} /> GUARDAR
+            <div key={item.name} className="border-b border-[var(--line)]">
+              <div className={`flex items-center gap-4 py-2.5 px-3 -mx-3 hover:bg-[var(--surface-2)] transition-colors ${remixName === item.name ? 'bg-[var(--surface-2)]' : ''}`}>
+                <button onClick={() => setPlaying(playing === item.name ? null : item.name)}
+                  className={`w-7 h-7 rounded-[3px] flex items-center justify-center shrink-0 border ${playing === item.name ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)]'}`}>
+                  {playing === item.name ? <Pause size={10} className="text-[#0c0f04]" fill="currentColor" />
+                    : <Play size={10} className="text-[var(--muted)]" fill="currentColor" />}
+                </button>
+                {renameName === item.name ? (
+                  <>
+                    <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void commitRename(item.name);
+                        if (e.key === 'Escape') setRenameName(null);
+                      }}
+                      className="px-3 py-1.5 text-[12px] mono bg-transparent outline-none border border-[var(--acc-line)] flex-1 min-w-0" />
+                    <button onClick={() => void commitRename(item.name)} className="btn btn-signal h-7 px-2.5 shrink-0">
+                      <Check size={11} /> GUARDAR
+                    </button>
+                    <button onClick={() => setRenameName(null)} className="btn btn-ghost h-7 px-2.5 shrink-0">CANCELAR</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="mono text-[11.5px] text-zinc-200 truncate flex-1 min-w-0">{item.name}</span>
+                    <button onClick={() => { setRenameValue(item.name.replace(/\.[^.]+$/, '')); setRenameName(item.name); }}
+                      className="btn btn-ghost h-7 px-2 shrink-0" title="Cambiar nombre">
+                      <Pencil size={11} />
+                    </button>
+                  </>
+                )}
+                {renameName !== item.name && (
+                  <button
+                    type="button"
+                    onClick={() => setRemixName(remixName === item.name ? null : item.name)}
+                    className={`btn btn-ghost h-7 px-2.5 shrink-0 ${remixName === item.name ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+                  >
+                    REMIX
                   </button>
-                  <button onClick={() => setRenameName(null)} className="btn btn-ghost h-7 px-2.5 shrink-0">CANCELAR</button>
-                </>
-              ) : (
-                <>
-                  <span className="mono text-[11.5px] text-zinc-200 truncate flex-1 min-w-0">{item.name}</span>
-                  <button onClick={() => { setRenameValue(item.name.replace(/\.[^.]+$/, '')); setRenameName(item.name); }}
-                    className="btn btn-ghost h-7 px-2 shrink-0" title="Cambiar nombre">
-                    <Pencil size={11} />
-                  </button>
-                </>
+                )}
+                <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
+                <a href={api.uploadUrl(item.name)} download className="btn btn-ghost h-7 px-2 shrink-0"><Download size={11} /></a>
+                <button onClick={() => remove(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
+              </div>
+              {remixName === item.name && (
+                <div className="px-3 pb-4 pt-1 bg-[var(--surface-2)]">
+                  <RemixActions fileName={item.name} sourceKind="upload" onDone={() => { void refresh(); }} />
+                </div>
               )}
-              <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
-              <a href={api.uploadUrl(item.name)} download className="btn btn-ghost h-7 px-2 shrink-0"><Download size={11} /></a>
-              <button onClick={() => remove(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
             </div>
           ))}
         </div>

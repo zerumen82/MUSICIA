@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Loader2, AlertTriangle, Download, Trash2, Music4, Sparkles,
-  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, ChevronDown, RotateCcw,
+  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, RotateCcw,
 } from 'lucide-react';
-import { api, JOB_POLL_INTERVAL_MS } from '../api';
+import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
 import QualityWizard from './QualityWizard';
 import JobsPanel from './JobsPanel';
+import SelectBox from './SelectBox';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
@@ -13,7 +14,10 @@ import {
 
 const UI = {
   minDuration: 10,
-  maxDurationFallback: 240,
+  // Mismos valores que generation en el servidor. La pantalla no abre en 1:00
+  // y luego salta: /music/config los confirma al llegar.
+  defaultDuration: 120,
+  maxDurationFallback: 600,
   step: 5,
   historyKey: 'musica.historial',
   maxHistory: 30,
@@ -70,66 +74,20 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-/**
- * Selector desplegable de voz: cabe en una línea y solo ocupa espacio cuando
- * lo abres. Es lo que pide el usuario frente a los chips (pantalla llena).
- */
-function VocalSelect({ label, options, value, onChange }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDocDown = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocDown);
-    return () => document.removeEventListener('mousedown', onDocDown);
-  }, [open]);
-
-  const current = options.find((o) => o.id === value);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)}
-        className={`btn h-8 px-2.5 gap-1.5 ${current ? 'btn-signal' : 'btn-ghost'}`}>
-        <span className="label">{label}</span>
-        <span className="mono text-[11px]">{current ? current.label : 'AUTO'}</span>
-        <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
-      </button>
-      {open && (
-        <div className="absolute z-30 top-full left-0 mt-1 min-w-[170px] border border-[var(--line-strong)] bg-[var(--surface-2)] p-1 flex flex-col shadow-lg">
-          <button onClick={() => { onChange(''); setOpen(false); }}
-            className="text-left px-3 py-1.5 hover:bg-[var(--acc-dim)]">
-            <span className="label">AUTO</span>
-          </button>
-          {options.map((o) => (
-            <button key={o.id} onClick={() => { onChange(o.id); setOpen(false); }}
-              className={`text-left px-3 py-1.5 hover:bg-[var(--acc-dim)] ${value === o.id ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
-              <span className="mono text-[11.5px]">{o.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const loadHistory = () => {
   try { return JSON.parse(localStorage.getItem(UI.historyKey) ?? '[]'); }
   catch { return []; }
 };
 
-export default function Composer({ initialMode = 'music' }) {
+export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false } }) {
   const [mode, setMode] = useState(initialMode);
-  const [engine, setEngine] = useState({ checked: false, ok: false });
   const [config, setConfig] = useState(null);
   const [prompt, setPrompt] = useState('');
   const [genre, setGenre] = useState(null);
   const [mood, setMood] = useState(null);
   const [bpm, setBpm] = useState(null);
   const [key, setKey] = useState('');
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(UI.defaultDuration);
   const [seed, setSeed] = useState(''); // vacío = aleatorio (use_random_seed del config)
   const [songName, setSongName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre
   const [job, setJob] = useState(null);
@@ -146,6 +104,7 @@ export default function Composer({ initialMode = 'music' }) {
   const [lyricsWarning, setLyricsWarning] = useState(null);
   const [showLyricPreview, setShowLyricPreview] = useState(false);
   const aliveRef = useRef(true);
+  const durationTouched = useRef(false);
 
   const maxDuration = config?.max_duration_seconds ?? UI.maxDurationFallback;
 
@@ -154,15 +113,13 @@ export default function Composer({ initialMode = 'music' }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const [health, cfg] = await Promise.all([
-        api.engineHealth(),
-        api.musicConfig().catch(() => null),
-      ]);
-      if (!active) return;
-      setEngine({ checked: true, ok: Boolean(health?.engine?.reachable) });
-      if (cfg) {
-        setConfig(cfg);
-        setDuration(Math.min(cfg.duration_seconds ?? 60, cfg.max_duration_seconds ?? 240));
+      const cfg = await api.musicConfig().catch(() => null);
+      if (!active || !cfg) return;
+      setConfig(cfg);
+      const preset = Number(cfg.duration_seconds);
+      const cap = Number(cfg.max_duration_seconds);
+      if (preset > 0 && !durationTouched.current) {
+        setDuration(cap > 0 ? Math.min(preset, cap) : preset);
       }
     })();
     return () => { active = false; };
@@ -252,11 +209,13 @@ export default function Composer({ initialMode = 'music' }) {
   };
 
   const pollUntilDone = useCallback(async (jobId, meta) => {
+    let misses = 0;
     while (aliveRef.current) {
       await new Promise((r) => setTimeout(r, JOB_POLL_INTERVAL_MS));
-      if (!aliveRef.current) return;
+      if (!aliveRef.current) return null;
       try {
         const status = await api.musicStatus(jobId);
+        misses = 0;
         setJob(status);
         if (status.status === 'succeeded' && status.output_name) {
           setPlaying(api.audioUrl(status.output_name));
@@ -267,17 +226,26 @@ export default function Composer({ initialMode = 'music' }) {
             outputName: status.output_name,
             createdAt: new Date().toISOString(),
           });
-          return;
+          return status;
         }
         if (status.status === 'failed') {
+          // Un trabajo marcado failed ya terminó. Seguir sondeando lo dejaba
+          // girando para siempre cuando el texto del error parecía un corte.
           setError(status.error ?? 'La generación falló en el motor');
-          return;
+          return status;
         }
       } catch (e) {
-        setError(e.message);
-        return;
+        if (isEnginePollBlip(e.message)) continue;
+        misses += 1;
+        const gone = /no encontrada/i.test(e.message ?? '');
+        if (gone || misses >= JOB_POLL_MAX_MISSES) {
+          setError(e.message);
+          setJob({ status: 'failed' });
+          return null;
+        }
       }
     }
+    return null;
   }, [remember]);
 
   const launchGeneration = async (finalPrompt, seedValue, nameOverride = undefined) => {
@@ -323,7 +291,7 @@ export default function Composer({ initialMode = 'music' }) {
     }
   };
 
-  /** Variaciones A/B: mismo prompt, 2 seeds aleatorias distintas → cola. */
+  /** Variaciones A/B. La segunda espera: en esta GPU no caben dos a la vez. */
   const generateVariations = async () => {
     setError(null);
     const finalPrompt = buildPrompt();
@@ -331,13 +299,22 @@ export default function Composer({ initialMode = 'music' }) {
       setError('Elige un género o escribe una descripción');
       return;
     }
-    setJob({ status: 'queued', progress: 'variaciones A/B en cola' });
+    if (mode === 'voice' && lyrics.trim().length === 0) {
+      setError('Escribe la letra para la canción con voz');
+      return;
+    }
+    const s1 = Math.floor(Math.random() * 1_000_000);
+    let s2 = Math.floor(Math.random() * 1_000_000);
+    if (s2 === s1) s2 = (s1 + 1) % 1_000_000;
     try {
-      const s1 = Math.floor(Math.random() * 1_000_000);
-      let s2 = Math.floor(Math.random() * 1_000_000);
-      if (s2 === s1) s2 = (s1 + 1) % 1_000_000;
-      await launchGeneration(finalPrompt, s1);
-      await launchGeneration(finalPrompt, s2);
+      aliveRef.current = true;
+      setJob({ status: 'queued', phase: 'Variación A en cola' });
+      const first = await launchGeneration(finalPrompt, s1);
+      const doneA = await pollUntilDone(first.created.job_id, first.meta);
+      if (!aliveRef.current || doneA?.status !== 'succeeded') return;
+      setJob({ status: 'queued', phase: 'Variación B en cola' });
+      const second = await launchGeneration(finalPrompt, s2);
+      await pollUntilDone(second.created.job_id, second.meta);
     } catch (e) {
       setError(e.message);
       setJob({ status: 'failed' });
@@ -349,11 +326,11 @@ export default function Composer({ initialMode = 'music' }) {
     setHistory([]);
   };
 
-  /** Mejora el prompt actual con reglas locales de producción. */
+  /** Añade el BPM elegido. No reescribe la frase ni mete el género del desplegable. */
   const enhancePrompt = async () => {
-    const base = buildPrompt();
+    const base = prompt.trim();
     if (base.length < 3) {
-      setError('Escribe o elige un género antes de mejorar el prompt');
+      setError('Escribe el prompt antes de mejorarlo');
       return;
     }
     setError(null);
@@ -361,8 +338,6 @@ export default function Composer({ initialMode = 'music' }) {
     try {
       const res = await api.enhancePrompt({ prompt: base, bpm: bpm ?? null });
       setPrompt(res.enhanced);
-      setGenre(null);
-      setMood(null);
       setEnhanceInfo(res);
     } catch (e) {
       setError(e.message);
@@ -377,7 +352,10 @@ export default function Composer({ initialMode = 'music' }) {
     setPrompt(spec.prompt);
     if (spec.bpm) setBpm(spec.bpm);
     if (spec.key_scale) setKey(spec.key_scale);
-    if (spec.duration) setDuration(Math.min(spec.duration, maxDuration));
+    if (spec.duration) {
+      durationTouched.current = true;
+      setDuration(Math.min(spec.duration, maxDuration));
+    }
     const g = GENRES.find((x) => x.tag === spec.genre);
     if (g) setGenre(g.id);
     const m = MOODS.find((x) => x.tag === spec.mood);
@@ -400,16 +378,16 @@ export default function Composer({ initialMode = 'music' }) {
   }, [busy]);
 
   return (
-    <div className="h-full w-full flex px-16 py-10 gap-12">
+    <div className="min-h-full w-full flex flex-col xl:flex-row items-start px-6 py-6 gap-8 xl:px-10">
       {/* ============ CONSOLA ============ */}
-      <section className="flex-1 min-w-0 flex flex-col gap-7 my-auto">
+      <section className="flex-1 min-w-0 flex flex-col gap-6">
         {/* Modo: música / voz + asistente de calidad */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {MODES.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setMode(id)}
-              className={`btn px-4 h-9 ${mode === id ? 'btn-signal' : 'btn-ghost'}`}
+              className={`btn px-4 h-9 btn-ghost ${mode === id ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
             >
               <Icon size={14} /> {label}
             </button>
@@ -420,45 +398,25 @@ export default function Composer({ initialMode = 'music' }) {
           <button onClick={enhancePrompt} disabled={enhancing} className="btn btn-ghost px-4 h-9">
             {enhancing ? <Loader2 size={13} className="animate-spin" /> : <WandSparkles size={13} />} MEJORAR PROMPT
           </button>
-          <span className="ml-auto label">MOTOR {engine.ok ? 'ACTIVO' : engine.checked ? 'APAGADO' : '…'}</span>
+          {engine.checked && !engine.ok && (
+            <span className="ml-auto label st-err">MOTOR APAGADO</span>
+          )}
         </div>
 
-        {/* Opciones: género / mood / bpm / tonalidad (sin caja, filas de consola) */}
-        <div className="flex flex-col gap-5">
-          <div className="flex items-center gap-5">
-            <span className="label w-20 shrink-0">GÉNERO</span>
-            <div className="flex flex-wrap gap-2">
-              {GENRES.map(({ id, tag }) => (
-                <button key={id} onClick={() => setGenre(genre === id ? null : id)}
-                  className={`btn-chip ${genre === id ? 'active' : ''}`}>{tag}</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-5">
-            <span className="label w-20 shrink-0">MOOD</span>
-            <div className="flex flex-wrap gap-2">
-              {MOODS.map(({ id, tag }) => (
-                <button key={id} onClick={() => setMood(mood === id ? null : id)}
-                  className={`btn-chip ${mood === id ? 'active' : ''}`}>{tag}</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-5">
-            <span className="label w-20 shrink-0">BPM</span>
-            <div className="flex flex-wrap gap-2">
-              {BPM_PRESETS.map(({ id, value, tag }) => (
-                <button key={id} onClick={() => setBpm(value)}
-                  className={`btn-chip ${bpm === value ? 'active' : ''}`}>{tag}</button>
-              ))}
-            </div>
-            <span className="label shrink-0 ml-6">TONO</span>
-            <div className="flex flex-wrap gap-2">
-              {KEYS.map(({ id, tag }) => (
-                <button key={id || 'auto'} onClick={() => setKey(id)}
-                  className={`btn-chip ${key === id ? 'active' : ''}`}>{tag}</button>
-              ))}
-            </div>
-          </div>
+        {/* Una línea de desplegables. Las filas de chips llenaban la ventana. */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <SelectBox label="GÉNERO" placeholder="AUTO"
+            options={GENRES.map(({ id, tag }) => ({ id, label: tag }))}
+            value={genre ?? ''} onChange={(id) => setGenre(id || null)} />
+          <SelectBox label="MOOD" placeholder="AUTO"
+            options={MOODS.map(({ id, tag }) => ({ id, label: tag }))}
+            value={mood ?? ''} onChange={(id) => setMood(id || null)} />
+          <SelectBox label="BPM" placeholder="AUTO"
+            options={BPM_PRESETS.filter((p) => p.value != null).map(({ value, tag }) => ({ id: String(value), label: tag }))}
+            value={bpm == null ? '' : String(bpm)} onChange={(id) => setBpm(id ? Number(id) : null)} />
+          <SelectBox label="TONO" placeholder="AUTO"
+            options={KEYS.filter((k) => k.id).map(({ id, tag }) => ({ id, label: tag }))}
+            value={key} onChange={setKey} />
         </div>
 
         {/* Prompt libre + duración + seed */}
@@ -481,15 +439,15 @@ export default function Composer({ initialMode = 'music' }) {
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="label shrink-0">VOZ CANTADA</span>
-                <VocalSelect label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
+                <SelectBox label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
                   onChange={(v) => setVocal({ ...vocal, gender: v })} />
-                <VocalSelect label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
+                <SelectBox label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
                   onChange={(v) => setVocal({ ...vocal, timbre: v })} />
-                <VocalSelect label="CANTADO" options={VOCAL_STYLE} value={vocal.style}
+                <SelectBox label="CANTADO" options={VOCAL_STYLE} value={vocal.style}
                   onChange={(v) => setVocal({ ...vocal, style: v })} />
-                <VocalSelect label="EMOCIÓN" options={VOCAL_EMOTION} value={vocal.emotion}
+                <SelectBox label="EMOCIÓN" options={VOCAL_EMOTION} value={vocal.emotion}
                   onChange={(v) => setVocal({ ...vocal, emotion: v })} />
-                <VocalSelect label="IDIOMA" options={VOCAL_LANGUAGES} value={vocalLang}
+                <SelectBox label="IDIOMA" options={VOCAL_LANGUAGES} value={vocalLang}
                   onChange={setVocalLang} />
                 <button onClick={resetVocal} className="btn btn-ghost h-8 px-2.5"
                   title="Quitar todas las elecciones de voz">
@@ -575,13 +533,13 @@ export default function Composer({ initialMode = 'music' }) {
               placeholder="sin nombre (se guardará como pista-sin-nombre)"
               className="flex-1 min-w-[260px] px-4 py-3 text-[15px] font-semibold bg-transparent outline-none border border-[var(--line-strong)] focus:border-[var(--acc-line)] transition-colors" />
           </div>
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <span className="label shrink-0">DURACIÓN</span>
               <input type="range" min={UI.minDuration} max={maxDuration} step={UI.step}
-                value={duration} onChange={(e) => setDuration(Number(e.target.value))}
+                value={duration} onChange={(e) => { durationTouched.current = true; setDuration(Number(e.target.value)); }}
                 className="flex-1 min-w-0" aria-label="Duración" />
-              <span className="num w-12 text-right">{fmt(duration)}</span>
+              <span className="num min-w-[4.5rem] text-right">{fmt(duration)}</span>
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
               <span className="label">SEMILLA</span>
@@ -597,7 +555,7 @@ export default function Composer({ initialMode = 'music' }) {
               {busy ? <><Loader2 size={14} className="animate-spin" /> CREANDO…</>
                 : <><Play size={13} fill="currentColor" /> GENERAR</>}
             </button>
-            <button onClick={generateVariations} disabled={!canGenerate} title="Misma idea, 2 semillas distintas, se comparan en la cola"
+            <button onClick={generateVariations} disabled={!canGenerate} title="Misma idea, dos semillas. La segunda empieza cuando termina la primera."
               className="btn btn-ghost px-4 h-10 shrink-0">
               <Layers size={13} /> VARIAR
             </button>
@@ -682,9 +640,7 @@ export default function Composer({ initialMode = 'music' }) {
             </div>
           </div>
         )}
-        {!engine.checked && (
-          <p className="mono text-[11px] text-[var(--muted)] animate-pulse py-2">SYNC CON MOTOR LOCAL…</p>
-        )}
+
       </section>
 
       {wizardOpen && (
@@ -692,7 +648,7 @@ export default function Composer({ initialMode = 'music' }) {
       )}
 
       {/* ============ SESIÓN ============ */}
-      <aside className="w-[360px] shrink-0 flex flex-col min-h-0 self-center max-h-full">
+      <aside className="w-full xl:w-[280px] xl:shrink-0 flex flex-col min-h-0 xl:sticky xl:top-0 xl:max-h-[calc(100vh-7rem)]">
         <div className="flex items-center justify-between pb-4 border-b border-[var(--line)]">
           <span className="label">SESIÓN · {history.length}</span>
           {history.length > 0 && (

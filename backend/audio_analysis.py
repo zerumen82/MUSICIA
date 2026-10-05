@@ -145,8 +145,9 @@ def detect_groove(path: Path) -> dict:
     if phase_frames > period_int / 2:  # cerca de 0: mejor al inicio
         phase_frames -= period_int
 
-    # Refinado decimal del tempo sobre el pico elegido.
-    bpm = _refine_peak(scores, fps) or (60.0 * fps / chosen_lag)
+    # El pico global suele ser el compás (42 bpm), no el golpe. El refinado
+    # tiene que partir del lag que ya eligió la corrección de octava.
+    bpm = _refine_peak(scores, fps, chosen_lag) or (60.0 * fps / chosen_lag)
 
     strength = (max(bins) - sum(bins) / len(bins)) / (max(bins) or 1)
     return {
@@ -173,11 +174,13 @@ def _autocorr_scores(onset: list[float], fps: float, bpm_guess: int) -> list[tup
     return scores
 
 
-def _refine_peak(scores: list[tuple[int, float]], fps: float) -> float | None:
-    """BPM decimal por interpolación parabólica del pico de autocorrelación."""
+def _refine_peak(scores: list[tuple[int, float]], fps: float, chosen_lag: int) -> float | None:
+    """BPM decimal por interpolación parabólica alrededor del lag ya elegido."""
     if not scores:
         return None
-    peak_index = max(range(len(scores)), key=lambda i: scores[i][1])
+    peak_index = next((i for i, (lag, _) in enumerate(scores) if lag == chosen_lag), None)
+    if peak_index is None:
+        peak_index = max(range(len(scores)), key=lambda i: scores[i][1])
     y0 = scores[peak_index - 1][1] if peak_index > 0 else scores[peak_index][1]
     y1 = scores[peak_index][1]
     y2 = scores[peak_index + 1][1] if peak_index + 1 < len(scores) else y1

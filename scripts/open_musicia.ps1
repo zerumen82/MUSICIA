@@ -17,34 +17,19 @@ function Test-Endpoint([string]$url) {
     catch { return $false }
 }
 
-# 1. Motor
-if (-not (Test-Endpoint 'http://127.0.0.1:8001/health')) {
-    Write-Host "[motor] arrancando ACE-Step..." -NoNewline
-    Start-Process -FilePath (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
-        -ArgumentList '-m', 'acestep.api_server' `
-        -WorkingDirectory (Join-Path $raiz 'vendor\ACE-Step-1.5') `
-        -RedirectStandardOutput (Join-Path $logs 'acestep-api.log') `
-        -RedirectStandardError (Join-Path $logs 'acestep-api.err.log') `
-        -WindowStyle Hidden | Out-Null
-    $limite = (Get-Date).AddMinutes(4)
-    while (-not (Test-Endpoint 'http://127.0.0.1:8001/health') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 5 }
-}
-if (Test-Endpoint 'http://127.0.0.1:8001/health') { Write-Host " listo" }
+# 1 y 2. Motor y API. Si ya están, no se tocan. Si no están, se arrancan.
+# -Rearme borra la marca de SALIR: abrir la ventana siempre los vuelve a dejar en marcha.
+Write-Host "[stack] comprobando motor y API..."
+& (Join-Path $PSScriptRoot 'ensure_local.ps1') -Rearme
+
+$limite = (Get-Date).AddMinutes(4)
+while (-not (Test-Endpoint 'http://127.0.0.1:8001/health') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 5 }
+if (Test-Endpoint 'http://127.0.0.1:8001/health') { Write-Host "[motor] listo" }
 else { Write-Warning "el motor no responde; la app abrira pero no podra generar" }
 
-# 2. API + UI
-if (-not (Test-Endpoint 'http://127.0.0.1:8000/health')) {
-    Write-Host "[api] arrancando Musicia..." -NoNewline
-    Start-Process -FilePath (Join-Path $raiz 'backend\venv\Scripts\python.exe') `
-        -ArgumentList 'backend\main.py' `
-        -WorkingDirectory $raiz `
-        -RedirectStandardOutput (Join-Path $logs 'musicia-api.log') `
-        -RedirectStandardError (Join-Path $logs 'musicia-api.err.log') `
-        -WindowStyle Hidden | Out-Null
-    $limite = (Get-Date).AddSeconds(45)
-    while (-not (Test-Endpoint 'http://127.0.0.1:8000/') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 2 }
-}
-if (Test-Endpoint 'http://127.0.0.1:8000/') { Write-Host " listo" }
+$limite = (Get-Date).AddSeconds(45)
+while (-not (Test-Endpoint 'http://127.0.0.1:8000/') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 2 }
+if (Test-Endpoint 'http://127.0.0.1:8000/') { Write-Host "[api] listo" }
 else { Write-Warning "la API no responde; revisa logs\musicia-api.err.log" }
 
 # 3. Ventana
@@ -61,4 +46,4 @@ Start-Process -FilePath $electronExe `
     -WorkingDirectory (Join-Path $raiz 'frontend') | Out-Null
 # Nota: frontend/main.cjs es el proceso principal de Electron (CommonJS,
 # requerido por "type": "module" del package.json).
-Write-Host "Musicia abierta. Cierra la ventana para salir (los servicios quedan en segundo plano)."
+Write-Host "Musicia abierta. La X deja la ventana en la bandeja. SALIR apaga motor y API."

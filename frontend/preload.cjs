@@ -1,10 +1,10 @@
 /**
  * Puente seguro entre la UI y Electron (contextIsolation activa).
- * Solo expone lo mínimo: pedir el cierre de la app con una acción concreta.
+ * Solo expone el cierre. Cualquier llamada apaga motor y API: no hay
+ * diálogo ni opción de dejarlos encendidos.
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('musica', {
-  /** action: 'stop-all' | 'keep' | 'ask' */
   exit: (action) => ipcRenderer.invoke('musica:exit', action),
 });

@@ -33,13 +33,21 @@
 |--------|------|---------|
 | GET | `/api/info` | metadatos del servicio |
 | GET | `/health` | estado real del motor |
-| GET | `/music/config` | defaults y límites (el frontend NO los inventa) |
+| GET | `/music/config` | defaults y límites (el frontend NO los invente) |
+| GET | `/music/models` | modelo cargado y los permitidos en 8 GB; no cambia el modelo |
 | POST | `/music/generate` | crea job → `{job_id, status_url}` |
 | GET | `/music/status/{job_id}` | estado + `audio_url` cuando succeed |
 | GET | `/music/audio/{name}` | MP3 generado |
 | POST | `/tts/generate` | texto → voz |
 | GET | `/voices` | voces disponibles |
-| POST | `/audio/mix` | mezcla de dos pistas |
+| POST | `/audio/mix` | mezcla: cuadre opcional + loudnorm -14 LUFS |
+| POST | `/audio/mix/plan` | plan de cuadre (o null si no es seguro) |
+| POST | `/audio/separate` | arranca voces y base; responde `{job_id}` |
+| GET | `/audio/separate/{job_id}` | estado de esa separación |
+| GET | `/audio/separate/status` | si el venv de demucs está instalado |
+| POST | `/audio/remix/ai` | bootleg: separar → generar → cuadrar → mezclar |
+| POST | `/music/write_lyrics` | letra vía `/format_input` del motor |
+| PATCH | `/music/audio/{name}` | renombrar en outputs/ o uploads/ |
 | `/` | mount estático | UI de `frontend/dist` |
 
 ### Frontend ↔ Backend
@@ -54,8 +62,11 @@
 |--------|----------------|---------|
 | `config.py` | cargar/validar configuración (defaults → JSON → env) | lógica de negocio |
 | `music_service.py` | hablar con el motor + verificar audio | servir HTTP |
-| `tts_service.py` | edge-tts | - |
-| `mixer_service.py` | pydub/ffmpeg | - |
+| `tts_service.py` | locución edge-tts (red) | canto (eso es ACE-Step) |
+| `mixer_service.py` | ffmpeg: atempo, adelay, loudnorm, loop, tempo, crossfade | generación musical |
+| `separator_service.py` | demucs en `backend/demucs-venv` | mezclar |
+| `audio_analysis.py` | BPM, fase, picos (pydub) | escribir archivos de mezcla |
+| `prompt_enhancer.py` | enriquece el prompt; el BPM entra una sola vez | llamar al motor |
 | `main.py` | rutas HTTP, jobs, estáticos | lógica de generación |
 
 ## Módulos frontend
@@ -65,9 +76,12 @@
 | `src/api.js` | cliente HTTP único |
 | `src/App.jsx` | shell + navegación |
 | `src/components/Composer.jsx` | crear música + historial (localStorage) |
-| `src/components/VoiceLab.jsx` | texto a voz |
-| `src/components/Sequencer.jsx` | batería (Tone.js; samples remotos — R4: declarado) |
-| `src/components/Mixer.jsx` | mezclador visual (aún sin conexión al backend — ver 03) |
+| `src/components/VoiceLab.jsx` | retirada el 2026-10-02 (locución, no canto) |
+| `src/components/Sequencer.jsx` | retirado de la navegación (T2: si vuelve, samples locales) |
+| `src/components/MixLab.jsx` | mezcla real (pestaña MEZCLA) |
+| `src/components/RemixActions.jsx` | remixer de bootlegs, una línea |
+| `src/vocal.js` | etiquetas de voz cantada y estructura de la letra |
+| `Mixer.jsx` | código viejo, no montado. La pestaña usa MixLab |
 
 ## Decisiones de arquitectura registradas
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Play, Pause, Loader2, AlertTriangle, Download, Layers, Scissors, AlignLeft, Check,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, isTransportBlip } from '../api';
 import SelectBox from './SelectBox';
 
 /**
@@ -21,6 +21,7 @@ export default function MixLab() {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [plan, setPlan] = useState(null);        // propuesta de cuadre
+  const [arrange, setArrange] = useState(null);  // trozos, si la base es más larga
   const [planNote, setPlanNote] = useState(null);
   const [planning, setPlanning] = useState(false);
   const [align, setAlign] = useState('si');      // si | no  (decidir antes de mezclar)
@@ -30,6 +31,8 @@ export default function MixLab() {
   const [stems, setStems] = useState(null);      // {vocals, base}
   const [fadeTracks, setFadeTracks] = useState([]); // crossfade: 2+ pistas
   const [fading, setFading] = useState(false);
+  const [fadeNote, setFadeNote] = useState(null);
+  const [mixName, setMixName] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -38,7 +41,7 @@ export default function MixLab() {
       setUploads(ups.items ?? []);
       setSeparator(sep);
     } catch (e) {
-      setError(e.message);
+      if (!isTransportBlip(e.message)) setError(e.message);
     }
   }, []);
 
@@ -48,12 +51,12 @@ export default function MixLab() {
 
   // Al elegir base y voz se pide la propuesta de cuadre (no se mezcla nada).
   useEffect(() => {
-    if (!base || !vocal) { setPlan(null); setPlanNote(null); return undefined; }
+    if (!base || !vocal) { setPlan(null); setArrange(null); setPlanNote(null); return undefined; }
     let active = true;
     setPlanning(true);
     api.mixPlan({ base_track: base, vocal_track: vocal })
-      .then((d) => { if (active) { setPlan(d.plan); setPlanNote(d.explanation); } })
-      .catch((e) => { if (active) { setPlan(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
+      .then((d) => { if (active) { setPlan(d.plan); setArrange(d.arrange ?? null); setPlanNote(d.explanation); } })
+      .catch((e) => { if (active) { setPlan(null); setArrange(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
       .finally(() => { if (active) setPlanning(false); });
     return () => { active = false; };
   }, [base, vocal]);
@@ -66,7 +69,7 @@ export default function MixLab() {
       const res = await api.mixTracks({
         base_track: base,
         vocal_track: vocal,
-        output_name: `mix-${Date.now()}`,
+        output_name: mixName.trim() ? mixName.trim() : null,
         base_volume: baseVol,
         vocal_volume: vocalVol,
         align: align === 'si',
@@ -97,7 +100,14 @@ export default function MixLab() {
     }
   };
 
-  const trackOptions = (items) => items.map((i) => ({ id: i.name, label: i.name, title: i.name }));
+  const trackOptions = () => {
+    const libNames = new Set(library.map((i) => i.name));
+    const fromLib = library.map((i) => ({ id: i.name, label: `${i.name} · bib`, title: `biblioteca · ${i.name}` }));
+    const fromUp = uploads
+      .filter((i) => !libNames.has(i.name))
+      .map((i) => ({ id: i.name, label: `${i.name} · sub`, title: `subida · ${i.name}` }));
+    return [...fromLib, ...fromUp];
+  };
 
   const toggleFadeTrack = (name) => {
     setFadeTracks((prev) => (prev.includes(name)
@@ -109,7 +119,8 @@ export default function MixLab() {
     setError(null);
     setFading(true);
     try {
-      const res = await api.crossfade({ tracks: fadeTracks, fade_seconds: 4 });
+      const res = await api.crossfade({ tracks: fadeTracks });
+      setFadeNote(res.note ?? null);
       setResult(res.file_name);
       await refresh();
     } catch (e) {
@@ -125,10 +136,10 @@ export default function MixLab() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-[1300px] mx-auto w-full px-16 py-12 flex flex-col gap-5">
+      <div className="max-w-[1300px] mx-auto w-full px-6 py-8 xl:px-10 flex flex-col gap-5">
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">MEZCLA</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">cuadra la batería, iguala el volumen y separa la voz</span>
+          <span className="mono text-[12px] text-[var(--faint)]">si la base es más larga, la voz se corta en trozos y se reparte</span>
         </div>
 
         {error && (
@@ -139,10 +150,12 @@ export default function MixLab() {
 
         {/* TODO EN UNA LÍNEA */}
         <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
-          <SelectBox label="BASE" options={trackOptions(library.length ? library : uploads)} value={base}
+          <SelectBox label="BASE" options={trackOptions()} value={base}
             onChange={setBase} placeholder="elige la base" />
-          <SelectBox label="VOZ" options={trackOptions(uploads.length ? uploads : library)} value={vocal}
-            onChange={setVocal} placeholder="elige la voz" />
+          <SelectBox label="VOZ" options={trackOptions()} value={vocal}
+            onChange={setVocal} placeholder="elige la voz cantada" />
+          <input value={mixName} onChange={(e) => setMixName(e.target.value)} placeholder="nombre del mp3" aria-label="Nombre de la mezcla"
+            className="px-2 py-1.5 w-36 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
 
           <div className="flex items-center gap-2">
             <span className="label">BASE</span>
@@ -157,9 +170,9 @@ export default function MixLab() {
             <span className="num w-12 text-right">{vocalVol > 0 ? '+' : ''}{vocalVol}</span>
           </div>
 
-          <SelectBox options={ALIGN_OPTIONS} value={align} onChange={setAlign} />
+          <SelectBox options={ALIGN_OPTIONS} value={align} onChange={setAlign} clearable={false} />
           <button onClick={() => setNormalize((v) => !v)}
-            className={`btn h-8 px-2.5 gap-1.5 ${normalize ? 'btn-signal' : 'btn-ghost'}`}
+            className={`btn btn-ghost h-8 px-2.5 gap-1.5 ${normalize ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
             title="Normaliza el volumen final a -14 LUFS con pico máximo -1 dBTP">
             {normalize ? <Check size={12} /> : null} -14 LUFS
           </button>
@@ -194,20 +207,31 @@ export default function MixLab() {
         </div>
 
         {/* CROSSFADE: marca 2+ pistas y las funde (estilo DJ) */}
-        <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
-          <span className="label shrink-0">CROSSFADE</span>
-          {[...library, ...uploads].slice(0, 12).map((item) => (
-            <button key={item.name} onClick={() => toggleFadeTrack(item.name)}
-              className={`btn h-7 px-2 ${fadeTracks.includes(item.name) ? 'btn-signal' : 'btn-ghost'}`}
-              title={item.name}>
-              <span className="mono text-[10.5px]">{item.name.replace(/\.[^.]+$/, '').slice(0, 22)}</span>
-            </button>
-          ))}
+        <div className="flex items-start gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
+          <span className="label shrink-0 pt-2">FUNDIR</span>
+          <div className="flex flex-wrap gap-2 flex-1 min-w-0 max-h-28 overflow-y-auto">
+            {(() => {
+              const seen = new Set();
+              return [...library, ...uploads].filter((item) => {
+                if (seen.has(item.name)) return false;
+                seen.add(item.name);
+                return true;
+              });
+            })().map((item) => (
+              <button key={item.name} onClick={() => toggleFadeTrack(item.name)}
+                className={`btn btn-ghost h-7 px-2 ${fadeTracks.includes(item.name) ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+                title={item.name}>
+                <span className="mono text-[10.5px]">{item.name.replace(/\.[^.]+$/, '').slice(0, 28)}</span>
+              </button>
+            ))}
+          </div>
           <button onClick={doCrossfade} disabled={fadeTracks.length < 2 || fading}
             className="btn btn-signal h-8 px-4 ml-auto">
             {fading ? <><Loader2 size={13} className="animate-spin" /> FUNDIENDO…</>
               : <><Play size={12} /> FUNDIR {fadeTracks.length || ''}</>}
           </button>
+          <span className="mono text-[10px] text-[var(--faint)] basis-full">Iguala el tempo solo si el ajuste es pequeño. Si no, la pista se queda a su tempo.</span>
+          {fadeNote && <span className="mono text-[10px] text-[var(--muted)] basis-full">{fadeNote}</span>}
         </div>
 
         {/* Lo que se va a hacer (transparencia antes de mezclar) */}
@@ -215,9 +239,15 @@ export default function MixLab() {
             <div className="flex items-start gap-2 border-l-2 border-[var(--acc-line)] pl-4 py-1">
               <AlignLeft size={13} className="text-[var(--acc)] mt-0.5 shrink-0" />
               <div>
-                <span className="label">{align === 'si' ? 'SE VA A CUADRAR ASÍ' : 'NO SE CUADRA'}</span>
+                <span className="label">{arrange ? 'SE COLOCAN LOS TROZOS' : align === 'si' ? 'SE VA A CUADRAR ASÍ' : 'NO SE CUADRA'}</span>
                 <p className="mono text-[10.5px] text-[var(--muted)] leading-relaxed">{planNote}</p>
-                {plan && (
+                {arrange && (
+                  <p className="mono text-[10px] text-[var(--faint)] mt-1">
+                    {arrange.pieces} trozos · voz {Math.round(arrange.vocal_seconds)} s · base {Math.round(arrange.base_seconds)} s ·
+                    {' '}de {arrange.first_at} s a {arrange.last_at} s
+                  </p>
+                )}
+                {plan && !arrange && (
                   <p className="mono text-[10px] text-[var(--faint)] mt-1">
                     tempo ×{plan.tempo_ratio.toFixed(3)} · desfase {plan.delay_ms > 0 ? '+' : ''}{plan.delay_ms} ms ·
                     {' '}compás {plan.period_ms} ms · seguridad groove {Math.round((plan.base_confidence ?? 0) * 100)}%

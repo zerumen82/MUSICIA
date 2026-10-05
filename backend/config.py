@@ -44,7 +44,11 @@ class AcestepSettings:
     models_path: str = "/v1/models"
     format_input_path: str = "/format_input"
     request_timeout: float = 60.0
+    # El sondeo de la pastilla no puede esperar lo mismo que una generación.
+    health_timeout: float = 3.0
     poll_interval: float = 3.0
+    # Cortes seguidos del sondeo. Si el motor sigue vivo, se sigue esperando.
+    poll_max_misses: int = 8
     job_timeout: float = 1800.0
     api_key: str | None = None
 
@@ -61,7 +65,7 @@ class GenerationDefaults:
     bpm: int | None = None
     key_scale: str = ""
     time_signature: str = ""
-    language: str = "en"
+    language: str = "es"
     inference_steps: int = 8
     guidance_scale: float = 7.0
     seed: int = -1
@@ -69,12 +73,29 @@ class GenerationDefaults:
     batch_size: int = 1
     audio_format: str = "mp3"
     model: str = "acestep-v15-turbo"
+    # Uno solo residente. El XL pide 12 GB y el base no está medido en 8 GB.
+    allowed_models: tuple[str, ...] = ("acestep-v15-turbo",)
     lm_model: str = "acestep-5Hz-lm-0.6B"
     lm_backend: str = "pt"
     thinking: bool = True
     use_lm: bool = True
     infer_method: str = "ode"
     task_type: str = "text2music"
+    # Solo estas tareas caben en el turbo de 8 GB. lego/extract/complete
+    # exigen el modelo base y no se ofrecen.
+    allowed_tasks: tuple[str, ...] = ("text2music", "cover", "repaint")
+    # 1.0 copia la forma; valores más bajos cambian más el estilo.
+    cover_strength: float = 0.6
+    # Voz real + base nueva. 0.2 es la transferencia de estilo del motor:
+    # el prompt manda y la melodía del instrumental de origen sirve de guía.
+    remix_cover_strength: float = 0.2
+    # El prompt dice "sin melodías": fuerza baja para que el caption gane y
+    # la melodía original se pierda (el motor: a menor fuerza, más libertad).
+    # Sin medir en GPU: el job lo registra para poder ajustarlo con datos.
+    remix_cover_strength_no_melody: float = 0.1
+    # El prompt dice "melodías como la original": fuerza alta para que el
+    # audio de origen pese más. Solo vale en el camino cover (misma duración).
+    remix_cover_strength_like_original: float = 0.5
     max_duration_seconds: float = 600.0
     instrumental_marker: str = "[instrumental]"
     max_slug_chars: int = 40
@@ -92,6 +113,19 @@ class MixerSettings:
     default_output_name: str = "mixed_output.mp3"
     min_gain_db: float = -60.0
     max_gain_db: float = 12.0
+    # LOOP DE 4 COMPASES. Cuatro compases de 4/4 son 16 golpes, desde el primer golpe.
+    loop_bars: int = 4
+    beats_per_bar: int = 4
+    # Arreglo automático: si la voz dura menos que este tanto de la base,
+    # se corta en frases y se reparte. No se estira.
+    arrange_shorter_than: float = 0.85
+    vocal_silence_db: float = -36.0
+    vocal_min_silence_s: float = 0.28
+    vocal_min_phrase_s: float = 0.45
+    vocal_frame_ms: int = 20
+    vocal_slice_fade_s: float = 0.02
+    max_vocal_phrases: int = 24
+    fallback_bar_seconds: float = 2.0
 
 
 @dataclass

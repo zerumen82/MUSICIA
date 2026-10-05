@@ -2,8 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Shuffle, Sparkles, Pencil, Check,
 } from 'lucide-react';
-import { api, API_BASE_URL } from '../api';
-import RemixPanel from './RemixPanel';
+import { api, API_BASE_URL, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
@@ -26,6 +25,7 @@ export default function Library() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [renameName, setRenameName] = useState(null); // item en renombrado
   const [renameValue, setRenameValue] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [processing, setProcessing] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -34,7 +34,7 @@ export default function Library() {
       const data = await api.library();
       setItems(data.items ?? []);
     } catch (e) {
-      setError(e.message);
+      if (!isTransportBlip(e.message)) setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -50,7 +50,7 @@ export default function Library() {
     if (!next || next === oldName) return;
     setError(null);
     try {
-      await api.renameAudio(oldName, next);
+      await api.renameAudio(oldName, next, 'output');
       if (playing === oldName) setPlaying(null);
       await refresh();
     } catch (e) {
@@ -59,23 +59,30 @@ export default function Library() {
   };
 
   // Re-creación IA de una pista de la biblioteca: mismo panel que en SUBIR.
-  const runIAFromLibrary = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null } = {}) => {
+  const runIAFromLibrary = async ({ prompt, seed = null, name = null, lyrics = null, bpm = null, source_kind = null } = {}) => {
     setError(null);
     setIaBusy(true);
     setIaNote(null);
     const letra = lyrics ? structureLyric(lyrics) : null;
     try {
-      const created = await api.generateMusic({
-        prompt: (prompt ?? '').trim() || 'pieza musical inspirada en una referencia con carácter similar',
+      const text = (prompt ?? '').trim();
+      if (!text) {
+        setError('Escribe un prompt antes de la versión');
+        setIaBusy(false);
+        return;
+      }
+      await api.generateMusic({
+        prompt: text,
         instrumental: !letra,
         lyrics: letra,
-        duration_seconds: Math.min(Math.max(duration_seconds ?? 30, 10), 240),
         bpm: bpm ?? null,
-        language: letra ? 'es' : null,
         seed,
         output_name: name,
+        source_name: iaName,
+        source_kind: source_kind ?? 'output',
+        task_type: 'cover',
       });
-      setIaNote(`Versión lanzada (tarea ${created.job_id}). Mira el progreso en CREAR; al terminar estará aquí.`);
+      setIaNote('Versión lanzada sobre esta pista. El progreso está en la barra de arriba.');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -128,7 +135,7 @@ export default function Library() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-[1300px] mx-auto w-full px-16 py-12 flex flex-col gap-6">
+      <div className="max-w-[1300px] mx-auto w-full px-6 py-8 xl:px-10 flex flex-col gap-6">
         {/* Cabecera */}
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">BIBLIOTECA</h2>
@@ -153,53 +160,71 @@ export default function Library() {
         <div className="flex flex-col">
           {items.map((item) => (
             <div key={item.name} className="border-b border-[var(--line)]">
-              <div className={`flex items-center gap-5 py-4 px-4 transition-colors ${playing === item.name ? 'bg-[var(--acc-dim)]' : 'hover:bg-[var(--surface-2)]'}`}>
-                <button onClick={() => toggle(item.name)}
-                  className={`w-11 h-11 rounded-[4px] flex items-center justify-center shrink-0 border ${playing === item.name ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)] hover:border-[var(--faint)]'}`}>
-                  {playing === item.name ? <Pause size={15} className="text-[#0c0f04]" fill="currentColor" />
-                    : <Play size={15} className="text-[var(--muted)]" fill="currentColor" />}
-                </button>
-                {renameName === item.name ? (
-                  <>
-                    <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void commitRename(item.name);
-                        if (e.key === 'Escape') setRenameName(null);
-                      }}
-                      className="px-3 py-1.5 text-[13px] mono bg-transparent outline-none border border-[var(--acc-line)] flex-1 min-w-0" />
-                    <button onClick={() => void commitRename(item.name)} className="btn btn-signal h-8 px-2.5 shrink-0">
-                      <Check size={11} /> GUARDAR
+              <div className={`flex flex-col gap-2 py-3 px-2 ${playing === item.name ? 'bg-[var(--acc-dim)]' : ''}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <button onClick={() => toggle(item.name)}
+                    className={`w-11 h-11 rounded-[4px] flex items-center justify-center shrink-0 border ${playing === item.name ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)] hover:border-[var(--faint)]'}`}>
+                    {playing === item.name ? <Pause size={15} className="text-[#0c0f04]" fill="currentColor" />
+                      : <Play size={15} className="text-[var(--muted)]" fill="currentColor" />}
+                  </button>
+                  {renameName === item.name ? (
+                    <>
+                      <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void commitRename(item.name);
+                          if (e.key === 'Escape') setRenameName(null);
+                        }}
+                        className="px-3 py-1.5 text-[13px] mono bg-transparent outline-none border border-[var(--acc-line)] flex-1 min-w-0" />
+                      <button onClick={() => void commitRename(item.name)} className="btn btn-signal h-8 px-2.5 shrink-0">
+                        <Check size={11} /> GUARDAR
+                      </button>
+                      <button onClick={() => setRenameName(null)} className="btn btn-ghost h-8 px-2.5 shrink-0">CANCELAR</button>
+                    </>
+                  ) : (
+                    <span className="min-w-0 flex-1">
+                      <span className="mono text-[13.5px] text-zinc-200 truncate block">{item.name.replace(/\.mp3$/i, '')}</span>
+                      <span className="mono text-[10px] text-[var(--faint)] truncate block">
+                        {[fmtBytes(item.size_bytes), fmtDate(item.modified), item.bpm ? `${item.bpm} bpm` : null, item.task_type, item.prompt].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {renameName !== item.name && (
+                  <div className="flex flex-wrap gap-2 pl-14">
+                    <button onClick={() => { setEditName(null); setIaName(null); setConfirmDelete(null); setRemixName(remixName === item.name ? null : item.name); }}
+                      className={`btn h-8 px-2.5 ${remixName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
+                      <Shuffle size={12} /> REMIX
                     </button>
-                    <button onClick={() => setRenameName(null)} className="btn btn-ghost h-8 px-2.5 shrink-0">CANCELAR</button>
-                  </>
-                ) : (
-                  <>
-                    <span className="mono text-[13.5px] text-zinc-200 truncate flex-1 min-w-0">{item.name}</span>
+                    <button onClick={() => { setEditName(null); setRemixName(null); setConfirmDelete(null); setIaName(iaName === item.name ? null : item.name); }}
+                      className={`btn h-8 px-2.5 ${iaName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
+                      <Sparkles size={12} /> VERSIÓN
+                    </button>
+                    <button onClick={() => { setRemixName(null); setIaName(null); setConfirmDelete(null); openEditor(item.name); }}
+                      className={`btn h-8 px-2.5 ${editName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
+                      <SlidersHorizontal size={12} /> AJUSTES
+                    </button>
                     <button onClick={() => { setRenameValue(item.name.replace(/\.[^.]+$/, '')); setRenameName(item.name); }}
-                      className="btn btn-ghost h-8 px-2.5 shrink-0" title="Cambiar nombre">
-                      <Pencil size={12} />
+                      className="btn btn-ghost h-8 px-2.5">
+                      <Pencil size={12} /> NOMBRE
                     </button>
-                  </>
+                    <a href={`${API_BASE_URL}/music/audio/${encodeURIComponent(item.name)}`} download className="btn btn-ghost h-8 px-2.5">
+                      <Download size={12} /> BAJAR
+                    </a>
+                    {confirmDelete === item.name ? (
+                      <>
+                        <button onClick={() => { setConfirmDelete(null); void remove(item.name); }}
+                          className="btn btn-ghost h-8 px-2.5 !border-[rgba(255,92,92,0.5)] !text-red-300">
+                          SÍ, BORRAR
+                        </button>
+                        <button onClick={() => setConfirmDelete(null)} className="btn btn-ghost h-8 px-2.5">NO</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-8 px-2.5 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300">
+                        <Trash2 size={12} /> BORRAR
+                      </button>
+                    )}
+                  </div>
                 )}
-                <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
-                <span className="mono text-[10px] text-[var(--faint)] shrink-0 hidden md:block">{fmtDate(item.modified)}</span>
-                <button onClick={() => { setEditName(null); setIaName(null); setRemixName(remixName === item.name ? null : item.name); }}
-                  className={`btn h-8 px-2.5 shrink-0 ${remixName === item.name ? 'btn-signal' : 'btn-ghost'}`} title="Remix">
-                  <Shuffle size={12} />
-                </button>
-                <button onClick={() => { setEditName(null); setRemixName(null); setIaName(iaName === item.name ? null : item.name); }}
-                  className={`btn h-8 px-2.5 shrink-0 ${iaName === item.name ? 'btn-signal' : 'btn-ghost'}`} title="Otra versión con IA">
-                  <Sparkles size={12} />
-                </button>
-                <button onClick={() => { setRemixName(null); openEditor(item.name); }} className="btn btn-ghost h-8 px-2.5 shrink-0" title="Ajustes">
-                  <SlidersHorizontal size={12} />
-                </button>
-                <a href={`${API_BASE_URL}/music/audio/${encodeURIComponent(item.name)}`} download className="btn btn-ghost h-8 px-2.5 shrink-0" title="Descargar">
-                  <Download size={12} />
-                </a>
-                <button onClick={() => remove(item.name)} className="btn btn-ghost h-8 px-2.5 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300" title="Borrar">
-                  <Trash2 size={12} />
-                </button>
               </div>
 
               {/* Reproductor inline */}
@@ -214,30 +239,15 @@ export default function Library() {
               {iaName === item.name && (
                 <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
                   <span className="label block mb-1">OTRA VERSIÓN CON IA · {item.name}</span>
-                  <RemixIAPanel fileName={item.name} kind="musica"
+                  <RemixIAPanel fileName={item.name} kind="musica" sourceKind="output"
                     onLaunch={runIAFromLibrary} generating={iaBusy} jobNote={iaName === item.name ? iaNote : null} />
                 </div>
               )}
 
               {/* Remix de esta pista (encadenable: el resultado vuelve a la biblioteca) */}
               {remixName === item.name && (
-                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)] flex flex-col gap-4">
-                  <div>
-                    <span className="label block mb-1">REMIX · {item.name}</span>
-                    <RemixPanel
-                      fileName={item.name}
-                      onRun={async (params) => {
-                        setError(null);
-                        try {
-                          await api.remix({ file_name: item.name, ...params });
-                          await refresh();
-                        } catch (e) {
-                          setError(e.message);
-                        }
-                      }}
-                    />
-                  </div>
-                  <RemixActions fileName={item.name} onDone={() => refresh()} />
+                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
+                  <RemixActions fileName={item.name} ficha={item} sourceKind="output" onDone={() => refresh()} />
                 </div>
               )}
 

@@ -12,6 +12,31 @@ export const API_BASE_URL =
 /** Cadencia de consulta del estado de una generación (ms). */
 export const JOB_POLL_INTERVAL_MS = 3000
 
+/** Cortes seguidos del sondeo antes de dar el trabajo local por perdido. */
+export const JOB_POLL_MAX_MISSES = 5
+
+/**
+ * Tope del chequeo de la pastilla. Tiene que ser mayor que
+ * `acestep.health_timeout` (3 s): así un motor apagado contesta
+ * "no está" y un silencio de la API no se confunde con eso.
+ */
+export const HEALTH_PROBE_MS = 8000
+
+/**
+ * El envío espera a la API, y la API espera al motor hasta request_timeout (60 s).
+ * Tiene que ser mayor que esos 60 s: si no, axios corta antes y enseña su texto.
+ */
+export const GENERATE_SUBMIT_TIMEOUT_MS = 90000
+
+/**
+ * Corte de red o de tiempo. No es un fallo del trabajo: la pantalla no lo pinta.
+ * Axios dice «timeout of 30000ms exceeded» cuando su reloj acaba antes que la API.
+ */
+export const isTransportBlip = (message) =>
+  /no responde|respuesta ilegible|timeout of \d+ms exceeded|timeout exceeded|tardó demasiado|Network Error|ECONNABORTED|ECONNREFUSED/i.test(message ?? '')
+
+export const isEnginePollBlip = isTransportBlip
+
 const client = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 
 /**
@@ -29,16 +54,24 @@ const slowClient = axios.create({ baseURL: API_BASE_URL, timeout: STUDIO_TIMEOUT
 const describeError = (error) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === 'string') return detail
-  return error?.message ?? 'Error desconocido'
+  const message = error?.message ?? ''
+  if (!error?.response && /timeout/i.test(message)) return 'La API tardó demasiado en contestar.'
+  if (!error?.response && /Network Error|ECONNREFUSED|ECONNABORTED/i.test(message)) return 'La API no contesta.'
+  return message || 'Error desconocido'
 }
 
 export const api = {
   engineHealth: async () => {
     try {
-      const { data } = await client.get('/health')
+      const { data } = await client.get('/health', { timeout: HEALTH_PROBE_MS })
       return data
     } catch (error) {
-      return { api: 'error', engine: { reachable: false, error: describeError(error) } }
+      // Sin respuesta HTTP la API no ha dicho que el motor esté apagado.
+      const noAnswer = !error?.response
+      return {
+        api: 'error',
+        engine: { reachable: false, unknown: noAnswer, error: describeError(error) },
+      }
     }
   },
 
@@ -47,9 +80,19 @@ export const api = {
     return data
   },
 
+  /** Modelo residente. No cambia el que está en la GPU. */
+  musicModels: async () => {
+    try {
+      const { data } = await client.get('/music/models', { timeout: HEALTH_PROBE_MS })
+      return data
+    } catch {
+      return null
+    }
+  },
+
   generateMusic: async (payload) => {
     try {
-      const { data } = await client.post('/music/generate', payload)
+      const { data } = await client.post('/music/generate', payload, { timeout: GENERATE_SUBMIT_TIMEOUT_MS })
       return data
     } catch (error) {
       throw new Error(describeError(error))
@@ -86,12 +129,34 @@ export const api = {
     }
   },
 
-  /** Extrae voces y base de una pista (motor local; tarda minutos). */
-  separate: async (payload) => {
+  /** Extrae voces y base. La API responde al momento y este cliente espera el job. */
+  separate: async (payload, onUpdate) => {
     try {
-      const { data } = await slowClient.post('/audio/separate', payload)
-      return data
+      const { data: started } = await client.post('/audio/separate', payload)
+      const jobId = started.job_id
+      let misses = 0
+      for (;;) {
+        try {
+          const { data: job } = await client.get(`/audio/separate/${jobId}`)
+          misses = 0
+          if (typeof onUpdate === 'function') onUpdate(job)
+          if (job.status === 'succeeded') return job
+          if (job.status === 'failed') {
+            const failed = new Error(job.error ?? 'La separación falló')
+            failed.hard = true
+            throw failed
+          }
+        } catch (error) {
+          if (error.hard) throw error
+          const message = describeError(error)
+          const gone = /no existe|no encontrada/i.test(message)
+          misses += 1
+          if (gone || misses >= JOB_POLL_MAX_MISSES) throw new Error(message)
+        }
+        await new Promise((r) => setTimeout(r, JOB_POLL_INTERVAL_MS))
+      }
     } catch (error) {
+      if (error.hard) throw error
       throw new Error(describeError(error))
     }
   },
@@ -126,7 +191,7 @@ export const api = {
     }
   },
 
-  /** Funde varias pistas igualando tempo y nivel (mezcla de DJ). */
+  /** Funde varias pistas. El tempo solo se iguala si el ajuste es pequeño. */
   crossfade: async (payload) => {
     try {
       const { data } = await slowClient.post('/audio/crossfade', payload)
@@ -186,9 +251,9 @@ export const api = {
   },
 
   /** Renombra una pista (biblioteca o subida). Si el nombre existe, la app numera. */
-  renameAudio: async (name, newName) => {
+  renameAudio: async (name, newName, sourceKind = null) => {
     try {
-      const { data } = await client.patch(`/music/audio/${encodeURIComponent(name)}`, { new_name: newName })
+      const { data } = await client.patch(`/music/audio/${encodeURIComponent(name)}`, { new_name: newName, source_kind: sourceKind })
       return data
     } catch (error) {
       throw new Error(describeError(error))

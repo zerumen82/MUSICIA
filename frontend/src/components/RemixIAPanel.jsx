@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, Dices, X } from 'lucide-react';
 import { api } from '../api';
+import SelectBox from './SelectBox';
 
 // Variantes que REESCRIBEN el prompt con una dirección musical clara.
 // Se aplican como chips conmutables sobre el texto actual.
@@ -25,9 +26,10 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * - El textarea SIEMPRE está visible y editable (touched evita sobreescribir).
  * - Chips de variantes que añaden/quitan dirección musical en el prompt.
  * - Dado de semilla: cada lanzamiento con semilla distinta produce otra versión.
- * - onLaunch({ prompt, seed, duration_seconds, bpm }) lo cablea cada pantalla.
+ * - onLaunch({ prompt, seed, duration_seconds, bpm, source_kind }) lo cablea cada pantalla.
+ * - sourceKind ('upload' | 'output') dice de qué lista viene el archivo.
  */
-export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, generating = false, jobNote = null }) {
+export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = null, onLaunch, generating = false, jobNote = null }) {
   const [prompt, setPrompt] = useState('');
   const [basis, setBasis] = useState(null);
   const [note, setNote] = useState(null);
@@ -41,7 +43,7 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
 
   useEffect(() => {
     let active = true;
-    api.remixPrompt({ file_name: fileName, kind })
+    api.remixPrompt({ file_name: fileName, kind, source_kind: sourceKind })
       .then((d) => {
         if (!active) return;
         setBasis(d.basis ?? null);
@@ -51,7 +53,7 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
         if (active) setNote('Sugerencia automática no disponible; escribe tu prompt libremente.');
       });
     return () => { active = false; };
-  }, [fileName, kind]);
+  }, [fileName, kind, sourceKind]);
 
   const toggleVariant = (add) => {
     setPrompt((p) => {
@@ -75,8 +77,7 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
         seed,
         name: name.trim() || null,
         lyrics: lyrics.trim() || null,
-        duration_seconds: basis?.duration_seconds ?? null,
-        bpm: basis?.bpm ?? null,
+        source_kind: sourceKind,
       });
     } finally {
       setLaunching(false);
@@ -89,12 +90,18 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
     <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
       <span className="label">OTRA VERSIÓN CON IA · PROMPT EDITABLE + SEMILLA</span>
 
-      {/* Variantes: cada chip añade o quita su dirección en el prompt */}
-      <div className="flex flex-wrap gap-1.5">
-        {VARIANTS.map(({ id, label, add }) => (
-          <button key={id} onClick={() => toggleVariant(add)} title={add}
-            className="btn-chip hover:border-[var(--acc-line)]">
-            {label}
+      <div className="flex items-center gap-2 flex-wrap">
+        <SelectBox label="DIRECCIÓN" placeholder="AÑADIR" clearable={false}
+          options={VARIANTS.map(({ id, label, add }) => ({ id, label, title: add }))}
+          value=""
+          onChange={(id) => {
+            const chosen = VARIANTS.find((v) => v.id === id);
+            if (chosen) toggleVariant(chosen.add);
+          }} />
+        {VARIANTS.filter((v) => prompt.toLowerCase().includes(v.add.toLowerCase())).map((v) => (
+          <button key={v.id} type="button" onClick={() => toggleVariant(v.add)}
+            className="btn btn-ghost h-8 px-2.5" title="Quitar esta dirección">
+            {v.label} <X size={11} />
           </button>
         ))}
       </div>
@@ -143,7 +150,7 @@ export default function RemixIAPanel({ fileName, kind = 'musica', onLaunch, gene
 
       {basis?.bpm && (
         <p className="mono text-[9.5px] text-[var(--faint)]">
-          Base del análisis: {basis.bpm} bpm · {Math.round(basis.duration_seconds ?? 0)}s
+          Medido: {basis.bpm} bpm · {Math.round(basis.duration_seconds ?? 0)}s. No se envía: la versión no hereda ese tempo.
         </p>
       )}
       {note && <p className="mono text-[9.5px] text-[var(--warn)]">{note}</p>}

@@ -14,10 +14,13 @@ from pathlib import Path
 
 from loguru import logger
 
-from audio_analysis import detect_groove
+from pydub import AudioSegment
+
+from audio_analysis import ANALYSIS_RATE, detect_groove
 
 # Objetivo de sonoridad: -14 LUFS es el estándar de streaming (Spotify/Apple).
 TARGET_LUFS = -14.0
+MP3_BITRATE = "192k"
 # True peak máximo para que nada sature al exportar.
 TARGET_TP = -1.0
 # Desfasos por debajo de esto son ruido de medición: no se tocan.
@@ -131,6 +134,25 @@ def measure_loudness(path: Path) -> dict:
     return {}
 
 
+def normalize_track(source: Path, dest: Path) -> dict:
+    """Master de una pista al mismo LUFS que la mezcla, en dos datos medidos.
+
+    La primera pasada solo mide. La segunda aplica ese medidor. Así una
+    versión o un tramo salen al mismo nivel que una mezcla.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("ffmpeg no está disponible en el PATH")
+    if not source.exists():
+        raise FileNotFoundError(f"No existe la pista: {source.name}")
+    measured = measure_loudness(source)
+    run_ffmpeg(
+        ["-i", str(source), "-af", f"loudnorm={_loudnorm_args(measured, True)}",
+         "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, "-f", "mp3", str(dest)],
+        dest,
+    )
+    return measure_loudness(dest)
+
+
 def run_ffmpeg(args: list[str], output: Path) -> None:
     """Ejecuta ffmpeg y falla con el motivo REAL si algo va mal."""
     proc = subprocess.run(
@@ -154,23 +176,199 @@ def force_tempo(source: Path, out: Path, factor: float) -> dict:
     return {"file_name": out.name, "tempo_factor": round(factor, 4)}
 
 
-def make_loop(source: Path, out: Path, seconds: float) -> dict:
-    """Exporta un fragmento (loop) como pista nueva, sin recomprimir el resto."""
+def bars_duration_seconds(bpm: float, bars: int, beats_per_bar: int) -> float:
+    """Duración de N compases. 4 compases de 4/4 son 16 golpes, no 4."""
+    if bpm <= 0:
+        raise ValueError("BPM no válido para el loop")
+    if bars < 1 or beats_per_bar < 1:
+        raise ValueError("El loop necesita al menos un compás")
+    return (bars * beats_per_bar * 60.0) / float(bpm)
+
+
+def first_beat_seconds(groove: dict) -> float:
+    """Primer golpe que cae dentro del archivo.
+
+    phase_ms negativo es un golpe anterior al inicio: el siguiente está
+    un periodo más adelante.
+    """
+    phase_ms = float(groove.get("phase_ms") or 0)
+    period_ms = float(groove.get("period_ms") or 0)
+    if phase_ms < 0 and period_ms > 0:
+        phase_ms += period_ms
+    return max(0.0, phase_ms / 1000.0)
+
+
+def _audio_seconds(path: Path) -> float:
+    audio = AudioSegment.from_file(path)
+    return len(audio) / 1000.0
+
+
+def _frame_db(samples: list[int], start: int, frame: int) -> float:
+    chunk = samples[start:start + frame]
+    if not chunk:
+        return -120.0
+    mean_sq = sum(x * x for x in chunk) / len(chunk)
+    if mean_sq <= 0:
+        return -120.0
+    return 20.0 * math.log10(math.sqrt(mean_sq) / 32768.0)
+
+
+def _silence_regions(vocal: Path, mixer) -> list[tuple[float, float]]:
+    """Tramos con voz. El silencio más corto que el mínimo no parte la frase."""
+    audio = AudioSegment.from_file(vocal)
+    mono = audio.set_channels(1).set_frame_rate(ANALYSIS_RATE).set_sample_width(2)
+    samples = list(mono.get_array_of_samples())
+    frame = max(1, int(ANALYSIS_RATE * mixer.vocal_frame_ms / 1000))
+    silent_flags: list[bool] = []
+    for start in range(0, len(samples) - frame + 1, frame):
+        silent_flags.append(_frame_db(samples, start, frame) < mixer.vocal_silence_db)
+    regions: list[tuple[float, float]] = []
+    open_at: int | None = None
+    for index, silent in enumerate(silent_flags):
+        if not silent and open_at is None:
+            open_at = index
+        elif silent and open_at is not None:
+            regions.append((open_at * frame / ANALYSIS_RATE, index * frame / ANALYSIS_RATE))
+            open_at = None
+    if open_at is not None:
+        regions.append((open_at * frame / ANALYSIS_RATE, len(silent_flags) * frame / ANALYSIS_RATE))
+    merged: list[tuple[float, float]] = []
+    for start, end in regions:
+        if merged and start - merged[-1][1] < mixer.vocal_min_silence_s:
+            merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return [(start, end) for start, end in merged if end - start >= mixer.vocal_min_phrase_s]
+
+
+def _cut_long_phrases(
+    regions: list[tuple[float, float]], piece_s: float, limit: int
+) -> list[tuple[float, float]]:
+    """Una frase más larga que un compás se parte. No se estira."""
+    pieces: list[tuple[float, float]] = []
+    step = max(piece_s, 0.4)
+    for start, end in regions:
+        if end - start <= step * 2:
+            pieces.append((start, end))
+            continue
+        cursor = start
+        while cursor < end - 0.2:
+            nxt = min(end, cursor + step)
+            if nxt - cursor >= 0.2:
+                pieces.append((cursor, nxt))
+            cursor = nxt
+    if len(pieces) <= limit:
+        return pieces
+    picked = [pieces[round(i * (len(pieces) - 1) / (limit - 1))] for i in range(limit)]
+    return picked
+
+
+def _bar_starts(duration: float, groove: dict | None, mixer) -> list[float]:
+    if groove and float(groove.get("confidence") or 0) >= MIN_GROOVE_CONFIDENCE:
+        bpm = float(groove["bpm"])
+        phase = max(0.0, float(groove.get("phase_ms") or 0) / 1000.0)
+        bar = mixer.beats_per_bar * 60.0 / bpm
+    else:
+        phase = 0.0
+        bar = float(mixer.fallback_bar_seconds)
+    starts: list[float] = []
+    cursor = phase
+    while cursor < duration - 0.3:
+        starts.append(cursor)
+        cursor += bar
+    return starts or [0.0]
+
+
+def plan_vocal_arrangement(base: Path, vocal: Path, mixer) -> dict | None:
+    """Reparte la voz en la base cuando la base es claramente más larga.
+
+    Devuelve None si las dos duran parecido: ahí sigue el cuadre de siempre.
+    No propone estirar la voz.
+    """
+    base_s = _audio_seconds(base)
+    vocal_s = _audio_seconds(vocal)
+    if base_s <= 0 or vocal_s <= 0:
+        return None
+    if vocal_s > base_s * float(mixer.arrange_shorter_than):
+        return None
+    try:
+        groove = detect_groove(base)
+    except (ValueError, FileNotFoundError):
+        groove = None
+    if groove and float(groove.get("confidence") or 0) >= MIN_GROOVE_CONFIDENCE:
+        piece_s = mixer.beats_per_bar * 60.0 / float(groove["bpm"])
+    else:
+        piece_s = float(mixer.fallback_bar_seconds)
+    regions = _silence_regions(vocal, mixer)
+    if not regions:
+        raise ValueError("La voz no tiene frases que colocar")
+    phrases = _cut_long_phrases(regions, piece_s, mixer.max_vocal_phrases)
+    slots = _bar_starts(base_s, groove, mixer)
+    if len(phrases) == 1:
+        chosen = [slots[0]]
+    else:
+        chosen = [
+            slots[round(i * (len(slots) - 1) / (len(phrases) - 1))]
+            for i in range(len(phrases))
+        ]
+    placed: list[dict] = []
+    cursor = 0.0
+    for (src_start, src_end), at in zip(phrases, chosen):
+        at = max(float(at), cursor)
+        if at >= base_s - 0.2:
+            break
+        duration = min(src_end - src_start, base_s - at)
+        if duration < 0.2:
+            continue
+        placed.append({
+            "source_start": round(src_start, 3),
+            "source_end": round(src_start + duration, 3),
+            "at": round(at, 3),
+            "seconds": round(duration, 3),
+        })
+        cursor = at + duration
+    if not placed:
+        raise ValueError("La voz no cabe en la base")
+    return {
+        "pieces": len(placed),
+        "vocal_seconds": round(vocal_s, 2),
+        "base_seconds": round(base_s, 2),
+        "placements": placed,
+        "explanation": (
+            f"La base dura {base_s:.0f} s y la voz {vocal_s:.0f} s. "
+            f"Se cortan {len(placed)} trozos y se colocan en los golpes, sin estirar. "
+            f"El primero entra a {placed[0]['at']:.2f} s y el último a {placed[-1]['at']:.2f} s."
+        ),
+    }
+
+
+def make_loop(source: Path, out: Path, seconds: float, start_seconds: float = 0.0) -> dict:
+    """Exporta un fragmento como pista nueva, desde el golpe si se pide."""
     if seconds <= 1:
         raise ValueError("El loop debe durar al menos 1 segundo")
-    run_ffmpeg(
-        ["-i", str(source), "-t", f"{seconds:.3f}", "-c:a", "libmp3lame",
-         "-b:a", "192k", "-f", "mp3", str(out)],
-        out,
-    )
-    return {"file_name": out.name, "seconds": round(seconds, 2)}
+    if start_seconds < 0:
+        raise ValueError("El loop no puede empezar antes del audio")
+    args = ["-i", str(source)]
+    # -ss después de -i: el corte cae en el golpe, no en el keyframe de antes.
+    if start_seconds > 0:
+        args += ["-ss", f"{start_seconds:.3f}"]
+    args += [
+        "-t", f"{seconds:.3f}", "-c:a", "libmp3lame",
+        "-b:a", "192k", "-f", "mp3", str(out),
+    ]
+    run_ffmpeg(args, out)
+    return {
+        "file_name": out.name,
+        "seconds": round(seconds, 2),
+        "start_seconds": round(start_seconds, 3),
+    }
 
 
 def crossfade(tracks: list[Path], out: Path, fade_seconds: float = 4.0) -> dict:
-    """Funde varias pistas en cadena igualando su tempo (como un DJ).
+    """Funde varias pistas. El tempo solo se iguala si el ajuste es pequeño.
 
-    Cada pista se estira al tempo de la primera (sin tocar el tono) y se
-    mezclan con fundidos solapados; el resultado se normaliza a -14 LUFS.
+    Fuera de 0,8–1,25 la pista se deja a su tempo: estirarla más la deforma.
+    Si el golpe de la primera no es fiable, no se estira ninguna.
     """
     if len(tracks) < 2:
         raise ValueError("Hacen falta al menos dos pistas para un crossfade")
@@ -178,6 +376,9 @@ def crossfade(tracks: list[Path], out: Path, fade_seconds: float = 4.0) -> dict:
         raise ValueError("El fundido debe estar entre 0,5 y 15 segundos")
 
     base_groove = detect_groove(tracks[0])
+    base_ok = float(base_groove.get("confidence") or 0) >= MIN_GROOVE_CONFIDENCE
+    matched: list[str] = []
+    left: list[str] = []
     args: list[str] = []
     for track in tracks:
         args += ["-i", str(track)]
@@ -185,13 +386,20 @@ def crossfade(tracks: list[Path], out: Path, fade_seconds: float = 4.0) -> dict:
     for index, track in enumerate(tracks):
         chain: list[str] = []
         if index > 0:
-            try:
-                groove = detect_groove(track)
-                ratio = float(base_groove["bpm"]) / float(groove["bpm"])
-                if abs(ratio - 1.0) > 0.005:
-                    chain.append(_atempo_chain(ratio))
-            except ValueError:
-                pass  # sin tempo claro: se deja a su aire
+            if not base_ok:
+                left.append(track.name)
+            else:
+                try:
+                    groove = detect_groove(track)
+                    ratio = float(base_groove["bpm"]) / float(groove["bpm"]) if groove.get("bpm") else 1.0
+                    reliable = float(groove.get("confidence") or 0) >= MIN_GROOVE_CONFIDENCE
+                    if reliable and MIN_TEMPO_RATIO <= ratio <= MAX_TEMPO_RATIO and abs(ratio - 1.0) > 0.005:
+                        chain.append(_atempo_chain(ratio))
+                        matched.append(track.name)
+                    elif not reliable or ratio < MIN_TEMPO_RATIO or ratio > MAX_TEMPO_RATIO:
+                        left.append(track.name)
+                except ValueError:
+                    left.append(track.name)
         chain.append("aresample=48000")
         filters.append(
             f"[{index}:a]" + ",".join(chain) + f",aformat=sample_fmts=fltp:channel_layouts=stereo[pre{index}]"
@@ -211,7 +419,20 @@ def crossfade(tracks: list[Path], out: Path, fade_seconds: float = 4.0) -> dict:
          "-c:a", "libmp3lame", "-b:a", "192k", "-f", "mp3", str(out)],
         out,
     )
-    return {"file_name": out.name, "tracks": len(tracks), "fade_seconds": fade_seconds}
+    if left:
+        note = "Fundido listo. Estas pistas no se estiran, el ajuste de tempo sería grande: " + ", ".join(left)
+    elif matched:
+        note = "Fundido listo. El tempo se igualó al de la primera, sin cambiar el tono."
+    else:
+        note = "Fundido listo. El tempo no se tocó."
+    return {
+        "file_name": out.name,
+        "tracks": len(tracks),
+        "fade_seconds": fade_seconds,
+        "matched": matched,
+        "left": left,
+        "note": note,
+    }
 
 
 class MixerService:
@@ -302,4 +523,85 @@ class MixerService:
             "applied": bool(alignment),
             "loudness": info,
             "filters": used_filters,
+        }
+
+    @staticmethod
+    def arrange_vocals(
+        base_track_path: str,
+        vocal_track_path: str,
+        output_path: str,
+        plan: dict,
+        base_volume: float = 0,
+        vocal_volume: float = 0,
+        normalize_lufs: bool = True,
+        fade_s: float = 0.02,
+    ) -> dict:
+        """Coloca los trozos del plan sobre la base. No cambia su duración ni su tono."""
+        base = Path(base_track_path)
+        vocal = Path(vocal_track_path)
+        out = Path(output_path)
+        pieces = list(plan.get("placements") or [])
+        if not pieces:
+            raise ValueError("No hay trozos de voz que colocar")
+        if shutil.which("ffmpeg") is None:
+            raise RuntimeError("ffmpeg no está disponible en el PATH")
+
+        filters: list[str] = [f"[0:a]volume={base_volume}dB[base]"]
+        labels = ["[base]"]
+        if len(pieces) == 1:
+            sources = ["[1:a]"]
+        else:
+            split = "".join(f"[s{i}]" for i in range(len(pieces)))
+            filters.append(f"[1:a]asplit={len(pieces)}{split}")
+            sources = [f"[s{i}]" for i in range(len(pieces))]
+        for index, piece in enumerate(pieces):
+            duration = float(piece["seconds"])
+            fade = min(float(fade_s), duration / 4)
+            fade_out_at = max(0.0, duration - fade)
+            delay_ms = max(0.0, float(piece["at"]) * 1000.0)
+            label = f"[p{index}]"
+            filters.append(
+                f"{sources[index]}atrim=start={float(piece['source_start']):.3f}:end={float(piece['source_end']):.3f},"
+                f"asetpts=PTS-STARTPTS,"
+                f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={fade_out_at:.3f}:d={fade:.3f},"
+                f"adelay=delays={delay_ms:.1f}:all=1,volume={vocal_volume}dB{label}"
+            )
+            labels.append(label)
+        filters.append(
+            f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:dropout_transition=0:normalize=0[mezcla]"
+        )
+
+        def render(target: Path, extra_filter: str | None) -> None:
+            chain = list(filters)
+            master = "[mezcla]"
+            if extra_filter:
+                chain.append(f"{master}{extra_filter}[out]")
+                master = "[out]"
+            run_ffmpeg(
+                ["-i", str(base), "-i", str(vocal),
+                 "-filter_complex", ";".join(chain), "-map", master,
+                 "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, "-f", "mp3", str(target)],
+                target,
+            )
+
+        used = f"arrange:{len(pieces)}"
+        if normalize_lufs:
+            probe = out.with_name(f"{out.stem}-probe.mp3")
+            try:
+                render(probe, None)
+                measured = measure_loudness(probe)
+                render(out, f"loudnorm={_loudnorm_args(measured, measured_flag=True)}")
+            finally:
+                probe.unlink(missing_ok=True)
+        else:
+            render(out, None)
+        info = measure_loudness(out)
+        logger.info(f"Arreglo listo: {out.name} trozos={len(pieces)} {info}")
+        return {
+            "output_path": str(out),
+            "applied": False,
+            "arranged": True,
+            "pieces": len(pieces),
+            "loudness": info,
+            "filters": used,
         }

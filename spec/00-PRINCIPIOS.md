@@ -34,6 +34,8 @@ spec/00-PRINCIPIOS.md      ← constitución (este archivo)
 spec/01-ARQUITECTURA.md    ← sistema, módulos, contratos de datos
 spec/02-REQUISITOS.md      ← historias de usuario priorizadas, criterios de aceptación
 spec/03-PENDIENTES.md      ← backlog vivo y deudas técnicas
+spec/04-EJERCITO.md        ← agentes globales (sd-*) y agentes musicales
+spec/05-MEJORAS.md         ← propuesta de mejoras (no aprobada, no implementada)
 ```
 
 **Regla de oro SDD**: primero se especifica, luego se implementa. Si el código

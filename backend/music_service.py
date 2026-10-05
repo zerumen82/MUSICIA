@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
+import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +43,56 @@ class MusicEngineError(RuntimeError):
     """Fallo real del motor o de la verificación del audio generado."""
 
 
+def stage_source_audio(source: str) -> str:
+    """Copia el audio a la carpeta temporal.
+
+    El motor rechaza una ruta absoluta que no esté ahí (`absolute audio file
+    paths are not allowed`). Cover y repaint leen esa copia.
+    """
+    src = Path(source)
+    if not src.is_file():
+        raise MusicEngineError(f"No existe el audio de origen: {source}")
+    fd, dest = tempfile.mkstemp(prefix="musicia-src-", suffix=src.suffix or ".mp3")
+    os.close(fd)
+    try:
+        shutil.copyfile(src, dest)
+    except OSError:
+        Path(dest).unlink(missing_ok=True)
+        raise
+    return dest
+
+
+# Si el usuario no elige minutos, la base nueva dura como el origen y no pasa
+# de 4 minutos. Es el tope que ya tenía el remix antes de poder elegir.
+REMIX_UNSPECIFIED_CAP_SECONDS = 240.0
+REMIX_MIN_SECONDS = 10.0
+
+
+def lyrics_are_song(text: str | None) -> bool:
+    """Una palabra suelta («BASE») no es una letra: si se envía, el motor la canta."""
+    words = re.findall(r"[^\W\d_]{2,}", text or "", flags=re.UNICODE)
+    return len(words) >= 8
+
+
+def resolve_remix_duration(
+    requested: float | None,
+    source_seconds: float,
+    *,
+    max_seconds: float,
+) -> float:
+    """Duración de la base nueva. La elegida manda, dentro del máximo de config."""
+    if requested is None:
+        base = float(source_seconds or 60)
+        return min(base, float(max_seconds), REMIX_UNSPECIFIED_CAP_SECONDS)
+    duration = float(requested)
+    if duration < REMIX_MIN_SECONDS or duration > float(max_seconds):
+        raise MusicEngineError(
+            f"La duración debe estar entre {REMIX_MIN_SECONDS:g} y {max_seconds:g} s "
+            f"(recibido: {duration:g})"
+        )
+    return duration
+
+
 @dataclass
 class GenerationRequest:
     """Petición de generación con valores opcionales (los completa la config)."""
@@ -58,6 +112,11 @@ class GenerationRequest:
     batch_size: int | None = None
     audio_format: str | None = None
     model: str | None = None
+    task_type: str | None = None
+    source_path: str | None = None
+    repaint_start: float | None = None
+    repaint_end: float | None = None
+    cover_strength: float | None = None
 
 
 @dataclass
@@ -103,6 +162,7 @@ class MusicService:
         self.engine = self.settings.acestep
         self.defaults: GenerationDefaults = self.settings.generation
         self._client: httpx.AsyncClient | None = None
+        self._staged: dict[str, str] = {}
 
     # -- ciclo de vida -------------------------------------------------------
 
@@ -135,8 +195,25 @@ class MusicService:
             response = await self.client.request(method, path, **kwargs)
             response.raise_for_status()
             payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            # Un 400 es un rechazo, no un corte. «no responde» la UI lo trata como blip.
+            body = ""
+            code = "?"
+            if exc.response is not None:
+                code = exc.response.status_code
+                body = (exc.response.text or "").strip().replace("\n", " ")[:400]
+            if "absolute audio file paths are not allowed" in body:
+                body = "No acepta la ruta del audio de origen."
+            elif "path traversal" in body:
+                body = "No acepta esa ruta de audio."
+            raise MusicEngineError(
+                f"El motor ACE-Step rechazó {path} (HTTP {code}): {body or exc}"
+            ) from exc
         except httpx.HTTPError as exc:
-            raise MusicEngineError(f"El motor ACE-Step no responde ({path}): {exc}") from exc
+            detail = str(exc).strip() or repr(exc)
+            raise MusicEngineError(
+                f"El motor ACE-Step no responde ({path}): {type(exc).__name__}: {detail}"
+            ) from exc
         except json.JSONDecodeError as exc:
             raise MusicEngineError(f"Respuesta ilegible del motor ({path}): {exc}") from exc
 
@@ -147,21 +224,58 @@ class MusicService:
     # -- API del motor -------------------------------------------------------
 
     async def health(self) -> dict[str, Any]:
-        """Comprueba que el motor está vivo (no simulado)."""
+        """Comprueba que el motor está vivo, con un tope corto.
+
+        Una generación usa ``request_timeout``. Esta consulta no: si el motor
+        no abre el puerto, la pastilla lo sabe en unos segundos y la API sigue
+        respondiendo.
+        """
         try:
-            response = await self.client.get(self.engine.health_path)
+            response = await self.client.get(
+                self.engine.health_path,
+                timeout=self.engine.health_timeout,
+            )
             response.raise_for_status()
             return {
                 "reachable": True,
                 "status_code": response.status_code,
                 "detail": response.text[:200],
             }
+        except httpx.TimeoutException as exc:
+            # El puerto sigue abierto y no contestó a tiempo: está ocupado
+            # (letra o síntesis). Pintarlo apagado desactiva GENERAR.
+            return {"reachable": True, "busy": True, "error": type(exc).__name__}
         except httpx.HTTPError as exc:
-            return {"reachable": False, "error": str(exc)}
+            detail = str(exc).strip() or type(exc).__name__
+            return {"reachable": False, "error": detail}
 
     async def list_models(self) -> Any:
-        """Modelos DiT disponibles en el motor."""
-        return await self._request("GET", self.engine.models_path)
+        """Modelos que anuncia el motor. Acepta el listado OpenAI y el envoltorio {code, data}."""
+        response = await self.client.get(
+            self.engine.models_path, timeout=self.engine.health_timeout
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict) and "code" in payload:
+            if payload.get("code") != 200 or payload.get("error"):
+                raise MusicEngineError(str(payload.get("error") or "El motor no listó modelos"))
+            return payload.get("data")
+        return payload
+
+    async def engine_info(self) -> dict[str, Any]:
+        """Modelo y LM que el motor dice tener cargados ahora."""
+        response = await self.client.get(
+            self.engine.health_path, timeout=self.engine.health_timeout
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "loaded_model": data.get("loaded_model"),
+            "loaded_lm_model": data.get("loaded_lm_model"),
+        }
 
     async def write_lyrics(
         self,
@@ -230,31 +344,100 @@ class MusicService:
             if request.guidance_scale is None
             else request.guidance_scale,
             "seed": defaults.seed if request.seed is None else request.seed,
-            "use_random_seed": defaults.use_random_seed
-            if request.use_random_seed is None
-            else request.use_random_seed,
+            # Una semilla escrita tiene que repetir el resultado. Si no, el
+            # motor ignora el número y la comparación A/B no es real.
+            "use_random_seed": (
+                defaults.use_random_seed
+                if request.use_random_seed is None and request.seed is None
+                else False
+                if request.use_random_seed is None
+                else request.use_random_seed
+            ),
             "batch_size": defaults.batch_size if request.batch_size is None else request.batch_size,
             "audio_format": defaults.audio_format
             if request.audio_format is None
             else request.audio_format,
             "model": defaults.model if request.model is None else request.model,
-            "thinking": defaults.thinking and defaults.use_lm,
+            # thinking genera códigos de audio y el DiT los sigue. El 2026-10-03
+            # a las 23:27 el caption era el del usuario y aun así sonó otra cosa:
+            # 1200 códigos mandaban más que la frase. Los tres cot en false
+            # evitan que el servidor encienda el LM por su cuenta.
+            "thinking": False,
+            "use_cot_caption": False,
+            "use_cot_language": False,
+            "use_cot_metas": False,
             "task_type": defaults.task_type,
             "infer_method": defaults.infer_method,
         }
         if defaults.use_lm:
             payload["lm_model_path"] = defaults.lm_model
             payload["lm_backend"] = defaults.lm_backend
+
+        task = request.task_type or defaults.task_type
+        if task not in defaults.allowed_tasks:
+            raise MusicEngineError(
+                f"Tarea no disponible en el turbo de 8 GB: {task}. "
+                f"Usa una de: {', '.join(defaults.allowed_tasks)}"
+            )
+        model = payload["model"]
+        if model not in defaults.allowed_models:
+            raise MusicEngineError(
+                f"Modelo no residente en esta GPU de 8 GB: {model}. "
+                f"El que permanece cargado es: {', '.join(defaults.allowed_models)}"
+            )
+        payload["task_type"] = task
+        if task in {"cover", "repaint"}:
+            if not request.source_path:
+                raise MusicEngineError("Esta tarea necesita el audio de origen")
+            payload["src_audio_path"] = request.source_path
+            # El LM no planifica cover ni repaint: el audio manda.
+            payload["thinking"] = False
+        if task == "cover":
+            strength = defaults.cover_strength if request.cover_strength is None else request.cover_strength
+            if not 0.0 <= float(strength) <= 1.0:
+                raise MusicEngineError("La fuerza de la versión tiene que estar entre 0 y 1")
+            payload["audio_cover_strength"] = float(strength)
+        if task == "repaint":
+            start = 0.0 if request.repaint_start is None else float(request.repaint_start)
+            end = -1.0 if request.repaint_end is None else float(request.repaint_end)
+            if start < 0 or end < -1 or (end != -1.0 and end <= start):
+                raise MusicEngineError(
+                    "El tramo tiene que empezar en cero o más y acabar después del inicio "
+                    "(o -1 para llegar hasta el final)"
+                )
+            payload["repainting_start"] = start
+            payload["repainting_end"] = end
+            payload["chunk_mask_mode"] = "explicit"
+        if task in {"cover", "repaint"} and request.duration_seconds is None:
+            # Cero o negativo: el motor toma la duración del audio de origen.
+            payload["audio_duration"] = -1
         return payload
 
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""
         payload = self.build_payload(request)
-        data = await self._request("POST", self.engine.submit_path, json=payload)
+        staged = None
+        if payload.get("src_audio_path"):
+            staged = stage_source_audio(payload["src_audio_path"])
+            payload["src_audio_path"] = staged
+        try:
+            data = await self._request("POST", self.engine.submit_path, json=payload)
+        except Exception:
+            if staged:
+                Path(staged).unlink(missing_ok=True)
+            raise
         task_id = data.get("task_id")
         if not task_id:
+            if staged:
+                Path(staged).unlink(missing_ok=True)
             raise MusicEngineError(f"El motor no devolvió task_id: {data}")
-        logger.info(f"Tarea enviada al motor: {task_id} | prompt={request.prompt[:60]!r}")
+        if staged:
+            self._staged[task_id] = staged
+        logger.info(
+            f"Tarea enviada al motor: {task_id} | dur={payload.get('audio_duration')}s | "
+            f"thinking={payload.get('thinking')} cot_caption={payload.get('use_cot_caption')} "
+            f"cot_metas={payload.get('use_cot_metas')} | prompt={request.prompt[:180]!r}"
+        )
         return task_id, str(data.get("status", "queued"))
 
     async def status(self, task_id: str) -> EngineStatus:
@@ -328,23 +511,80 @@ class MusicService:
             )
         return tracks
 
+    async def _reconnect(self) -> None:
+        """Abre de nuevo el cliente. Una conexión keep-alive caída no se reutiliza."""
+        await self.aclose()
+        await self.start()
+
     async def wait(
         self, task_id: str, on_update: Callable[[EngineStatus], None] | None = None
     ) -> EngineStatus:
-        """Consulta periódicamente hasta que la tarea termine o agote el timeout."""
+        """Consulta periódicamente hasta que la tarea termine o agote el timeout.
+
+        Un corte suelto de /query_result no mata el trabajo: el motor puede
+        seguir generando (el LM ocupa la GPU un minuto) y el siguiente sondeo
+        recoge el audio.
+        """
+        try:
+            return await self._wait_loop(task_id, on_update)
+        finally:
+            self._drop_staged(task_id)
+
+    async def _wait_loop(
+        self, task_id: str, on_update: Callable[[EngineStatus], None] | None
+    ) -> EngineStatus:
         deadline = time.monotonic() + self.engine.job_timeout
+        misses = 0
+        max_misses = self.engine.poll_max_misses
         while True:
-            current = await self.status(task_id)
+            if time.monotonic() > deadline:
+                raise MusicEngineError(
+                    f"Tiempo agotado esperando la tarea {task_id} "
+                    f"({self.engine.job_timeout:g} s)."
+                )
+            try:
+                current = await self.status(task_id)
+            except MusicEngineError as exc:
+                cause = exc.__cause__
+                if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code not in {
+                    408, 429, 500, 502, 503, 504,
+                }:
+                    raise
+                if not isinstance(cause, (httpx.HTTPError, json.JSONDecodeError)):
+                    raise
+                misses += 1
+                logger.warning(f"Sondeo {task_id[:8]} falló ({misses}): {exc}")
+                try:
+                    await self._reconnect()
+                except Exception as rec:  # noqa: BLE001 - el siguiente sondeo lo reintenta
+                    logger.warning(f"No se pudo reabrir el cliente del motor: {rec}")
+                if misses >= max_misses:
+                    # Un corte no es un fallo del remix. Si el proceso sigue
+                    # vivo, se espera. Si no, el tope es job_timeout, no este aviso.
+                    health = await self.health()
+                    misses = 0
+                    if health.get("reachable"):
+                        logger.warning("El motor sigue vivo; el sondeo continúa")
+                    else:
+                        logger.warning("El motor no contestó el chequeo; el sondeo continúa")
+                await asyncio.sleep(self.engine.poll_interval)
+                continue
+            misses = 0
             if on_update is not None:
                 on_update(current)
             if current.status in TERMINAL_STATUSES:
                 return current
-            if time.monotonic() > deadline:
-                raise MusicEngineError(
-                    f"Tiempo agotado esperando la tarea {task_id} "
-                    f"({self.engine.job_timeout:g} s). Estado: {current.progress_text or 'en curso'}"
-                )
             await asyncio.sleep(self.engine.poll_interval)
+
+    def _drop_staged(self, task_id: str) -> None:
+        """Borra la copia temporal cuando el motor ya terminó de leerla."""
+        path = self._staged.pop(task_id, None)
+        if not path:
+            return
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(f"No se pudo borrar el audio temporal del motor: {exc}")
 
     def _download_target(self, remote: str) -> tuple[str, dict[str, str] | None]:
         """Normaliza la referencia de una pista a (ruta_http, query).

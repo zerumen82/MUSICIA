@@ -1,114 +1,67 @@
-# Musicia — AI Music Creative Studio
+# Musicia — estudio musical local
 
-## What It Is
+Aplicación de escritorio para crear, mezclar y remixar música en el PC del usuario.
+FastAPI + React/Vite + Electron. El motor de música es **ACE-Step 1.5** (Apache 2.0).
+MusicGen no forma parte del producto: sus pesos son CC-BY-NC.
 
-Musicia is a desktop-style creative studio for AI-powered music and voice
-production. It has two parts:
+Este archivo es el mapa corto. El detalle vivo está en `spec/` y la evidencia en `memory.md`.
+Si este archivo y el código discrepan, manda el código y se corrige aquí.
 
-- **Frontend** — a React + Vite single-page app with an Electron wrapper,
-  Tailwind CSS, and rich interactive UI (sequencer, mixer, voice lab).
-- **Backend** — a FastAPI service providing TTS (via `edge-tts`), audio
-  mixing (via `pydub`), and a stub `/music/generate` endpoint for future
-  MusicGen integration.
+## Qué hace hoy
 
-## Project Layout
+- **CREAR** — `POST /music/generate` lanza un job real contra ACE-Step (`:8001`):
+  `/release_task` → `/query_result` → `/v1/audio`. Instrumental o con voz cantada
+  (letra con marcas `[Verse]`/`[Chorus]`, `vocal_language` elegido en la UI).
+  BPM, tono, semilla y nombre salen de la pantalla.
+- **Letra** — `POST /music/write_lyrics` pide un borrador al LM local (`/format_input`).
+  Si el LM solo devuelve estructura instrumental, la API avisa. No inventa la letra.
+  El cliente de ese endpoint espera hasta 300 s.
+- **SUBIR** — análisis DSP. Re-crear manda el audio como `cover` (sin duración: la pone el origen). «Crear base» sigue siendo una cama nueva, instrumental. Alargar un tramo es `repaint` sobre el audio.
+- **MEZCLA** — `MixLab`: ffmpeg (`atempo`, `adelay`, `loudnorm` a -14 LUFS).
+  BASE y VOZ listan biblioteca y subidas. Si el tempo no es fiable, no se cuadra y se dice.
+- **REMIXER** — el menú elige y HACER lanza. Versión y tramo piden prompt, letra, BPM, tono, semilla y nombre, igual que CREAR, y al terminar pasan por el master de −14 LUFS. Ajustar es DSP. También: voz real + base nueva, quitar voces, loop, medio tiempo (`half`) y doble tiempo (`double`), forzar BPM. La fase del trabajo (generar, remix IA o separar) sale en la barra de arriba.
+- **Modelo** — en 8 GB permanece `acestep-v15-turbo`. Otro nombre se rechaza. Generar, separar y el remix con IA no corren a la vez. El lateral muestra el modelo que el motor tiene cargado.
+- **Locución** — la pestaña se quitó el 2026-10-02: edge-tts habla, no canta. El canto sigue en CREAR. `POST /tts/generate` y `GET /voices` siguen en la API (red) y la pantalla no los llama.
+- **BIBLIOTECA** — MP3 en `backend/outputs/`. Al terminar una generación se escribe `nombre.ficha.json` al lado (prompt, BPM, tarea). La ficha viaja al renombrar, se borra con el MP3 y se copia en mezcla, tempo, loop, fundido, separación, remix DSP y remix IA. «Otra versión» manda `cover` con el audio. Renombrado con `PATCH /music/audio/{name}`.
+- **Ventana** — Electron carga `http://127.0.0.1:8000`. La X minimiza a la bandeja.
+  Salir es el botón SALIR. Si el bundle servido cambia, la ventana se recarga sola.
 
-```
-.
-├── AGENTS.md                 # Project rules, commands, conventions
-├── knowledge.md              # This file
-├── memory.md                 # Bitácora: decisions, tests, results (dated log)
-├── .agents/
-│   ├── music-orchestrator.ts # Coordinator agent (spawns the two below)
-│   ├── music-composer.ts     # Song specification agent (JSON specs, no prose)
-│   ├── audio-engineer.ts     # Real audio synthesis/mix/verify agent
-│   └── types/                # AgentDefinition TypeScript types
-├── .agents/
-│   └── types/                # Agent TypeScript type definitions
-├── backend/                  # FastAPI backend (Python)
-│   ├── main.py               # App entry point: routes, CORS, Pydantic models
-│   ├── tts_service.py        # TTS via edge-tts (Azure neural voices)
-│   ├── mixer_service.py      # Audio mixing via pydub
-│   └── requirements.txt      # Python dependencies
-└── frontend/                 # React + Vite frontend
-    ├── package.json
-    ├── vite.config.js
-    ├── eslint.config.js      # Flat config (ESLint 9)
-    ├── index.html
-    ├── main.js               # Electron entry point
-    ├── tailwind.config.js    # (if present) Tailwind config
-    ├── src/
-    │   ├── main.jsx          # React DOM mount
-    │   ├── App.jsx           # App shell: sidebar, titlebar, tab routing
-    │   ├── App.css
-    │   ├── index.css         # Tailwind import + custom design tokens
-    │   └── components/
-    │       ├── Mixer.jsx     # Channel faders, master console
-    │       └── Sequencer.jsx # 16-step drum machine via Tone.js
-    └── README.md
-```
+## Procesos
 
-## Commands
+| Proceso | Dónde | Puerto |
+|---------|--------|--------|
+| Ventana Electron | `frontend/main.cjs` | — |
+| API Musicia | `backend/` (venv Python 3.10) | 8000 |
+| Motor ACE-Step 1.5 | `vendor/ACE-Step-1.5` (venv Python 3.12) | 8001 |
+| demucs | `backend/demucs-venv` | lo invoca la API |
 
-### Frontend (in `frontend/`)
+Arranque: `scripts/open_musicia.ps1`. Parada: `scripts/stop_local.ps1`.
+Humo: `scripts/verify_e2e.ps1`.
 
-| Task      | Command           |
-| --------- | ----------------- |
-| Install   | `npm install`     |
-| Dev       | `npm run dev`     |
-| Build     | `npm run build`   |
-| Preview   | `npm run preview` |
-| Lint      | `npm run lint`    |
-| Electron  | `npm run electron`|
+## Módulos backend
 
-### Backend (in `backend/`)
+| Archivo | Responsabilidad |
+|---------|-----------------|
+| `main.py` | Rutas HTTP, jobs, ficheros, UI estática |
+| `config.py` | Defaults, `config.json`, variables `MUSICIA_*` |
+| `music_service.py` | Habla con ACE-Step y comprueba el audio (pydub) |
+| `prompt_enhancer.py` | Añade género, mood y BPM una sola vez |
+| `mixer_service.py` | Mezcla y bootlegs con ffmpeg |
+| `separator_service.py` | Voces y base con demucs |
+| `audio_analysis.py` | BPM, fase, picos |
+| `audio_service.py` | Ganancia, fade, recorte (pydub) |
+| `tts_service.py` | Locución edge-tts |
 
-| Task      | Command                                           |
-| --------- | ------------------------------------------------- |
-| Install   | `pip install -r requirements.txt`                 |
-| Run       | `python main.py`  (uvicorn, port 8000)            |
+`Mixer.jsx` no está montado. La mezcla en pantalla es `MixLab.jsx`.
+El secuenciador no está en la navegación.
 
-## Conventions & Gotchas
+## Agentes
 
-### Styling
-- Tailwind CSS utility-first; most classes are applied directly in JSX.
-- Custom design tokens are defined as CSS custom properties in `index.css`
-  (e.g. `--bg-deep`, `--accent-fluor`, `--accent-purple`, `--glass-blur`).
-- `glass-panel`, `border-beam`, `btn-premium`, `label-pro`, `fluor-shadow-*`
-  are reusable utility classes for the dark, neon-accented aesthetic.
+Globales, en `~/.agents/`: sd-coordinator, sd-editor, sd-reviewer, sd-tester, sd-scout, sd-researcher.
+De este proyecto, en `.agents/`: music-orchestrator, music-composer, audio-engineer.
+Mapa y flujo: `spec/04-EJERCITO.md`.
 
-### Frontend
-- React 19 (hooks, JSX in `.jsx`).
-- ESLint uses **flat config** (ESLint 9 — `eslint.config.js`).
-- `Tone.js` powers the sequencer's audio engine and playback scheduling.
-- The Music tab (`/music` route) is currently a placeholder with no
-  backend integration yet.
+## Verificación
 
-### Backend
-- FastAPI with `CORSMiddleware` allowing all origins (`*`).
-- Routes:
-  - `POST /tts/generate` — text → speech (voice param, defaults to
-    `es-ES-AlvaroNeural`).
-  - `GET /voices` — list available Azure neural voices.
-  - `POST /audio/mix` — mix two audio tracks with individual dB volume offsets.
-  - `POST /music/generate` — stub; returns mock success. MusicGen is
-    commented out in `requirements.txt` (heavy dependency: torch).
-- Audio output files go to an `outputs/` directory (created on demand).
-- `loguru` is used for logging across all services.
-- Pydantic models define request schemas in `main.py`.
-
-### Gotchas
-- CORS is wide open (`allow_origins=["*"]`) — fine for dev, tighten for
-  production.
-- The `/music/generate` endpoint does **not** actually generate music; it
-  returns a success message immediately.
-- `pydub` requires `ffmpeg` installed on the system for audio format
-  conversions.
-- No root-level `package.json` or `tsconfig.json` — the project is split
-  into `frontend/` and `backend/` with no monorepo tooling.
-
-## Missing / TODO
-- No test files exist in the repository.
-- No root-level `README.md`.
-- Consider adding: type checking (TypeScript), unit tests, tighter CORS
-  policy, actual MusicGen integration.
+No hay tests unitarios. Una generación cuenta cuando el MP3 existe, pesa más de 0
+y dura más de 0 (ffprobe o pydub), con lint y build en verde, y la prueba anotada en `memory.md`.
