@@ -11,6 +11,7 @@ import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
 } from '../vocal';
+import { glossPrompt } from '../prompt_gloss';
 
 const UI = {
   minDuration: 10,
@@ -149,7 +150,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       const voiceTags = buildVocalTags(vocal);
       if (voiceTags) parts.push(voiceTags);
     }
-    return parts.join(', ');
+    // Glosa inglesa: el motor obedece mejor el caption en inglés.
+    // Se ve en VER LO QUE SE ENVÍA porque sale de aquí.
+    return glossPrompt(parts.join(', '));
   };
 
   /** Prompt final tal y como se enviará (para la vista de transparencia). */
@@ -320,7 +323,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   /** Añade el BPM elegido. No reescribe la frase ni mete el género del desplegable. */
   const enhancePrompt = async () => {
-    const base = prompt.trim();
+    const base = glossPrompt(prompt.trim());
     if (base.length < 3) {
       setError('Escribe el prompt antes de mejorarlo');
       return;

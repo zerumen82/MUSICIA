@@ -6,6 +6,7 @@ import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
+import { glossPrompt } from '../prompt_gloss';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 const fmtDate = (iso) => new Date(iso).toLocaleString();
@@ -79,7 +80,7 @@ export default function Library() {
         return;
       }
       await api.generateMusic({
-        prompt: text,
+        prompt: glossPrompt(text),
         instrumental: !letra,
         lyrics: letra,
         bpm: bpm ?? null,

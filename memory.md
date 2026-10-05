@@ -1384,7 +1384,6 @@ El motor ya estaba corriendo (pid 21256, no tocado); solo se arrancó la API con
 - **REVIEWER - APPROVE con límites**: falta el oído del usuario en las tres piezas; el 0,5 «como la original» sigue sin probarse en GPU.
 
 ## 2026-10-05 (XLIV) - Confirmación cableada: bundle servido + API en vivo
-
 El usuario no ha abierto la app y pide confirmación de que la UI funciona y las mejoras están cableadas. Sin clicar (no hay ojos aquí): verificación estática + API viva, sin GPU y sin tocar sus archivos.
 
 - Bundle servido `index-sAn-_MQR.js` trae: ACCIONES, OTRA VERSIÓN, BOOTLEG, COMPÁS, LETRA, SÍ/BORRAR, `base_kind`, `track_kinds`, `showLyrics` (7/7 True).
@@ -1392,3 +1391,26 @@ El usuario no ha abierto la app y pide confirmación de que la UI funciona y las
 - `POST /audio/crossfade` con `track_kinds` desparejado → 400 en vivo.
 - `POST /audio/mix/plan` con kinds sobre piezas de prueba → 200 con explicación (DSP puro, sin GPU).
 - Límite honesto: el clic píxel a píxel (ver el % en el header, abrir ACCIONES, pegar letra) lo tiene que hacer un humano. Todo lo automatizable, verificado.
+
+## 2026-10-05 (XLV) - Obediencia al prompt: glosa inglesa + FUERZA manual
+
+Lo que pidió el usuario: que obedezca al prompt y saque remixes buenos y cuadrados. La funcionalidad vale; el motor obedecía poco.
+
+### Lo que el motor NO deja (verificado en su código, no adivinanza)
+
+- `guidance_scale` forzado a 1,0 en turbo (CFG destilado; `generate_music.py:312`, dos `modeling_*_turbo.py`). Más obediencia por guidance: imposible en este modelo.
+- Prompt negativo solo LM (`lm_negative_prompt`); con CFG=1,0 es inerte en turbo.
+- `thinking` encendido obedecería MENOS (el 03-10 los códigos del LM mandaron sobre la frase).
+
+### Lo implementado
+
+- **`frontend/src/prompt_gloss.js`**: glosario ES→EN (~40 entradas). `glossPrompt` añade los gemelos ingleses entre paréntesis SIN tocar tu frase; si no reconoce nada o ya está en inglés, la deja igual. Se aplica al enviar en CREAR (también se ve en VER LO QUE SE ENVÍA), versión, tramo, voz+base, base nueva, biblioteca, SUBIR y MEJORAR. Ejemplo real: `BATERIAS CONTUNDENTES DE TECHNO HARDCORE, SIN MELODIAS (drums, hard-hitting, melody, without melody)`.
+- **FUERZA manual en VOZ REAL**: botón AUTO/MANUAL + slider. En AUTO deduce del prompt (lo de XL); en MANUAL manda `cover_strength` (nuevo campo en `AiRemixRequest`, validado 0-1, paso visible «Fuerza manual X»). La detección de intención no se rompe con la glosa («sin melod» sigue matcheando).
+- La letra (idioma cantado) NO se glosa: se canta tal cual.
+
+### Prueba
+
+- node directo a `glossPrompt`: ES→glosado, EN intacto, vacío intacto, sin duplicados.
+- `py_compile` 0, unittest 16/16, modelo acepta `cover_strength`, lint 0, build 0 (`index-BeMZTHAf.js`, 343,39 kB) con `four-on-the-floor`, `MANUAL` y `cover_strength` dentro.
+- **TESTER - PASS de glosa, modelo, lint y build. No de GPU (efecto real en el oído).**
+- **REVIEWER - APPROVE con límites**: la glosa puede meter ruido («melody» junto a «without melody»); si al oír confunde, se quita la entrada. La FUERZA manual y la glosa se juzgan oyendo el próximo remix. Criterio para el usuario: mismo prompt de antes, ¿obedece más y suena cuadrado?

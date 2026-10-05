@@ -161,6 +161,9 @@ class AiRemixRequest(BaseModel):
     duration_seconds: float | None = Field(default=None, description="Duración elegida de la base nueva")
     lyrics: str | None = Field(default=None, description="Letra ya adaptada a esa duración; vacío = instrumental")
     source_kind: str | None = Field(default=None, description="upload | output: de qué lista viene")
+    cover_strength: float | None = Field(
+        default=None, description="Fuerza manual del cover (0-1); vacío = la deduce del prompt"
+    )
 
 
 class MusicGenRequest(BaseModel):
@@ -970,7 +973,13 @@ async def _run_ai_remix(
             if request.duration_seconds:
                 step("Esos minutos no acortan el tema: el cover dura lo que dura la canción.")
             strength, melody_note = remix_cover_strength_for(request.prompt)
-            if strength != settings.generation.remix_cover_strength:
+            if request.cover_strength is not None:
+                manual = float(request.cover_strength)
+                if not 0.0 <= manual <= 1.0:
+                    raise MusicEngineError("La fuerza manual tiene que estar entre 0 y 1")
+                strength, melody_note = manual, "manual"
+                step(f"Fuerza manual {manual:.2f}: baja para que mande el prompt, alta para agarrar el tema.")
+            elif strength != settings.generation.remix_cover_strength:
                 step(
                     f"El prompt {'niega la melodía' if melody_note is None else 'pide melodías como la original'}: "
                     f"fuerza {strength:.2f} "

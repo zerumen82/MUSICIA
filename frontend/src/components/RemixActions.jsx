@@ -5,6 +5,7 @@ import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
 import SelectBox from './SelectBox';
 import { expandLyric, structureLyric } from '../vocal';
+import { glossPrompt } from '../prompt_gloss';
 
 /**
  * Mesa de remix de una pista.
@@ -73,6 +74,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
   const [maxMinutes, setMaxMinutes] = useState(10);
   const [enhancing, setEnhancing] = useState(false);
   const [strength, setStrength] = useState(null);
+  const [forceAuto, setForceAuto] = useState(true); // voz_prompt: AUTO deduce del prompt; off = mando yo
   const [repaintStart, setRepaintStart] = useState('');
   const [repaintEnd, setRepaintEnd] = useState('');
   const [status, setStatus] = useState(null);
@@ -257,7 +259,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         begin('crear', id === 'tramo' ? 'Enviando el tramo al motor…' : 'Enviando la versión al motor…');
         const letra = lyrics.trim() ? structureLyric(lyrics) : null;
         const started = await api.generateMusic({
-          prompt: prompt.trim(),
+          prompt: glossPrompt(prompt.trim()),
           instrumental: !letra,
           lyrics: letra,
           source_name: fileName,
@@ -315,13 +317,14 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         const started = await api.remixAi({
           file_name: fileName,
           source_kind: sourceKind,
-          prompt: prompt.trim(),
+          prompt: glossPrompt(prompt.trim()),
           keep_vocals: id === 'voz_prompt',
           bpm: bpm ? Number(bpm) : null,
           duration_seconds: id === 'solo_base'
             ? seconds
             : (extendMinutes ? Number(extendMinutes) * 60 : null),
           lyrics: letra || null,
+          cover_strength: id === 'voz_prompt' && !forceAuto && strength !== null ? Number(strength) : null,
         });
         const done = await waitUntil(() => api.remixAiStatus(started.job_id));
         result = done.result?.mix ?? done.result?.base;
@@ -378,7 +381,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
     }
     setEnhancing(true);
     try {
-      const res = await api.enhancePrompt({ prompt: prompt.trim(), bpm: bpm ? Number(bpm) : null });
+      const res = await api.enhancePrompt({ prompt: glossPrompt(prompt.trim()), bpm: bpm ? Number(bpm) : null });
       setPrompt(res.enhanced ?? prompt);
       const added = Array.isArray(res.additions) ? res.additions.slice(0, 3).join(', ') : '';
       setStatus({ tone: 'ok', text: added ? `Se añade: ${added}. La frase no se reescribe.` : 'La frase se queda como la escribiste' });
@@ -435,7 +438,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
               className="fixed z-50 overflow-y-auto border border-[var(--line-strong)] bg-[var(--surface-2)] p-1 flex flex-col shadow-lg"
               style={{ left: box.left, top: box.top, bottom: box.bottom, minWidth: box.minWidth, maxHeight: MENU_MAX_PX }}>
               {ACTIONS.map((a) => (
-                <button key={a.id} type="button" onClick={() => { setOpen(false); setAction(a.id); setStatus(null); setJob(null); }}
+                <button key={a.id} type="button" onClick={() => { setOpen(false); setAction(a.id); setStatus(null); setJob(null); setForceAuto(true); }}
                   className="text-left px-3 py-2 hover:bg-[var(--acc-dim)] text-zinc-200">
                   <span className="mono text-[11.5px]">{a.label}</span>
                 </button>
@@ -486,6 +489,23 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
             <input type="range" min={0} max={1} step={0.05} value={strength}
               onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
             <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
+          </label>
+        )}
+        {action === 'voz_prompt' && (
+          <label className="flex items-center gap-2">
+            <span className="label shrink-0">FUERZA</span>
+            <button type="button" onClick={() => setForceAuto((v) => !v)}
+              className={`btn btn-ghost h-8 px-2.5 ${forceAuto ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+              title="AUTO deduce la fuerza de tu prompt (sin melodías = baja). Apágalo para fijarla tú.">
+              {forceAuto ? 'AUTO' : 'MANUAL'}
+            </button>
+            {!forceAuto && strength !== null && (
+              <>
+                <input type="range" min={0} max={1} step={0.05} value={strength}
+                  onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
+                <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
+              </>
+            )}
           </label>
         )}
         {current?.needsRange && (
