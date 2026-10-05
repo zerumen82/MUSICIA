@@ -29,13 +29,13 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * - onLaunch({ prompt, seed, duration_seconds, bpm, source_kind }) lo cablea cada pantalla.
  * - sourceKind ('upload' | 'output') dice de qué lista viene el archivo.
  */
-export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = null, onLaunch, generating = false, jobNote = null }) {
-  const [prompt, setPrompt] = useState('');
+export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = null, onLaunch, generating = false, jobNote = null, initialPrompt = '', initialLyrics = '', showLyrics = false }) {
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [basis, setBasis] = useState(null);
   const [note, setNote] = useState(null);
   const [seed, setSeed] = useState(null);
   const [name, setName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre numerado
-  const [lyrics, setLyrics] = useState(''); // letra opcional: solo para kind voz/mixta
+  const [lyrics, setLyrics] = useState(initialLyrics); // letra opcional: con letra canta, sin ella es instrumental
   const [launching, setLaunching] = useState(false);
 
   // Con voz: el motor solo canta si le llega letra; sin ella hace instrumental.
@@ -123,9 +123,9 @@ export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = n
         </div>
       </div>
 
-      {conVoz && (
+      {(conVoz || showLyrics) && (
         <div className="flex flex-col gap-2">
-          <span className="label">LETRA (opcional: con letra canta, sin ella es instrumental)</span>
+          <span className="label">LETRA (con letra canta, vacía es instrumental)</span>
           <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)}
             placeholder="Escribe la letra… si la dejas vacía solo sonará la base musical"
             className="bg-transparent outline-none resize-none text-[13px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[70px] font-medium border-l-2 border-[var(--acc-line)] pl-4 py-1.5" />

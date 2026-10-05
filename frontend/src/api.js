@@ -33,7 +33,7 @@ export const GENERATE_SUBMIT_TIMEOUT_MS = 90000
  * Axios dice «timeout of 30000ms exceeded» cuando su reloj acaba antes que la API.
  */
 export const isTransportBlip = (message) =>
-  /no responde|respuesta ilegible|timeout of \d+ms exceeded|timeout exceeded|tardó demasiado|Network Error|ECONNABORTED|ECONNREFUSED/i.test(message ?? '')
+  /no responde|no contesta|respuesta ilegible|timeout of \d+ms exceeded|timeout exceeded|tardó demasiado|Network Error|ECONNABORTED|ECONNREFUSED/i.test(message ?? '')
 
 export const isEnginePollBlip = isTransportBlip
 

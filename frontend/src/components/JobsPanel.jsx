@@ -77,7 +77,8 @@ export default function JobsPanel() {
             const isPlaying = playing === job.job_id;
             const markIdx = abMarks.indexOf(job.job_id);
             return (
-              <div key={job.job_id} className="flex items-center gap-3 py-1.5 border-b border-[var(--line)]">
+              <React.Fragment key={job.job_id}>
+              <div className="flex items-center gap-3 py-1.5 border-b border-[var(--line)]">
                 <button onClick={() => setPlaying(isPlaying ? null : job.job_id)}
                   className={`w-6 h-6 rounded-[3px] flex items-center justify-center shrink-0 border ${isPlaying ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)]'}`}>
                   {isPlaying ? <Pause size={9} className="text-[#0c0f04]" fill="currentColor" />
@@ -96,6 +97,11 @@ export default function JobsPanel() {
                 <a href={api.audioUrl(job.output_name)} download
                   className="mono text-[9px] text-[var(--faint)] hover:text-[var(--acc)] shrink-0">MP3</a>
               </div>
+              {isPlaying && job.output_name && (
+                <audio key={job.job_id} controls autoPlay src={api.audioUrl(job.output_name)}
+                  className="player" onEnded={() => setPlaying(null)} />
+              )}
+              </React.Fragment>
             );
           })}
         </div>

@@ -1291,3 +1291,71 @@ Lo que pidió el usuario: «acabemos» lo pendiente de la nota XXXIX (él lo lla
 - No se abrió la ventana, no se generó canción, no se arrancaron servicios. ZSFINORTIO, las mezclas y VERSION1 intactos.
 - **TESTER - PASS de resolución, de intención, de sintaxis, de lint y de build. No de un clic ni de una cover (falta GPU).**
 - **REVIEWER - APPROVE con límites**: el 0,1/0,5 hay que oírlos en un remix real; el primer remix con «sin melodías» dirá si 0,1 suelta demasiado el groove. `GET /audio/peaks` y `/audio/groove` siguen resolviendo outputs-primero (solo vistas; la onda podría dibujar el homónimo equivocado). Pendiente menor anotado, no bloquea.
+
+## 2026-10-05 (XLI) - Tests mínimos, T7 anotada, letra en biblioteca y % global
+
+Lo que pidió el usuario: «HAZLO TODO» sobre el resumen de mejoras (tests+spec, punto 10, punto 3).
+
+### 1. Tests que corren sin GPU ni ventana (T6, parcial)
+
+- `backend/test_remix_logic.py` (unittest de la stdlib: cero paquetes nuevos, la prohibición de instalar lo exigía): 16 tests de `_find_audio` (orden por kind, recurso cruzado, 400, 404), `remix_cover_strength_for` (baja/alta/neutra/vacía) y `voz_real_quiere_mas_larga`.
+- `python -m unittest backend.test_remix_logic`: OK en Python 3.11 del sistema y en `backend/venv`, 0,03–0,07 s.
+- Falta de T6: `build_payload`, cuadre y `verificar_audio`. Anotado en `spec/03-PENDIENTES.md`.
+- T7 registrada como cerrada (el fail-fast con 503 existe en generate y remix/ai; se citaba en código sin estar en el spec). T3 remedida: bundle 340,31 kB (+7 kB); umbral de partir en 400 kB.
+
+### 2. «Otra versión» ya no pierde la letra (punto 10, parcial)
+
+- `RemixIAPanel`: props `initialPrompt`, `initialLyrics`, `showLyrics`. BIBLIOTECA los rellena desde la ficha (`item.prompt`, `item.lyrics`) y enseña el campo de letra aunque el kind sea `musica`. `runIAFromLibrary` ya mandaba la letra si venía: con letra canta, vacía es instrumental.
+- Límite honesto: la ficha no guarda idioma ni descriptores de voz, así que la voz exacta no se restaura (el doc pedía los 4 selectores). Sin ficha, el campo sale vacío para pegar. Los botones VERSO/ESTRIBILLO/PUENTE/FINAL del doc siguen sin hacerse.
+
+### 3. El % viaja contigo (punto 3)
+
+- El header ya sondeaba `/music/jobs` y pintaba la fase; la API ya daba `progress_ratio`, `prompt` y `output_name`. Solo faltaba pintarlo: ahora enseña nombre (o 40 letras del prompt), % y fase en una línea (`App.jsx`).
+- No se tocó el sondeo (3 s) ni la cola.
+
+### Prueba
+
+- `py_compile` salida 0. unittest 16/16 OK (dos intérpretes). `npm run lint` salida 0 (un error mío de paréntesis en el primer intento, corregido y re-verificado). `npm run build` salida 0. Bundle `index-CYhHOPH7.js` (340,59 kB) con `con letra canta` y `showLyrics` dentro.
+- No se abrió la ventana, no se generó canción, no se arrancaron servicios. Audios y mezclas intactos.
+- **TESTER - PASS de tests, sintaxis, lint y build. No de un clic (header), ni de pegar letra, ni de GPU.**
+- **REVIEWER - APPROVE con límites**: el header con % y la letra pre-rellenada no se han visto en la ventana; el primer «otra versión» de una cantada dirá si el cover canta afinado con esa letra.
+
+## 2026-10-05 (XLII) - Auditoría a fondo y cuatro lotes (obediencia, bugs, canto, limpieza)
+
+Lo que pidió el usuario, en mayúsculas: revisar A FONDO mejoras, obediencia al prompt y UI posible. Dos agentes en paralelo (34 endpoints backend, 15 pantallas frontend) + traza propia extremo a extremo. De ~40 hallazgos verifiqué los que pesan; uno era falso (`/audio/process` SÍ se usa en AJUSTES).
+
+### Lote A — obediencia y textos que mentían
+
+- `thinking: True` → `False` en `config.py`: el default mentía, `build_payload` lo fija en `False` (decisión 2026-10-03).
+- `mood` fuera de `EnhancePromptRequest` y de `enhance_prompt` (nadie lo mandaba, el backend lo tiraba). Pydantic ignora extras: clientes viejos no rompen.
+- `isTransportBlip` reconoce «no contesta» (`api.js`): `describeError` dice «La API no contesta.» y ese caso no contaba como corte.
+- Textos: «hasta 2 min» → «hasta 5 min» (el timeout real, `api.js:47`); `VOCALES: AUTO (instrumental)` → «AUTO · el motor elige la voz»; `TIPO` sin jerga; `GÉNERO` vocal → `VOZ` (chocaba con género musical); hints y placeholder con `[Verse]/[Chorus]` (lo que `vocal.js` manda de verdad).
+- `vocalSummary` ya no cuenta el idioma (siempre 'es', impedía ver AUTO); `resetVocal` también resetea el idioma.
+- MEZCLA enseña `dB`; borrar subida pide SÍ/NO como en biblioteca; EXTRAER se deshabilita sin motor de separación.
+
+### Lote B — bugs funcionales
+
+- Asistente↔CREAR: `Orquestal/Acústico/Electrónica`, `Alegre/Épico/Oscuro/Chill` y BPM 100 del wizard caían al vacío (tags sin pareja). Añadidos a `Composer.jsx` con los mismos tags y textos del wizard.
+- JobsPanel: el play de fila solo cambiaba el icono. Ahora suena inline (`<audio>` bajo la fila).
+- Waveform: al cambiar de pista con `key={fileName}` (como ya hacía `RemixPanel`); el reset dentro del efecto lo vetó el linter y se quitó.
+- MEZCLA con `source_kind`: `base_kind/vocal_kind` en `MixRequest`/`MixPlanRequest`, `track_kinds` en crossfade (400 si no cuadra en número), `kindOf` desde las listas (`bib→output`). `_mix_alignment` acepta kinds.
+
+### Lote D — la base nueva canta (cambio de comportamiento, aprobado)
+
+- Regla: **si hay letra cantable (≥8 palabras), la base nueva la canta y la voz original NO se superpone** (se entrega separada; dos voces a la vez no es un bootleg). Vale en cover y en camino largo. El paso lo anuncia; `result.sung_base=True`, `with_vocals=False`.
+- `voz_prompt` tiene campo LETRA (estructurada con `structureLyric` antes de enviar) y lo dice en su hint. Sin letra, todo igual que antes.
+
+### Lote C — limpieza
+
+- Fuera `POST /tts/generate`, `GET /voices`, `TTSRequest`, import, `tts_service.py` (borrado), `edge-tts` de requirements. Era red: anti LOCAL-FIRST y sin UI desde el 2026-10-02.
+- `Mixer.jsx`/`Sequencer.jsx` SE QUEDAN en disco (el 05-MEJORAS lo prohíbe expreso y el lote aprobado decía «fuera del build»): verificado que el bundle no los trae (0/3 marcadores).
+- README sin pestaña VOZ ni TTS; `knowledge.md`, `AGENTS.md`, `spec/01/02/04` sin edge-tts; docstring de cabecera de `main.py` corregido (`/api/info`, sin TTS).
+
+### Prueba
+
+- `py_compile` salida 0. unittest 16/16 OK (el import ya demuestra que `main.py` vive sin `tts_service`).
+- `npm run lint` salida 0 (dos tropiezos míos corregidos: paréntesis JSX y `setState` en efecto → `key=`; más un `useCallback` por `exhaustive-deps`).
+- `npm run build` salida 0. Bundle `index-GG6banhc.js` (342,47 kB, gzip 106,31 kB): `base_kind`, `track_kinds`, `hasta 5 min`, `Orquestal`, `source_kind` dentro. TTS 0/4 restos en `main.py`.
+- No se abrió la ventana, no se generó canción, no se arrancaron servicios. Audios y mezclas intactos.
+- **TESTER - PASS de tests, sintaxis, lint y build. No de clics (play inline, letra que canta, kinds de mezcla), ni de GPU (base que canta sin oír).**
+- **REVIEWER - APPROVE con límites**: el primer remix con letra dirá si el cover canta afinado y si no duplicar la voz era lo correcto; el primer cruce bib/sub en MEZCLA dirá si `kindOf` acierta. Queda fuera de los lotes: `time_signature` (sigue en [A4]), `audio_format=wav` (biblioteca ciega + MIME fijo), `fade_seconds` sin validar, `pollUntilDone` infinito con red caída (diseño: el corte no para el sondeo).

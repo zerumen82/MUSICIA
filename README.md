@@ -7,7 +7,6 @@ Estudio de música con IA **100% local** para Windows. Genera canciones, canta c
 - **CREAR** — Genera música instrumental o canciones con voz a partir de un prompt. Asistente de calidad en 5 pasos, mejora de prompt con un clic, variaciones A/B comparables.
 - **SUBIR** — Arrastra tus MP3/WAV, análisis DSP automático (BPM, loudness, dinámica) y re-creación con IA a partir de un prompt editable.
 - **MEZCLA** — Mezcla varias pistas con volúmenes, fundidos de entrada/salida y normalización.
-- **VOZ** — Síntesis de voz (TTS) para letras o locuciones.
 - **BIBLIOTECA** — Todas tus creaciones, con remezcla y ajustes por pista.
 
 ## 🏗️ Arquitectura
@@ -41,7 +40,7 @@ Requisitos: Windows, Python 3.11+, Node 18+, GPU NVIDIA con ≥8 GB VRAM recomen
 ## 📁 Estructura
 
 ```
-backend/     API FastAPI + servicios (música, TTS, mezcla, análisis DSP)
+backend/     API FastAPI + servicios (música, mezcla, análisis DSP)
 frontend/    UI React/Vite + main.cjs de Electron
 scripts/     lanzadores, launcher C# (Musicia.exe)
 spec/        especificaciones SDD
@@ -50,4 +49,4 @@ vendor/      ACE-Step 1.5 (no incluido en el repo)
 
 ## 🔒 Privacidad
 
-Todo el procesamiento — generación, análisis, mezcla y TTS — ocurre en tu máquina. No hay telemetría ni llamadas externas.
+Todo el procesamiento — generación, análisis y mezcla — ocurre en tu máquina. No hay telemetría ni llamadas externas.

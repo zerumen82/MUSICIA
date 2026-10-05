@@ -2,14 +2,13 @@
 
 Endpoints
 ---------
-GET  /                      información del servicio
+GET  /api/info              información del servicio
 GET  /health                estado real del motor local ACE-Step
-POST /tts/generate          texto -> voz (edge-tts)
-GET  /voices                voces disponibles del motor de TTS
-POST /audio/mix             mezcla de dos pistas con ganancia en dB
 POST /music/generate        crea una generación real en el motor local
 GET  /music/status/{job_id} estado y resultado de una generación
 GET  /music/audio/{name}    descarga el audio generado
+POST /audio/remix/ai        remix con IA (voz original + base nueva)
+... (el resto, en orden de aparición más abajo)
 
 Nada aquí es simulado: cada endpoint hace el trabajo real y devuelve error si falla.
 """
@@ -59,7 +58,6 @@ from music_service import (
     lyrics_are_song,
     resolve_remix_duration,
 )
-from tts_service import TTSService
 
 settings = get_settings()
 music = MusicService(settings)
@@ -92,12 +90,6 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 
-class TTSRequest(BaseModel):
-    text: str
-    voice: str | None = None
-    output_name: str | None = None
-
-
 class MixRequest(BaseModel):
     base_track: str
     vocal_track: str
@@ -106,6 +98,8 @@ class MixRequest(BaseModel):
     vocal_volume: float = 0
     align: bool = Field(default=False, description="Cuadrar tempo y fase de la voz con la base")
     normalize_lufs: bool = Field(default=True, description="Normalizar a -14 LUFS con pico -1 dBTP")
+    base_kind: str | None = Field(default=None, description="upload | output: de qué lista viene la base")
+    vocal_kind: str | None = Field(default=None, description="upload | output: de qué lista viene la voz")
 
 
 class MixPlanRequest(BaseModel):
@@ -113,6 +107,8 @@ class MixPlanRequest(BaseModel):
 
     base_track: str
     vocal_track: str
+    base_kind: str | None = Field(default=None, description="upload | output: de qué lista viene la base")
+    vocal_kind: str | None = Field(default=None, description="upload | output: de qué lista viene la voz")
 
 
 class SeparateRequest(BaseModel):
@@ -149,6 +145,9 @@ class CrossfadeRequest(BaseModel):
     tracks: list[str]
     fade_seconds: float = 4.0
     output_name: str | None = None
+    track_kinds: list[str | None] | None = Field(
+        default=None, description="upload | output por pista, en el mismo orden que tracks"
+    )
 
 
 class AiRemixRequest(BaseModel):
@@ -221,7 +220,6 @@ class EnhancePromptRequest(BaseModel):
 
     prompt: str
     bpm: int | None = None
-    mood: str | None = None
 
 
 class RemixPromptRequest(BaseModel):
@@ -555,34 +553,6 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.post("/tts/generate")
-async def generate_tts(request: TTSRequest) -> dict[str, Any]:
-    voice = request.voice or settings.tts.default_voice
-    output_path = _resolve_output(
-        _safe_name(request.output_name, settings.tts.default_output_name)
-    )
-    if len(request.text) > settings.tts.max_text_chars:
-        raise HTTPException(
-            status_code=400,
-            detail=f"El texto supera los {settings.tts.max_text_chars} caracteres",
-        )
-    try:
-        await TTSService.generate_speech(request.text, voice, str(output_path))
-    except Exception as exc:
-        logger.error(f"TTS falló: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"status": "success", "file_path": str(output_path), "voice": voice}
-
-
-@app.get("/voices")
-async def get_voices() -> Any:
-    try:
-        return await TTSService.list_voices()
-    except Exception as exc:
-        logger.error(f"No se pudieron listar las voces: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 @app.post("/audio/mix")
 async def mix_audio(request: MixRequest) -> dict[str, Any]:
     stem = _safe_name(request.output_name, Path(settings.mixer.default_output_name).stem)
@@ -599,18 +569,12 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
                     f"{settings.mixer.max_gain_db} dB"
                 ),
             )
-    # Las pistas llegan por nombre; se resuelven contra outputs/ o uploads/.
-    def _resolve_track(name: str) -> str:
-        candidate = _resolve_output(name)
-        if candidate.exists():
-            return str(candidate)
-        upload = _resolve_upload(name)
-        if upload.exists():
-            return str(upload)
-        raise HTTPException(status_code=404, detail=f"Pista no encontrada: {name}")
+    # Las pistas llegan por nombre; la UI dice de qué lista viene cada una.
+    def _resolve_track(name: str, kind: str | None) -> str:
+        return str(_find_audio(name, kind))
 
-    base_path = _resolve_track(request.base_track)
-    vocal_path = _resolve_track(request.vocal_track)
+    base_path = _resolve_track(request.base_track, request.base_kind)
+    vocal_path = _resolve_track(request.vocal_track, request.vocal_kind)
     try:
         arrangement = plan_vocal_arrangement(Path(base_path), Path(vocal_path), settings.mixer)
     except ValueError as exc:
@@ -630,7 +594,9 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
             )
         else:
             if request.align:
-                alignment = _mix_alignment(request.base_track, request.vocal_track)
+                alignment = _mix_alignment(
+                    request.base_track, request.vocal_track, request.base_kind, request.vocal_kind
+                )
             info = MixerService.mix_tracks(
                 base_path,
                 vocal_path,
@@ -702,24 +668,17 @@ def remix_cover_strength_for(prompt: str) -> tuple[float, str | None]:
     return settings.generation.remix_cover_strength, None
 
 
-def _mix_alignment(base_name: str, vocal_name: str) -> dict | None:
+def _mix_alignment(
+    base_name: str, vocal_name: str, base_kind: str | None = None, vocal_kind: str | None = None
+) -> dict | None:
     """Calcula el plan de cuadre de una pareja de pistas.
 
     Devuelve None si no es seguro cuadrar (groove poco fiable o ajuste
     demasiado grande): es preferible mezclar sin tocar a destrozarla.
     """
-    def _resolve(name: str) -> Path:
-        candidate = _resolve_output(name)
-        if candidate.exists():
-            return candidate
-        upload = _resolve_upload(name)
-        if upload.exists():
-            return upload
-        raise HTTPException(status_code=404, detail=f"Pista no encontrada: {name}")
-
     try:
-        base_groove = detect_groove(_resolve(base_name))
-        vocal_groove = detect_groove(_resolve(vocal_name))
+        base_groove = detect_groove(_find_audio(base_name, base_kind))
+        vocal_groove = detect_groove(_find_audio(vocal_name, vocal_kind))
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -735,8 +694,8 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
     Responde tempo y fase de cada pista y el ajuste exacto (ratio + desfase)
     que se aplicaría, para que el usuario lo vea antes de darle a MEZCLAR.
     """
-    base_path = _find_audio(request.base_track)
-    vocal_path = _find_audio(request.vocal_track)
+    base_path = _find_audio(request.base_track, request.base_kind)
+    vocal_path = _find_audio(request.vocal_track, request.vocal_kind)
     try:
         arrangement = plan_vocal_arrangement(base_path, vocal_path, settings.mixer)
     except ValueError as exc:
@@ -753,7 +712,7 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
             },
             "explanation": arrangement["explanation"],
         }
-    plan = _mix_alignment(request.base_track, request.vocal_track)
+    plan = _mix_alignment(request.base_track, request.vocal_track, request.base_kind, request.vocal_kind)
     if plan is None:
         return {
             "plan": None,
@@ -900,7 +859,13 @@ async def audio_crossfade(request: CrossfadeRequest) -> dict[str, Any]:
     """Funde 2 o más pistas igualando su tempo y su volumen (mezcla de DJ)."""
     if len(request.tracks) < 2:
         raise HTTPException(status_code=400, detail="Indica al menos dos pistas")
-    sources = [_find_audio(name) for name in request.tracks]
+    kinds = request.track_kinds or []
+    if kinds and len(kinds) != len(request.tracks):
+        raise HTTPException(status_code=400, detail="track_kinds tiene que traer un kind por pista")
+    sources = [
+        _find_audio(name, kinds[i] if i < len(kinds) else None)
+        for i, name in enumerate(request.tracks)
+    ]
     stem = request.output_name or f"crossfade-{len(sources)}"
     out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
     try:
@@ -991,6 +956,12 @@ async def _run_ai_remix(
         bpm = int(round(request.bpm)) if request.bpm else None
         source_s = float(groove.get("duration_seconds") or 0)
         alargar = request.keep_vocals and voz_real_quiere_mas_larga(request.duration_seconds, source_s)
+        # Letra cantable: la base nueva la canta. La voz original se guarda
+        # aparte pero NO se mezcla encima (dos voces a la vez no es un bootleg).
+        escrita = (request.lyrics or "").strip()
+        letra = escrita if lyrics_are_song(escrita) else ""
+        if request.keep_vocals and escrita and not letra:
+            step("La letra no es una canción: la base sale instrumental, con tu prompt.")
         if request.keep_vocals and not alargar:
             # text2music no oye el tema: por eso un hardcore salió a 130 y la
             # voz, a 170, no encajaba. El cover del instrumental sí oye la
@@ -1009,7 +980,8 @@ async def _run_ai_remix(
             task_id, _ = await music.submit(
                 GenerationRequest(
                     prompt=request.prompt,
-                    instrumental=True,
+                    lyrics=letra or None,
+                    instrumental=not letra,
                     task_type="cover",
                     source_path=str(ritmo),
                     cover_strength=strength,
@@ -1036,7 +1008,8 @@ async def _run_ai_remix(
             task_id, _ = await music.submit(
                 GenerationRequest(
                     prompt=request.prompt,
-                    instrumental=True,
+                    lyrics=letra or None,
+                    instrumental=not letra,
                     duration_seconds=duration,
                     bpm=bpm,
                 )
@@ -1048,8 +1021,6 @@ async def _run_ai_remix(
                 float(groove.get("duration_seconds") or 60),
                 max_seconds=settings.generation.max_duration_seconds,
             )
-            escrita = (request.lyrics or "").strip()
-            letra = escrita if lyrics_are_song(escrita) else ""
             if escrita and not letra:
                 step("La letra no es una canción: la base sale instrumental, con tu prompt.")
             task_id, _ = await music.submit(
@@ -1086,6 +1057,26 @@ async def _run_ai_remix(
         step("Descargando la base generada…")
         base_path = _unique_output_path(_safe_name(f"{stem}-base", DEFAULT_STEM), ".mp3")
         await music.download(track.file, base_path)
+
+        if letra and vocals_path is not None:
+            step("La base nueva canta tu letra: la voz original se guarda aparte, no se mezcla encima.")
+            _carry_ficha(source, base_path, "remix", prompt=request.prompt)
+            _carry_ficha(source, vocals_path, "vocals")
+            loudness = await asyncio.to_thread(measure_loudness, base_path)
+            job.update(
+                status="succeeded",
+                phase="Listo",
+                result={
+                    "mix": base_path.name,
+                    "base": base_path.name,
+                    "vocals": vocals_path.name,
+                    "with_vocals": False,
+                    "sung_base": True,
+                    "arranged": False,
+                },
+                loudness=loudness,
+            )
+            return
 
         if vocals_path is None:
             step("Base lista (sin voz: instrumental nuevo).")
@@ -1667,7 +1658,7 @@ async def delete_upload(name: str) -> dict[str, Any]:
 async def music_enhance_prompt(request: EnhancePromptRequest) -> dict[str, Any]:
     """Enriquece un prompt con reglas de producción musical (determinista)."""
     try:
-        return enhance_prompt(request.prompt, bpm=request.bpm, mood=request.mood)
+        return enhance_prompt(request.prompt, bpm=request.bpm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

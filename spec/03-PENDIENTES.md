@@ -10,16 +10,17 @@
 | ID | Deuda | Impacto | Plan |
 |----|-------|---------|------|
 | T2 | `Sequencer.jsx` sigue en el repo y no está en la navegación. Si vuelve, sus samples salen de tonejs.github.io | R4: sin internet no sonaría | [C2] empaquetar samples locales antes de remontarlo |
-| T3 | El build del frontend no parte el bundle (`manualChunks`). Medido el 2026-10-04: `index-RaxfxUaQ.js` 333.65 kB (gzip 103.76 kB). La cifra vieja de 624 kB no describe el build actual | primera carga de la ventana | medir de nuevo si el bundle crece, y entonces partir react / tone |
+| T3 | El build del frontend no parte el bundle (`manualChunks`). Medido el 2026-10-05: `index-kopcdQs6.js` 340.31 kB (gzip 105.48 kB). Sube despacio (+7 kB desde el 2026-10-04) | primera carga de la ventana | partir react / tone si pasa de 400 kB |
 | T4 | `backend/venv` con pip antiguo (Python 3.10) | avisos e instalaciones lentas | `python -m pip install -U pip` dentro de ese venv, con acuerdo |
 | T5 | pip global del usuario con índice NVIDIA roto (DNS) | ralentiza instalaciones pip del sistema | quitar `extra-index-url` de la config global de pip, con acuerdo |
-| T6 | Sin tests automatizados | las regresiones se ven solo al ejecutar | pytest de `verificar_audio`, `build_payload` y el cuadre que devuelve null |
+| T6 | Sin tests automatizados | las regresiones se ven solo al ejecutar | `backend/test_remix_logic.py` (unittest, stdlib, sin GPU): 16 tests de `_find_audio`, `remix_cover_strength_for` y `voz_real_quiere_mas_larga`. Falta: `build_payload`, cuadre y `verificar_audio` |
 
 ## Cerradas (siguen en la bitácora, ya no son deuda)
 
 | ID | Qué era | Cierre |
 |----|---------|--------|
 | T1 | Mezclador decorativo en pantalla | La pestaña MEZCLA es `MixLab` (ffmpeg). `Mixer.jsx` no se monta. Historia [C1] cerrada por [F1] |
+| T7 | Fail-fast: si el motor no responde, no colgar la petición | Existe en `POST /music/generate` y `/audio/remix/ai` (503 con mensaje). Citada en código pero nunca anotada aquí: se registra el 2026-10-05 |
 | A3 | «Falta la UI de la canción con voz» | Hecha y verificada: selector, letra, `vocal_language`. El usuario confirmó el 2026-10-02 que funciona |
 
 ## Bugs conocidos no resueltos

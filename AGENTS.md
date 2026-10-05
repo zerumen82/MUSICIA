@@ -13,10 +13,10 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
 - Dev backend: `backend/venv/Scripts/python.exe backend/main.py`
 - Dev frontend (HMR en navegador solo para desarrollar): `cd frontend && npm run dev`
 - La UI en producción la sirve la propia API en `/` (mount de `frontend/dist`); hay que hacer `npm run build` tras cambiar el frontend
-- Test: no hay tests unitarios; la verificación oficial es la ejecución real (ver reglas)
+- Test: `backend/test_remix_logic.py` (unittest stdlib, sin GPU) + la verificación oficial es la ejecución real (ver reglas)
 
 ## Architecture
-- `backend/` — FastAPI: generación ACE-Step 1.5, voz cantada por el mismo motor, locución edge-tts, mezcla ffmpeg (atempo/loudnorm), separación demucs, DSP y análisis con pydub
+- `backend/` — FastAPI: generación ACE-Step 1.5, voz cantada por el mismo motor (la locución edge-tts se quitó el 2026-10-05), mezcla ffmpeg (atempo/loudnorm), separación demucs, DSP y análisis con pydub
 - `frontend/` — React 19 + Vite + Tailwind + Tone.js; app de escritorio via Electron (`frontend/main.cjs`, CommonJS porque el package.json es `"type": "module"`; contextIsolation + sandbox)
   - En producción Electron carga `http://127.0.0.1:8000` (la API sirve la UI); en dev sin build, carga `http://localhost:5173`
 - `.agents/` — definiciones de agentes (music-orchestrator, music-composer, audio-engineer)

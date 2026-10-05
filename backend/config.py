@@ -77,7 +77,10 @@ class GenerationDefaults:
     allowed_models: tuple[str, ...] = ("acestep-v15-turbo",)
     lm_model: str = "acestep-5Hz-lm-0.6B"
     lm_backend: str = "pt"
-    thinking: bool = True
+    # Apagado de verdad: build_payload lo fija en False (decisión 2026-10-03:
+    # el thinking generaba códigos que mandaban más que el prompt). El True
+    # viejo mentía: nadie lo leía.
+    thinking: bool = False
     use_lm: bool = True
     infer_method: str = "ode"
     task_type: str = "text2music"

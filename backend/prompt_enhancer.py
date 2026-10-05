@@ -10,12 +10,8 @@ MIN_LENGTH = 3
 MAX_PROMPT_CHARS = 800
 
 
-def enhance_prompt(prompt: str, bpm: int | None = None, mood: str | None = None) -> dict:
-    """Deja la frase del usuario la primera.
-
-    `mood` se conserva en la firma y no cambia el texto.
-    """
-    del mood
+def enhance_prompt(prompt: str, bpm: int | None = None) -> dict:
+    """Deja la frase del usuario la primera."""
     original = (prompt or "").strip()
     if len(original) < MIN_LENGTH:
         raise ValueError(f"El prompt necesita al menos {MIN_LENGTH} caracteres")

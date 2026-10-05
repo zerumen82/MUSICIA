@@ -72,7 +72,7 @@ El usuario es el orchestrator supremo en las dos capas.
 |--------|-----|--------|
 | **music-orchestrator** | Pregunta, reparte, verifica el audio | gpt-5.2 |
 | **music-composer** | Spec JSON de la pieza (no genera audio) | claude-sonnet-4.6 |
-| **audio-engineer** | ACE-Step, edge-tts, ffmpeg, demucs, y comprueba el archivo | qwen3-coder-plus |
+| **audio-engineer** | ACE-Step, ffmpeg, demucs, y comprueba el archivo | qwen3-coder-plus |
 
 ```
 petición musical

@@ -141,7 +141,9 @@ function App() {
             <span className="mono text-[11px] text-[var(--muted)]">{TABS.find((t) => t.id === tab)?.hint}</span>
             {activeJob && (
               <span className="mono text-[10.5px] text-[var(--acc)] truncate max-w-[420px]">
-                {activeJob.phase || 'Trabajando…'}
+                {(activeJob.output_name || (activeJob.prompt ?? '').slice(0, 40) || 'Trabajando…')}
+                {Number(activeJob.progress_ratio) > 0 ? ` · ${Math.round(Number(activeJob.progress_ratio) * 100)}%` : ''}
+                {activeJob.phase ? ` · ${activeJob.phase}` : ''}
               </span>
             )}
           </div>

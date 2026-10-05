@@ -49,17 +49,23 @@ export default function MixLab() {
 
   const canMix = base && vocal && !mixing;
 
+  // La UI sabe de qué lista viene cada pista: la mezcla no toca homónimos.
+  const kindOf = useCallback(
+    (name) => (library.some((i) => i.name === name) ? 'output' : 'upload'),
+    [library],
+  );
+
   // Al elegir base y voz se pide la propuesta de cuadre (no se mezcla nada).
   useEffect(() => {
     if (!base || !vocal) { setPlan(null); setArrange(null); setPlanNote(null); return undefined; }
     let active = true;
     setPlanning(true);
-    api.mixPlan({ base_track: base, vocal_track: vocal })
+    api.mixPlan({ base_track: base, vocal_track: vocal, base_kind: kindOf(base), vocal_kind: kindOf(vocal) })
       .then((d) => { if (active) { setPlan(d.plan); setArrange(d.arrange ?? null); setPlanNote(d.explanation); } })
       .catch((e) => { if (active) { setPlan(null); setArrange(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
       .finally(() => { if (active) setPlanning(false); });
     return () => { active = false; };
-  }, [base, vocal]);
+  }, [base, vocal, kindOf]);
 
   const doMix = async () => {
     setError(null);
@@ -69,6 +75,8 @@ export default function MixLab() {
       const res = await api.mixTracks({
         base_track: base,
         vocal_track: vocal,
+        base_kind: kindOf(base),
+        vocal_kind: kindOf(vocal),
         output_name: mixName.trim() ? mixName.trim() : null,
         base_volume: baseVol,
         vocal_volume: vocalVol,
@@ -88,7 +96,7 @@ export default function MixLab() {
     setError(null);
     setSeparating(true);
     try {
-      const res = await api.separate({ file_name: base, output_name: `${base.replace(/\.[^.]+$/, '')}-separado` });
+      const res = await api.separate({ file_name: base, source_kind: kindOf(base), output_name: `${base.replace(/\.[^.]+$/, '')}-separado` });
       setStems(res);
       setBase(res.base);
       setVocal(res.vocals);
@@ -119,7 +127,7 @@ export default function MixLab() {
     setError(null);
     setFading(true);
     try {
-      const res = await api.crossfade({ tracks: fadeTracks });
+      const res = await api.crossfade({ tracks: fadeTracks, track_kinds: fadeTracks.map(kindOf) });
       setFadeNote(res.note ?? null);
       setResult(res.file_name);
       await refresh();
@@ -161,13 +169,13 @@ export default function MixLab() {
             <span className="label">BASE</span>
             <input type="range" min={-24} max={12} step={1} value={baseVol}
               onChange={(e) => setBaseVol(Number(e.target.value))} className="w-20" />
-            <span className="num w-12 text-right">{baseVol > 0 ? '+' : ''}{baseVol}</span>
+            <span className="num w-12 text-right">{baseVol > 0 ? '+' : ''}{baseVol} dB</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="label">VOZ</span>
             <input type="range" min={-24} max={12} step={1} value={vocalVol}
               onChange={(e) => setVocalVol(Number(e.target.value))} className="w-20" />
-            <span className="num w-12 text-right">{vocalVol > 0 ? '+' : ''}{vocalVol}</span>
+            <span className="num w-12 text-right">{vocalVol > 0 ? '+' : ''}{vocalVol} dB</span>
           </div>
 
           <SelectBox options={ALIGN_OPTIONS} value={align} onChange={setAlign} clearable={false} />
@@ -185,11 +193,11 @@ export default function MixLab() {
 
         {/* Segunda línea: acciones de estudio */}
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={doSeparate} disabled={!base || separating}
+          <button onClick={doSeparate} disabled={!base || separating || !separator?.available}
             className="btn btn-ghost h-8 px-3 gap-1.5"
             title={separator?.available
               ? 'Separa la voz de la base con el motor local (1-3 min la primera vez)'
-              : 'Motor de separación no instalado'}>
+              : 'Motor de separación no instalado: no se puede extraer'}>
             {separating ? <><Loader2 size={12} className="animate-spin" /> SEPARANDO…</>
               : <><Scissors size={12} /> EXTRAER VOCES DE LA BASE</>}
           </button>

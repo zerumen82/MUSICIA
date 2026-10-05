@@ -277,6 +277,9 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         begin('crear', 'Preparando el remix…');
         const seconds = Number(minutes) * 60;
         let letra = '';
+        if (id === 'voz_prompt' && lyrics.trim()) {
+          letra = structureLyric(lyrics.trim());
+        }
         if (id === 'solo_base') {
           letra = lyrics.trim();
           const palabras = letra.match(/[^\W\d_]{2,}/gu) ?? [];
@@ -457,7 +460,16 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
           {extendMinutes
             ? 'Si esos minutos pasan de la canción, la base nueva no oye el tema y la voz se reparte en trozos, sin estirarse. Si no llegan, el cover dura lo que dura la canción.'
             : 'La voz grabada se queda. La base oye el tema y dura lo que dura la canción.'}
+          {' '}Con letra, la base nueva la canta y la voz original se guarda aparte, sin mezclarse encima.
         </span>
+      )}
+      {action === 'voz_prompt' && (
+        <label className="flex flex-col gap-1">
+          <span className="label">LETRA · VACÍO = LA VOZ ORIGINAL SE QUEDA</span>
+          <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={3}
+            placeholder="Si la escribes, la base nueva la canta"
+            className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] resize-y" />
+        </label>
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -558,7 +570,8 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
 
       {action === 'tramo' && (
         <div className="flex flex-col gap-1">
-          <Waveform fileName={fileName} onSelection={onRange} />
+          {/* key = otra pista remonta la onda: el recorte anterior no se hereda. */}
+          <Waveform key={fileName} fileName={fileName} onSelection={onRange} />
           <span className="mono text-[10px] text-[var(--faint)]">Arrastra la onda para marcar el trozo. Hasta vacío = el final de la pista.</span>
         </div>
       )}

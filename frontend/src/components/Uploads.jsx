@@ -52,6 +52,7 @@ export default function Uploads() {
   const [renameName, setRenameName] = useState(null); // item en renombrado
   const [renameValue, setRenameValue] = useState('');
   const [remixName, setRemixName] = useState(null); // subida abierta en la mesa de remix
+  const [confirmDelete, setConfirmDelete] = useState(null); // subida pendiente de confirmar
   const inputRef = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -164,6 +165,7 @@ export default function Uploads() {
       await api.deleteUpload(name);
       if (playing === name) setPlaying(null);
       if (remixName === name) setRemixName(null);
+      setConfirmDelete(null);
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -357,7 +359,14 @@ export default function Uploads() {
                 )}
                 <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
                 <a href={api.uploadUrl(item.name)} download className="btn btn-ghost h-7 px-2 shrink-0"><Download size={11} /></a>
-                <button onClick={() => remove(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
+                {confirmDelete === item.name ? (
+                  <>
+                    <button onClick={() => void remove(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 !border-[rgba(255,92,92,0.5)] !text-red-300">SÍ</button>
+                    <button onClick={() => setConfirmDelete(null)} className="btn btn-ghost h-7 px-2 shrink-0">NO</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
+                )}
               </div>
               {remixName === item.name && (
                 <div className="px-3 pb-4 pt-1 bg-[var(--surface-2)]">

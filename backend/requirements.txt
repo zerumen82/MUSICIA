@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-edge-tts
 pydub
 python-multipart
 aiofiles

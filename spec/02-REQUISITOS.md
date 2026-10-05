@@ -68,7 +68,7 @@ de letra están cableados en CREAR, SUBIR y BIBLIOTECA.
 ### [B1] [P0] [retirada] Texto a locución
 El usuario la quitó el 2026-10-02: esa pestaña leía un texto en voz alta y el producto es música.
 La voz cantada sigue en [A3]. `VoiceLab.jsx` ya no está.
-`POST /tts/generate` y `GET /voices` siguen en la API (edge-tts, red) y ninguna pantalla los llama.
+El 2026-10-05 se quitaron también `POST /tts/generate`, `GET /voices`, `tts_service.py` y `edge-tts` de requirements (era red: anti LOCAL-FIRST).
 
 ### [B2] [P2] [propuesta] Voz sobre música (voz + mezcla desde la UI)
 - Depende de `/audio/mix` (existe) + orquestación UI

@@ -31,6 +31,10 @@ const GENRES = [
   { id: 'epic', tag: 'Épica', style: 'música orquestal épica con cuerdas y percusión cinematográfica' },
   { id: 'jazz', tag: 'Jazz', style: 'jazz café smooth con saxofón cálido y contrabajo' },
   { id: 'ambient', tag: 'Ambient', style: 'ambient etéreo con pads largos y texturas espaciales' },
+  // Los tres los pide el asistente (QualityWizard): mismos tags para no perderlos.
+  { id: 'orquestal', tag: 'Orquestal', style: 'orquestal con cuerdas y percusión' },
+  { id: 'acustico', tag: 'Acústico', style: 'acústico con guitarras y folk' },
+  { id: 'electronica', tag: 'Electrónica', style: 'electrónica moderna con bajos profundos' },
 ];
 
 const MOODS = [
@@ -39,12 +43,18 @@ const MOODS = [
   { id: 'energico', tag: 'Enérgico', text: 'energía creciente y ritmo marcado' },
   { id: 'melancolico', tag: 'Melancólico', text: 'melancólico y emotivo' },
   { id: 'cinematico', tag: 'Cinematográfico', text: 'tensión cinematográfica creciente' },
+  // Los cuatro los pide el asistente (QualityWizard): mismos tags para no perderlos.
+  { id: 'alegre', tag: 'Alegre', text: 'luminoso y optimista' },
+  { id: 'epico', tag: 'Épico', text: 'épico y grandioso' },
+  { id: 'oscuro', tag: 'Oscuro', text: 'oscuro y tenso' },
+  { id: 'chill', tag: 'Chill', text: 'relajado y cálido' },
 ];
 
 const BPM_PRESETS = [
   { id: 'auto', value: null, tag: 'Auto' },
   { id: '70', value: 70, tag: '70' },
   { id: '90', value: 90, tag: '90' },
+  { id: '100', value: 100, tag: '100' },
   { id: '110', value: 110, tag: '110' },
   { id: '128', value: 128, tag: '128' },
   { id: '140', value: 140, tag: '140' },
@@ -157,13 +167,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   /** Quita todas las elecciones de voz y vuelve a AUTO. */
   const resetVocal = () => {
     setVocal({ gender: '', timbre: '', style: '', emotion: '' });
+    setVocalLang('es');
   };
 
-  /** Resumen legible de lo elegido (siempre visible, sin abrir desplegables). */
+  /** Resumen legible de lo elegido (siempre visible, sin abrir desplegables).
+      El idioma no cuenta: siempre hay uno ('es'), y si contara nunca se vería AUTO. */
   const vocalSummary = [
     [VOCAL_GENDER, vocal.gender], [VOCAL_TIMBRE, vocal.timbre],
     [VOCAL_STYLE, vocal.style], [VOCAL_EMOTION, vocal.emotion],
-    [VOCAL_LANGUAGES, vocalLang],
   ]
     .map(([list, id]) => list.find((o) => o.id === id)?.label)
     .filter(Boolean)
@@ -439,7 +450,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="label shrink-0">VOZ CANTADA</span>
-                <SelectBox label="GÉNERO" options={VOCAL_GENDER} value={vocal.gender}
+                <SelectBox label="VOZ" options={VOCAL_GENDER} value={vocal.gender}
                   onChange={(v) => setVocal({ ...vocal, gender: v })} />
                 <SelectBox label="TIMBRE" options={VOCAL_TIMBRE} value={vocal.timbre}
                   onChange={(v) => setVocal({ ...vocal, timbre: v })} />
@@ -481,11 +492,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">VOCALES</dt>
-                      <dd className="text-zinc-200">{buildVocalTags(vocal) || 'AUTO (instrumental)'}</dd>
+                      <dd className="text-zinc-200">{buildVocalTags(vocal) || 'AUTO · el motor elige la voz'}</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">TIPO</dt>
-                      <dd className="text-zinc-200">{lyrics.trim() ? 'CON VOZ (instrumental = no)' : 'INSTRUMENTAL'}</dd>
+                      <dd className="text-zinc-200">{lyrics.trim() ? 'CON VOZ · canta la letra' : 'INSTRUMENTAL'}</dd>
                     </div>
                     {lyrics.trim() !== '' && (
                       <div className="flex gap-2">
@@ -503,7 +514,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                   <button onClick={autoWriteLyrics} disabled={writingLyrics}
                     title="Construye la canción a partir de las frases que hayas escrito; el motor intenta ampliarlas"
                     className="btn btn-ghost h-8 px-3">
-                    {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 2 min)…</>
+                    {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 5 min)…</>
                       : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
                   </button>
                 </div>
@@ -511,7 +522,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                 <textarea
                   value={lyrics}
                   onChange={(e) => { setLyrics(e.target.value); if (lyricsWarning) setLyricsWarning(null); }}
-                  placeholder="Con dos frases basta: la canción se construye con ellas. Pulsa ESCRIBIRLA POR MÍ y las convierto en verso y estribillo."
+                  placeholder="Con dos frases basta: la canción se construye con ellas. Pulsa ESCRIBIRLA POR MÍ y las convierto en [Verse] y [Chorus]."
                   className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[96px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
                 />
 
@@ -522,7 +533,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                       ? 'Sin letra el motor hace un instrumental. Con letra, canta.'
                       : hasLyricStructure(lyrics)
                         ? 'Ya tiene marcas de estructura: se canta tal cual.'
-                        : 'Se enviará con [verso]/[estribillo] añadidos automáticamente.'}
+                        : 'Se enviará con [Verse]/[Chorus] añadidos automáticamente.'}
                 </p>
               </div>
             </div>

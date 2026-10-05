@@ -240,6 +240,7 @@ export default function Library() {
                 <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
                   <span className="label block mb-1">OTRA VERSIÓN CON IA · {item.name}</span>
                   <RemixIAPanel fileName={item.name} kind="musica" sourceKind="output"
+                    initialPrompt={item.prompt ?? ''} initialLyrics={item.lyrics ?? ''} showLyrics
                     onLaunch={runIAFromLibrary} generating={iaBusy} jobNote={iaName === item.name ? iaNote : null} />
                 </div>
               )}
