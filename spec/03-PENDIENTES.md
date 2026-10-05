@@ -51,7 +51,8 @@ una cover ni de un repaint.
 ## Próximas historias candidatas
 
 1. [T6] Tests del servicio de música y del cuadre — protege lo que ya funciona
-2. [A4] Compás (time signature) en CREAR — BPM, tono y semilla ya están
-3. [F3] Una cover y un repaint reales (MP3, duración > 0) cuando se pueda ocupar la GPU
-4. [D3] Instalador — cuando el producto se quiera empaquetar
-5. [C2] / [T2] Secuenciador, solo si se vuelve a querer en la UI, con samples locales
+2. [F3] Una cover y un repaint reales (MP3, duración > 0) cuando se pueda ocupar la GPU
+3. [D3] Instalador — cuando el producto se quiera empaquetar
+4. [C2] / [T2] Secuenciador, solo si se vuelve a querer en la UI, con samples locales
+
+Hechas el 2026-10-05: [A4] compás en CREAR (selector COMPÁS 4/4·3/4·6/8, viaja al motor y a la ficha).

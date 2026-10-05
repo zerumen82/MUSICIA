@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Play, Loader2, AlertTriangle, Download, Trash2, Music4, Sparkles,
+  Play, Loader2, AlertTriangle, Download, Music4, Sparkles,
   Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, RotateCcw,
 } from 'lucide-react';
 import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
@@ -19,8 +19,6 @@ const UI = {
   defaultDuration: 120,
   maxDurationFallback: 600,
   step: 5,
-  historyKey: 'musica.historial',
-  maxHistory: 30,
 };
 
 /* Opciones reales que el backend acepta (MusicGenRequest): nada inventado. */
@@ -70,6 +68,13 @@ const KEYS = [
   { id: 'G major', tag: 'Sol M' },
 ];
 
+const TIME_SIGNATURES = [
+  { id: '', tag: 'Auto' },
+  { id: '4/4', tag: '4/4' },
+  { id: '3/4', tag: '3/4' },
+  { id: '6/8', tag: '6/8' },
+];
+
 const MODES = [
   { id: 'music', label: 'MÚSICA', icon: Music },
   { id: 'voice', label: 'CANCIÓN CON VOZ', icon: Mic2 },
@@ -84,11 +89,6 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-const loadHistory = () => {
-  try { return JSON.parse(localStorage.getItem(UI.historyKey) ?? '[]'); }
-  catch { return []; }
-};
-
 export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false } }) {
   const [mode, setMode] = useState(initialMode);
   const [config, setConfig] = useState(null);
@@ -97,12 +97,12 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [mood, setMood] = useState(null);
   const [bpm, setBpm] = useState(null);
   const [key, setKey] = useState('');
+  const [timeSig, setTimeSig] = useState('');
   const [duration, setDuration] = useState(UI.defaultDuration);
   const [seed, setSeed] = useState(''); // vacío = aleatorio (use_random_seed del config)
   const [songName, setSongName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
-  const [history, setHistory] = useState(loadHistory);
   const [playing, setPlaying] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
@@ -133,14 +133,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       }
     })();
     return () => { active = false; };
-  }, []);
-
-  const remember = useCallback((entry) => {
-    setHistory((prev) => {
-      const next = [{ ...entry, id: `${Date.now()}` }, ...prev].slice(0, UI.maxHistory);
-      localStorage.setItem(UI.historyKey, JSON.stringify(next));
-      return next;
-    });
   }, []);
 
   /** Compone el prompt final: estilo del género + mood + texto libre + voz. */
@@ -219,7 +211,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     }
   };
 
-  const pollUntilDone = useCallback(async (jobId, meta) => {
+  const pollUntilDone = useCallback(async (jobId) => {
     let misses = 0;
     while (aliveRef.current) {
       await new Promise((r) => setTimeout(r, JOB_POLL_INTERVAL_MS));
@@ -230,13 +222,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         setJob(status);
         if (status.status === 'succeeded' && status.output_name) {
           setPlaying(api.audioUrl(status.output_name));
-          remember({
-            title: meta.title.slice(0, 60),
-            prompt: meta.prompt,
-            duration: status.duration_seconds ?? meta.duration,
-            outputName: status.output_name,
-            createdAt: new Date().toISOString(),
-          });
           return status;
         }
         if (status.status === 'failed') {
@@ -257,7 +242,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       }
     }
     return null;
-  }, [remember]);
+  }, []);
 
   const launchGeneration = async (finalPrompt, seedValue, nameOverride = undefined) => {
     const meta = { prompt: finalPrompt, title: finalPrompt, duration: Number(duration) };
@@ -270,13 +255,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       duration_seconds: meta.duration,
       bpm: bpm ?? null,
       key_scale: key || null,
+      time_signature: timeSig || null,
       // vocal_language via explícito: antes viajaba siempre "en" (bug A3).
       language: conVoz ? vocalLang : null,
       seed: seedValue,
       // Nombre elegido por el usuario; vacío = "pista-sin-nombre" numerado.
       output_name: (nameOverride ?? songName).trim() ? (nameOverride ?? songName).trim() : null,
     });
-    return { created, meta };
+    return { created };
   };
 
   const generate = async () => {
@@ -293,9 +279,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     setJob({ status: 'queued', progress: '' });
     try {
       const seedValue = seed.trim() === '' ? null : Number(seed);
-      const { created, meta } = await launchGeneration(finalPrompt, seedValue);
+      const { created } = await launchGeneration(finalPrompt, seedValue);
       aliveRef.current = true;
-      void pollUntilDone(created.job_id, meta);
+      void pollUntilDone(created.job_id);
     } catch (e) {
       setError(e.message);
       setJob({ status: 'failed' });
@@ -321,20 +307,15 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       aliveRef.current = true;
       setJob({ status: 'queued', phase: 'Variación A en cola' });
       const first = await launchGeneration(finalPrompt, s1);
-      const doneA = await pollUntilDone(first.created.job_id, first.meta);
+      const doneA = await pollUntilDone(first.created.job_id);
       if (!aliveRef.current || doneA?.status !== 'succeeded') return;
       setJob({ status: 'queued', phase: 'Variación B en cola' });
       const second = await launchGeneration(finalPrompt, s2);
-      await pollUntilDone(second.created.job_id, second.meta);
+      await pollUntilDone(second.created.job_id);
     } catch (e) {
       setError(e.message);
       setJob({ status: 'failed' });
     }
-  };
-
-  const clearHistory = () => {
-    localStorage.removeItem(UI.historyKey);
-    setHistory([]);
   };
 
   /** Añade el BPM elegido. No reescribe la frase ni mete el género del desplegable. */
@@ -389,7 +370,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   }, [busy]);
 
   return (
-    <div className="min-h-full w-full flex flex-col xl:flex-row items-start px-6 py-6 gap-8 xl:px-10">
+    <div className="min-h-full w-full flex flex-col px-6 py-6 gap-6 xl:px-10">
       {/* ============ CONSOLA ============ */}
       <section className="flex-1 min-w-0 flex flex-col gap-6">
         {/* Modo: música / voz + asistente de calidad */}
@@ -428,6 +409,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           <SelectBox label="TONO" placeholder="AUTO"
             options={KEYS.filter((k) => k.id).map(({ id, tag }) => ({ id, label: tag }))}
             value={key} onChange={setKey} />
+          <SelectBox label="COMPÁS" placeholder="AUTO"
+            options={TIME_SIGNATURES.filter((t) => t.id).map(({ id, tag }) => ({ id, label: tag }))}
+            value={timeSig} onChange={setTimeSig} />
         </div>
 
         {/* Prompt libre + duración + seed */}
@@ -657,38 +641,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       {wizardOpen && (
         <QualityWizard onClose={() => setWizardOpen(false)} onApply={applyWizard} />
       )}
-
-      {/* ============ SESIÓN ============ */}
-      <aside className="w-full xl:w-[280px] xl:shrink-0 flex flex-col min-h-0 xl:sticky xl:top-0 xl:max-h-[calc(100vh-7rem)]">
-        <div className="flex items-center justify-between pb-4 border-b border-[var(--line)]">
-          <span className="label">SESIÓN · {history.length}</span>
-          {history.length > 0 && (
-            <button onClick={clearHistory} className="text-[var(--faint)] hover:text-red-400 transition-colors" title="Vaciar">
-              <Trash2 size={12} />
-            </button>
-          )}
-        </div>
-        <div className="flex-1 min-h-0 overflow-y-auto py-3 space-y-1">
-          {history.length === 0 && (
-            <p className="mono text-[10px] text-[var(--faint)] leading-relaxed tracking-wide py-6 text-center">
-              SIN PISTAS AÚN.<br />GENERA LA PRIMERA.
-            </p>
-          )}
-          {history.map((item) => {
-            const isCurrent = playing === api.audioUrl(item.outputName);
-            return (                <button key={item.id} onClick={() => setPlaying(api.audioUrl(item.outputName))}
-                  className={`w-full text-left px-4 py-3.5 flex items-center gap-4 transition-colors border-l-2 ${isCurrent ? 'border-[var(--acc)] bg-[var(--acc-dim)]' : 'border-transparent hover:border-[var(--line-strong)] hover:bg-[var(--surface-2)]'}`}>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13.5px] font-semibold truncate text-zinc-200">{item.title}</span>
-                  <span className="block mono text-[11px] text-[var(--faint)] mt-1">{fmt(item.duration)} · {new Date(item.createdAt).toLocaleDateString()}</span>
-                </span>
-                {isCurrent ? <div className="eq scale-[.4] -m-1.5 shrink-0"><span /><span /><span /><span /><span /><span /></div>
-                  : <Play size={10} className="text-[var(--faint)] shrink-0" fill="currentColor" />}
-              </button>
-            );
-          })}
-        </div>
-      </aside>
     </div>
   );
 }

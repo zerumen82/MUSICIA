@@ -1359,3 +1359,36 @@ Lo que pidió el usuario, en mayúsculas: revisar A FONDO mejoras, obediencia al
 - No se abrió la ventana, no se generó canción, no se arrancaron servicios. Audios y mezclas intactos.
 - **TESTER - PASS de tests, sintaxis, lint y build. No de clics (play inline, letra que canta, kinds de mezcla), ni de GPU (base que canta sin oír).**
 - **REVIEWER - APPROVE con límites**: el primer remix con letra dirá si el cover canta afinado y si no duplicar la voz era lo correcto; el primer cruce bib/sub en MEZCLA dirá si `kindOf` acierta. Queda fuera de los lotes: `time_signature` (sigue en [A4]), `audio_format=wav` (biblioteca ciega + MIME fijo), `fade_seconds` sin validar, `pollUntilDone` infinito con red caída (diseño: el corte no para el sondeo).
+
+## 2026-10-05 (XLIII) - Menú ACCIONES, CREAR sin SESIÓN, compás, y escucha real con GPU
+
+Lo que pidió el usuario: «realizalas» (las valiosas: menú, SESIÓN, compás + escucha).
+
+### Código (sin GPU)
+
+- **BIBLIOTECA con menú ACCIONES** (punto 4): una palabra por acción (OTRA VERSIÓN, BOOTLEG, AJUSTES, NOMBRE, BAJAR, BORRAR). Reutiliza los paneles y el SÍ/NO de borrado. `task_type` crudo traducido (`cover→versión…`). BAJAR usa `api.audioUrl` como el resto.
+- **CREAR sin SESIÓN** (punto 1): fuera la columna, `history`, `remember`, `clearHistory`, `historyKey`. Una columna. `pollUntilDone(jobId)` sin `meta`; `launchGeneration` devuelve solo `{created}`.
+- **[A4] Compás**: selector COMPÁS (Auto/4-4/3-4/6-8) en CREAR, viaja en `time_signature` al motor (ya lo aceptaba) y a la ficha (`job` + `_write_ficha`). Anotada como hecha en `03-PENDIENTES`.
+- Prueba: `py_compile` 0, unittest 16/16, lint 0 (dos avisos míos corregidos: `meta` sin uso, `key=` en onda, `kindOf` en deps), build 0 (`index-sAn-_MQR.js`, 341,02 kB).
+
+### Escucha real (con GPU, servicios arriba)
+
+El motor ya estaba corriendo (pid 21256, no tocado); solo se arrancó la API con `scripts/start_local.ps1`. Fuente de las tres pruebas: la subida `39628473-01-Animales muertos.mp3` (solo lectura; intacta). Todo queda en BIBLIOTECA para oír, con nombre `prueba-auditoria-*`.
+
+1. **Remix SIN MELODIAS** (job `7d4c5de7`, 297 s): `source_dir: uploads` (el kind funciona), log «fuerza 0.10 (manda el prompt)», mezcla+base+voces de ~81 s, -14,03 LUFS. `prueba-auditoria-sin-melodias.mp3`.
+2. **Repaint tramo 10-20 s** (job `b0283cb0`, 26 s): `prueba-auditoria-tramo.mp3`, 81 s, ficha `task_type: repaint`, duración 81,4.
+3. **Base que canta** (job `997de831`, 612 s): el paso «la voz original se guarda aparte, no se mezcla encima» salió; `prueba-auditoria-canta-base.mp3` 81 s + `…-orig-voces.mp3`. El sondeo se cortó al final pero el servidor terminó `succeeded` (verificado por `/music/jobs` + fichero en disco).
+- Sin oír (sin oídos aquí): si la base de (1) trae melodía, 0,1 es poco; si (3) desafina o duplica voz, el lote D se revisa. El usuario escucha y sentencia.
+- Servicios: se dejan CORRIENDO (motor+API) para oír ya. SALIR al terminar.
+- **TESTER - PASS de código (tests/lint/build) + PASS de generación real (3 MP3, duración > 0, -14 LUFS). No de oído.**
+- **REVIEWER - APPROVE con límites**: falta el oído del usuario en las tres piezas; el 0,5 «como la original» sigue sin probarse en GPU.
+
+## 2026-10-05 (XLIV) - Confirmación cableada: bundle servido + API en vivo
+
+El usuario no ha abierto la app y pide confirmación de que la UI funciona y las mejoras están cableadas. Sin clicar (no hay ojos aquí): verificación estática + API viva, sin GPU y sin tocar sus archivos.
+
+- Bundle servido `index-sAn-_MQR.js` trae: ACCIONES, OTRA VERSIÓN, BOOTLEG, COMPÁS, LETRA, SÍ/BORRAR, `base_kind`, `track_kinds`, `showLyrics` (7/7 True).
+- `build_payload(time_signature='3/4')` → `'3/4'` al motor; default `''`. A4 viaja de verdad.
+- `POST /audio/crossfade` con `track_kinds` desparejado → 400 en vivo.
+- `POST /audio/mix/plan` con kinds sobre piezas de prueba → 200 con explicación (DSP puro, sin GPU).
+- Límite honesto: el clic píxel a píxel (ver el % en el header, abrir ACCIONES, pegar letra) lo tiene que hacer un humano. Todo lo automatizable, verificado.
