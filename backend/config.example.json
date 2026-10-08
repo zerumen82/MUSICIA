@@ -32,7 +32,8 @@
     "cover_strength": 0.6,
     "remix_cover_strength": 0.2,
     "remix_cover_strength_no_melody": 0.1,
-    "remix_cover_strength_like_original": 0.5
+    "remix_cover_strength_like_original": 0.5,
+    "bpm_display_tolerance": 3
   },
   "mixer": {
     "min_gain_db": -60.0,

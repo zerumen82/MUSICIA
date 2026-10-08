@@ -13,12 +13,12 @@
 | T3 | El build del frontend no parte el bundle (`manualChunks`). Medido el 2026-10-06: `index-Don8Zd9O.js` 354.96 kB (gzip 109.75 kB). R1+R2+R4+R5+R6: +1.5 kB | primera carga de la ventana | partir react / tone si pasa de 400 kB |
 | T4 | `backend/venv` con pip antiguo (Python 3.10) | avisos e instalaciones lentas | `python -m pip install -U pip` dentro de ese venv, con acuerdo |
 | T5 | pip global del usuario con índice NVIDIA roto (DNS) | ralentiza instalaciones pip del sistema | quitar `extra-index-url` de la config global de pip, con acuerdo |
-| T6 | Sin tests automatizados | las regresiones se ven solo al ejecutar | `backend/test_remix_logic.py` + `backend/test_prompt_style.py` (unittest, stdlib, sin GPU): 73 tests de `_find_audio` (con kind), `remix_cover_strength_for`, cancel/historial, `library_version`, cover nativo (`src_audio_path`, fuerza, rango, `use_format`), `model_for`/`build_payload`, `style_caption`/`analyze_prompt` (catálogo + idempotencia), `_remember` + `frontend/src/prompt_gloss.test.js` (8 tests de la glosa con `node --test`). Falta: cuadre y `verificar_audio` |
 
 ## Cerradas (siguen en la bitácora, ya no son deuda)
 
 | ID | Qué era | Cierre |
 |----|---------|--------|
+| T6 | Sin tests automatizados | **Cerrada 2026-10-08**: 113 tests backend (`test_remix_logic` + `test_prompt_style` + `test_genre_glossary` + `test_realism` + `test_verify_align`) + 9 de glosa (`node --test`), todos sin GPU. Cubren cuadre (`plan_alignment`, `first_beat_seconds`, `bars_duration_seconds`), `verify_audio` y la ficha [M3] |
 | T1 | Mezclador decorativo en pantalla | La pestaña MEZCLA es `MixLab` (ffmpeg). `Mixer.jsx` no se monta. Historia [C1] cerrada por [F1] |
 | T7 | Fail-fast: si el motor no responde, no colgar la petición | Existe en `POST /music/generate` y `/audio/remix/ai` (503 con mensaje). Citada en código pero nunca anotada aquí: se registra el 2026-10-05 |
 | A3 | «Falta la UI de la canción con voz» | Hecha y verificada: selector, letra, `vocal_language`. El usuario confirmó el 2026-10-02 que funciona |

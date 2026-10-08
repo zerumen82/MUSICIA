@@ -125,6 +125,9 @@ class GenerationDefaults:
     # audio de origen pese más. Solo vale en el camino cover (misma duración).
     remix_cover_strength_like_original: float = 0.5
     max_duration_seconds: float = 600.0
+    # [M3] Diferencia mínima (bpm) entre lo pedido y lo medido para que
+    # BIBLIOTECA enseñe «pedía X · salió Y». Medido, no de oído.
+    bpm_display_tolerance: int = 3
     instrumental_marker: str = "[instrumental]"
     max_slug_chars: int = 40
 

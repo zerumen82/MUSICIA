@@ -40,10 +40,32 @@ export default function Library({ externalRefresh = 0 }) {
   // medir toda la biblioteca serían N análisis seguidos.
   const [measured, setMeasured] = useState({}); // name -> {bpm, confidence}
   const [measuring, setMeasuring] = useState(null);
+  // [M3] Tolerancia (bpm) para enseñar «PEDÍA · SALIÓ»: viene de config,
+  // no está escrita en la pantalla. Sin config no se enseña nada.
+  const [bpmTolerance, setBpmTolerance] = useState(null);
 
-  // Mide el tempo real de una pista de la biblioteca y, si la ficha trae el
-  // BPM pedido, enseña la diferencia (spec/02 [M3], cableado manual: la
-  // medición automática al generar sigue pendiente).
+  useEffect(() => {
+    api.musicConfig()
+      .then((cfg) => {
+        const t = Number(cfg?.bpm_display_tolerance);
+        setBpmTolerance(Number.isFinite(t) ? t : null);
+      })
+      .catch(() => setBpmTolerance(null));
+  }, []);
+
+  // [M3] Diferencia automática pedido vs. medido (ficha, tras generar).
+  // Solo se enseña si hay AMBOS valores y la diferencia llega a la
+  // tolerancia: si no se midió, no se dice nada (nunca se maquilla).
+  const tempoDiff = (item) => {
+    if (bpmTolerance == null || !item.bpm || !item.bpm_measured) return null;
+    const delta = Math.abs(item.bpm - item.bpm_measured);
+    return delta >= bpmTolerance
+      ? { asked: item.bpm, got: item.bpm_measured, delta }
+      : null;
+  };
+
+  // Mide el tempo real de una pista de la biblioteca (botón TEMPO). Complementa
+  // [M3]: la medición automática de la ficha no cubre pistas antiguas.
   const measureTempo = async (name) => {
     if (measuring) return;
     setMeasuring(name);
@@ -335,6 +357,14 @@ export default function Library({ externalRefresh = 0 }) {
                       <span className="mono text-[10px] text-[var(--faint)] truncate block">
                         {[fmtBytes(item.size_bytes), fmtDate(item.modified), item.bpm ? `${item.bpm} bpm` : null, TASK_LABEL[item.task_type] ?? item.task_type, item.prompt].filter(Boolean).join(' · ')}
                       </span>
+                      {/* [M3] «PEDÍA 180 · SALIÓ 170» automático de la ficha.
+                          Solo con diferencia ≥ tolerancia de config; sin
+                          medición, la línea no existe. */}
+                      {tempoDiff(item) && (
+                        <span className="mono text-[10px] text-[var(--warn)] block">
+                          PEDÍA {Math.round(tempoDiff(item).asked)} · SALIÓ {Math.round(tempoDiff(item).got)} BPM
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -392,7 +422,8 @@ export default function Library({ externalRefresh = 0 }) {
                       {measured[item.name].confidence != null
                         ? ` · SEGURIDAD ${Math.round(measured[item.name].confidence * 100)}%` : ''}
                     </span>
-                    {item.bpm && Math.abs(item.bpm - measured[item.name].bpm) >= 3 && (
+                    {item.bpm && measured[item.name] && bpmTolerance != null
+                      && Math.abs(item.bpm - measured[item.name].bpm) >= bpmTolerance && (
                       <span className="mono text-[10.5px] text-[var(--warn)]">
                         PEDÍA {Math.round(item.bpm)} · SALE {Math.round(measured[item.name].bpm)}
                       </span>

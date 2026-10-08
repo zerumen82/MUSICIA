@@ -36,3 +36,6 @@ frontend/dist/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Backup local del catálogo (regenerable con regenerate_catalog.py)
+backend/style_catalog_backup.json

@@ -1843,7 +1843,7 @@ ahí estaba el desfase que oía el usuario.
 - **Prueba**: 73/73 unittest OK; glosa 8/8; eslint 0; build `index-Don8Zd9O.js` 354.96 kB. Test viejo `rap_no_secuestra_rapido` mandó (revertir «rap» plano → regex).
 - **Lección**: el test que prohíbe una clave manda sobre el arreglo rápido; leer los tests del catálogo antes de añadir claves.
 
-## 2026-10-06 (LX) — Tick compartido, MIME por extensión, `/api/info` verificado
+## 2026-10-06 (LXVI) — Tick compartido, MIME por extensión, `/api/info` verificado
 - **Qué pidió el usuario**: hacer las propuestas (menos cola en disco y parar GPU: diseño pendiente, abajo).
 - **Tick compartido**: App sondea `/music/jobs` UNA vez cada 3 s en `jobsFeed` y reparte: barra, auto-refresh bib/mezcla y `JobsPanel({items})` presentacional (sin sondeo propio) vía `Composer({jobs})`. Una petición menos cada 3 s con CREAR abierto.
 - **MIME**: `/music/audio/{name}` usa `mimetypes` por extensión (mp3→`audio/mpeg` igual que antes; un futuro wav no mentiría). TestClient: 200 `audio/mpeg`.
@@ -2021,6 +2021,9 @@ ahí estaba el desfase que oía el usuario.
   3. El usuario confirma: chips son definiciones EXTRA (no géneros), deben entenderse por el modelo.
   4. La mezcla de estilos SÍ funciona: el prompt del usuario puede contener múltiples géneros y todos se detectan y añaden.
 
+- **TESTER — PASS (veredicto añadido 2026-10-08 tarde, evidencia re-ejecutada)**: `test_realism` 6/6 **con datos presentes** + suite completa 113/113 (tras sumar `test_verify_align`) + lint 0 + build OK. Los 11 cambios siguen validados contra los 400 captions del fabricante.
+- **REVIEWER — APPROVE con límite**: los cambios son de datos (`style_catalog.json`) sobre vocabulario minado; el criterio «literal del corpus» lo defenderá siempre `test_realism`. Límite: si el fabricante actualiza captions, re-minar.
+
 ## 2026-10-08 — UI: colores más vibrantes para texto y placeholders
 
 - **Qué**: A petición del usuario, se mejoró la legibilidad y visibilidad de los textos en la UI.
@@ -2040,6 +2043,9 @@ ahí estaba el desfase que oía el usuario.
   - Nav: hover y active en var(--acc) en lugar de var(--text)
   - Build: OK, bundle index-C6yc2Vr9.js (367.52 kB)
 
+- **TESTER — PASS (veredicto añadido 2026-10-08 tarde, evidencia re-ejecutada)**: `npm run build` OK con el CSS nuevo (bundle actual `index-DFs0t4dM.js`, 368.89 kB) + lint 0. Los tokens (`--text`, `--muted`, `--faint`, `--acc`) compilan.
+- **REVIEWER — APPROVE con límite**: solo CSS/tokens, sin lógica. Límite: el criterio de legibilidad lo decide el oído del usuario en la ventana (Ctrl+R para cargar el bundle nuevo).
+
 ## 2026-10-08 — Glosario vacío: backend apagado
 
 - **Qué**: El usuario reportó: 'LAS UIS NO MUESTRAN NADA EN EL GLOSARIO'.
@@ -2053,6 +2059,9 @@ ahí estaba el desfase que oía el usuario.
   - Test con curl: devuelve items y styles correctamente.
 
 - **Lección**: El glosario NO usa el catálogo local, depende del backend en ejecución para leer genres_vocab.txt.
+
+- **TESTER — PASS (veredicto añadido 2026-10-08 tarde, evidencia re-ejecutada)**: servicios relanzados; `GET /music/genre_glossary?q=techno` → 1.374 coincidencias con `styles` (178.572 géneros cargados) y UTF-8 correcto; `combine` responde. La causa (servicios caídos) queda verificada.
+- **REVIEWER — APPROVE**: diagnóstico honesto (no se culpo al código); dependencia externa declarada como lección.
 
 ## 2026-10-08 (LXXXI) — Glosario de géneros y chips verificados contra el modelo + UI visible + commit
 
@@ -2077,3 +2086,35 @@ ahí estaba el desfase que oía el usuario.
 - **REVIEWER — APPROVE con límites**: el glosario depende de la API en ejecución (si los servicios están caídos, la UI lo muestra vacío — ya anotado en la entrada anterior); el «estilo» que añade cada género sale de `style_catalog.json` validado contra corpus. Límite: la calidad de la mezcla de estilos (FLAMENCO POP) se juzga oyendo, no con tests.
 - **Commit**: todo el trabajo desde el último commit (`ae80327`) queda commiteado y pusheado en esta entrada.
 - **Lección**: el «FALTA: AÑADIR» de un grep sobre el bundle fue falso —`Get-Content` sin UTF-8 mojibakea—; releer con `[System.IO.File]::ReadAllText(..., UTF8)` antes de concluir que algo no está en el bundle.
+
+## 2026-10-08 (LXXXII) — [M3] tempo medido en ficha + [T6] tests de cuadre/verify + sincronía de spec
+
+- **Qué pidió el usuario**: «REVISA A VER SI PODEMOS MEJORAR ALGO» → tras análisis con opciones (ask_user) eligió: **M3 completo + T6 tests + sincronizar spec/bitácora + backup fuera del repo**. Excluyó diagnosticar el job fallido (`212571bf`).
+- **[M3] El resultado declara si obedeció (BPM pedido vs. medido)**:
+  - `backend/config.py` + `config.example.json`: `generation.bpm_display_tolerance = 3` (umbral de visualización, NO HARDCODE).
+  - `backend/main.py`:
+    - `_measure_bpm(path)`: envuelve `detect_groove`; **fallo → None, sin campos** (la medición auxiliar nunca tumbará una generación ya verificada; nunca se maquilla).
+    - `_write_ficha(..., measured)`: si hay medición escribe `bpm_measured` + `bpm_confidence`; si no, los campos **no existen**.
+    - `_carry_ficha`: por defecto **no arrastra** la medición del origen (un remix o un ajuste pueden cambiar el tempo); solo la acepta si la llamada trae una fresca.
+    - Medición en los 3 caminos de generación, en `asyncio.to_thread`: `_finalize_generation` (CREAR), cover de `_run_ai_remix`, mezcla final de `_modo_conservar_voz`. Evento visible en la cola: «Tempo medido: 149.8 bpm (seguridad 78%)».
+    - `GET /music/library` expone `bpm_measured` y `bpm_confidence` (None si no hay).
+  - `frontend/src/components/Library.jsx`: línea automática «PEDÍA X · SALIÓ Y BPM» en la fila solo si hay ambos valores y |Δ| ≥ tolerancia **leída de `/music/config`** (sin config → no se enseña nada); el umbral del botón manual TEMPO también sale de config (antes era `>= 3` hardcodeado).
+- **[T6] Tests de cuadre y verificar_audio (spec/03, nueva)**: `backend/test_verify_align.py` — **21 tests sin GPU**:
+  - `verify_audio`: inexistente → error real; vacío → error real; WAV válido → duración; bajo umbral → error.
+  - `plan_alignment`: en tono propone; confianza baja no cuadra; ajuste fuera de 0,8–1,25 no cuadra; límites aceptan; desfase normalizado al intervalo de un golpe.
+  - `first_beat_seconds` (fase negativa = golpe anterior), `bars_duration_seconds` (4 compases 4/4 ≠ 4 golpes), BPM/compases inválidos → `ValueError`.
+  - `FichaMedidaTest`: medición en ficha, ausencia sin medición, `_carry_ficha` no arrastra medida ajena, acepta fresca, `_measure_bpm` de silencio/inexistente → None sin lanzar.
+- **[M2] sincronizada**: spec/02 [M2] pasa de «pendiente» a **«implementada»** con evidencia (source_kind en 9 modelos pydantic, 24 usos en `main.py`, tests de homónimos) y el único criterio que queda abierto declarado: remix real de subida con GPU.
+- **spec/03**: **T6 cerrada** (movida a la tabla de cerradas): 113 tests backend + 9 glosa, sin GPU.
+- **Bitácora**: (1) veredictos TESTER/REVIEWER añadidos a las 3 entradas del 2026-10-08 que no los tenían (evidencia re-ejecutada hoy); (2) numeración corregida — la entrada «Tick compartido» estaba rotulada (LX) y va en (LXVI); quedan **documentados los huecos LIII y LX** (nunca escritos, no se rellenan retroactivamente).
+- **Limpieza**: `backend/style_catalog_backup.json` **fuera del repo** (`git rm --cached` + `.gitignore`); el fichero queda local porque `regenerate_catalog.py` lo lee.
+- **TESTER — PASS (evidencia ejecutada, todo real)**:
+  - `python -m unittest test_realism test_prompt_style test_genre_glossary test_remix_logic test_verify_align` → **113/113 OK** (2,3 s, sin GPU).
+  - `npx eslint src --max-warnings=0` → 0; `npm run build` → OK (`index-DFs0t4dM.js`, 368,89 kB / gzip 113,93 kB).
+  - API reiniciada con el código nuevo (PID 23548, 13:27): `GET /music/config` → `bpm_display_tolerance: 3`.
+  - **Generación real end-to-end [M3]**: job `bd8bf24e` «prueba m3 tempo» pedido a **150 bpm** → succeeded; evento «Tempo medido: 149.8 bpm (seguridad 78%)»; ficha en disco con `"bpm": 150`, `"bpm_measured": 149.8`, `"bpm_confidence": 0.778`; `GET /music/library` expone los campos (la variante v2 midió 100,2 con conf. 0,17: la UI podrá mostrar la diferencia cuando pase por aquí con BPM pedido).
+  - UI servida por la API con el bundle nuevo que contiene `bpm_measured`, `bpm_display_tolerance`, `PEDÍA`, `SALIÓ`.
+  - **No es PASS de oído ni de clic en ventana**: la línea «PEDÍA · SALIÓ» se verá con Ctrl+R y solo en pistas con BPM pedido + medición.
+- **REVIEWER — APPROVE con límites**: (1) `detect_groove` es DSP puro sin GPU — barato, pero en pistas muy largas suma segundos al final del job (en hilo, no bloquea la API); (2) pistas antiguas no tienen medición → la línea no aparece (el botón TEMPO manual sigue); (3) `_carry_ficha` ya no hereda la medición — correcto por honestidad, pero los viejos `-edit`/`-remix` que la heredaron conservan el campo hasta que se regeneren; (4) los MP3 de prueba de la sesión («prueba m3 tempo») se quedan en la biblioteca como evidencia audible — retirar con BORRAR si estorban.
+- **Commit**: este trabajo queda commiteado y pusheado en esta entrada.
+- **Lección**: dos bugs de una misma sesión se evitaron releyendo el código tras cada edición: (a) el primer borrador de `_write_ficha` no guardaba la medición porque el helper no existía aún; (b) la numeración romana desplazada solo se vio listando TODAS las cabeceras `## ` con su número de línea.

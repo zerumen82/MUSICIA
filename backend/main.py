@@ -374,8 +374,12 @@ def _ficha_path(audio_path: Path) -> Path:
     return audio_path.with_suffix(".ficha.json")
 
 
-def _write_ficha(audio_path: Path, job: dict[str, Any]) -> None:
-    """Datos de la pista al lado del MP3. Sin esto, un remix posterior va a ciegas."""
+def _write_ficha(audio_path: Path, job: dict[str, Any], measured: dict[str, Any] | None = None) -> None:
+    """Datos de la pista al lado del MP3. Sin esto, un remix posterior va a ciegas.
+
+    `measured` ([M3]) es el tempo real medido en el MP3 recién terminado.
+    Si es None (no se pudo medir), los campos no existen: nada inventado.
+    """
     ficha = {
         "name": audio_path.name,
         "prompt": job.get("prompt"),
@@ -390,6 +394,9 @@ def _write_ficha(audio_path: Path, job: dict[str, Any]) -> None:
         "duration_seconds": job.get("duration_seconds"),
         "created_at": job.get("created_at"),
     }
+    if measured:
+        ficha["bpm_measured"] = measured.get("bpm_measured")
+        ficha["bpm_confidence"] = measured.get("bpm_confidence")
     _ficha_path(audio_path).write_text(
         json.dumps(ficha, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -426,6 +433,12 @@ def _carry_ficha(source: Path, target: Path, task_type: str, **overrides: Any) -
     data["name"] = target.name
     data["task_type"] = task_type
     data["source_name"] = source.name
+    # El BPM medido en el origen NO describe al fichero nuevo (un remix o un
+    # ajuste pueden cambiarlo): se quita salvo que esta llamada traiga una
+    # medición fresca ([M3], nada maquillado).
+    if overrides.get("bpm_measured") is None:
+        data.pop("bpm_measured", None)
+        data.pop("bpm_confidence", None)
     for key, value in overrides.items():
         if value is not None:
             data[key] = value
@@ -443,6 +456,24 @@ def _read_ficha(audio_path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _measure_bpm(path: Path) -> dict[str, Any] | None:
+    """BPM real del MP3 (spec/02 [M3]). None si no hay tempo claro.
+
+    La medición es auxiliar: un fallo aquí NO puede tumbar una generación
+    ya verificada. Si no se puede medir, no se escribe nada en la ficha
+    (nunca se maquilla).
+    """
+    try:
+        groove = detect_groove(path)
+    except Exception as exc:  # noqa: BLE001 - la medición es opcional por diseño
+        logger.warning(f"Sin BPM medido para {path.name}: {exc}")
+        return None
+    return {
+        "bpm_measured": round(float(groove["bpm"]), 1),
+        "bpm_confidence": round(float(groove.get("confidence") or 0), 3),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +589,18 @@ async def _finalize_generation(job_id: str) -> None:
             if index == 0:
                 first_duration_ms, first_metas, first_caption = duration_ms, track.metas, track.prompt
             saved.append(output_path.name)
-            _write_ficha(output_path, job)
+            # [M3] Tempo real del MP3 terminado, en su ficha. La medición es
+            # opcional: si falla, la ficha se queda sin campos (no se inventa).
+            measured = await asyncio.to_thread(_measure_bpm, output_path)
+            if index == 0:
+                if measured:
+                    log_event(
+                        f"Tempo medido: {measured['bpm_measured']:g} bpm "
+                        f"(seguridad {measured['bpm_confidence'] * 100:.0f}%)"
+                    )
+                else:
+                    log_event("Tempo: sin medición fiable (la ficha no lleva BPM medido)")
+            _write_ficha(output_path, job, measured)
 
         job.update(
             status="succeeded",
@@ -1117,7 +1159,9 @@ async def _modo_conservar_voz(
             f"{stem}-con-voz{suffix}", step,
         )
         _throw_if_cancelled(job)
-        _carry_ficha(source, mixed, "remix", prompt=request.prompt)
+        # [M3] Tempo de la mezcla final (voz + base): el que importa al oírla.
+        measured = await asyncio.to_thread(_measure_bpm, mixed)
+        _carry_ficha(source, mixed, "remix", prompt=request.prompt, **(measured or {}))
         saved.append(mixed.name)
     job["elapsed_seconds"] = round(time.monotonic() - started, 1)
     loudness = await asyncio.to_thread(measure_loudness, settings.outputs_dir / saved[0])
@@ -1244,7 +1288,10 @@ async def _run_ai_remix(
             name = stem if len(tracks) == 1 else f"{stem}-v{index + 1}"
             out_path = _unique_output_path(_safe_name(name, DEFAULT_STEM), ".mp3")
             await music.download(track.file, out_path)
-            _carry_ficha(source, out_path, "remix", prompt=request.prompt)
+            # [M3] El tempo del cover se mide en el MP3 nuevo (el del origen
+            # no sirve si el reestilo cambió el ritmo).
+            measured = await asyncio.to_thread(_measure_bpm, out_path)
+            _carry_ficha(source, out_path, "remix", prompt=request.prompt, **(measured or {}))
             saved.append(out_path.name)
         loudness = await asyncio.to_thread(measure_loudness, settings.outputs_dir / saved[0])
         step(f"Reestilo listo: {len(saved)} variante(s) en BIBLIOTECA.")
@@ -1891,6 +1938,10 @@ async def music_library() -> dict[str, Any]:
                 "size_bytes": stat.st_size,
                 "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
                 "bpm": None if ficha is None else ficha.get("bpm"),
+                # [M3] Tempo real medido al terminar; None si no se midió
+                # (pista antigua o medición fallida): la UI no enseña nada.
+                "bpm_measured": None if ficha is None else ficha.get("bpm_measured"),
+                "bpm_confidence": None if ficha is None else ficha.get("bpm_confidence"),
                 "key_scale": None if ficha is None else ficha.get("key_scale"),
                 "lyrics": None if ficha is None else ficha.get("lyrics"),
                 "model": None if ficha is None else ficha.get("model"),

@@ -300,7 +300,7 @@ memory.md entrada XLVI)
       obediencia mejora de verdad. La fuerza 0,1/0,5 y la glosa también se
       juzgan oyendo.
 
-### [M2] [P0] [pendiente] El remix usa la pista que elegí
+### [M2] [P1] [implementada 2026-10-05, falta remix real de subida] El remix usa la pista que elegí
 **Como** usuario, **quiero** que el remix use **mi** audio, **para** que no
 remixee una mezcla vieja que se llama igual.
 
@@ -314,26 +314,49 @@ remixee una mezcla vieja que se llama igual.
 - La UI sabe de dónde viene cada pista. La info se pierde al mandar el nombre.
 
 **Criterios de aceptación**
-- [ ] El origen viaja con la petición (`source_kind: upload | output`) y el
+- [x] El origen viaja con la petición (`source_kind: upload | output`) y el
       backend lo respeta; sin él, el nombre se resuelve como hoy
-- [ ] La biblioteca manda `output` y las subidas mandan `upload`, en los 11
+      (hecho: campo en los 9 modelos pydantic; tests `test_remix_logic`
+      16/16: orden por kind, recurso cruzado en ambos sentidos, 400 y 404)
+- [x] La biblioteca manda `output` y las subidas mandan `upload`, en los
       caminos de remix/mezcla que usan un nombre
-- [ ] Regresión: una mezcla en `outputs/` con el nombre de una subida no puede
-     ganar al remix de esa subida
+      (hecho: `sourceKind` en Library/Uploads → `RemixActions`/`RemixIAPanel`;
+      24 usos de `source_kind` en `main.py`; `/audio/remix_prompt` y
+      `/audio/remix` unificados en `_find_audio`, entrada XLI)
+- [x] Regresión: una mezcla en `outputs/` con el nombre de una subida no puede
+      ganar al remix de esa subida (tests `FindAudioTest`: upload→SUBIDA,
+      output→MEZCLA, homónimos cruzados, kind inválido→400, ausente→404)
 - [ ] Un remix real de la subida, con la duración de la fuente correcta
+      (pendiente de ejecutar con GPU y una subida homónima)
 
-### [M3] [P1] [parcial] Declarar si el resultado obedeció
+### [M3] [P1] [implementada 2026-10-08] Declarar si el resultado obedeció
 **Como** usuario, **quiero** ver si lo que salió se parezca a lo que pedí,
 **para** no creer que un 130 bpm era un 170.
 
 - [x] Cableado manual 2026-10-06: botón TEMPO en el menú ACCIONES de
       BIBLIOTECA mide el tempo real (`GET /audio/groove`, DSP local, con
       `source_kind=output`) y, si la ficha trae BPM pedido con diferencia
-      ≥3, enseña `PEDÍA 180 · SALE 170`. Sin medición automática por fila.
-- [ ] Tras generar, `detect_groove` mide el BPM y la confianza del MP3
-- [ ] La ficha guarda `bpm_requested` y `bpm_measured`
-- [ ] BIBLIOTECA lo enseña solo: `pedía 170 · salió 130`, solo si hay diferencia
-- [ ] Nunca se maquilla: si no se puede medir, no se enseña nada
+      ≥ tolerancia, enseña `PEDÍA 180 · SALE 170`. Sin medición automática
+      por fila (N análisis seguidos); la medición manual sigue disponible
+      para pistas antiguas.
+- [x] Tras generar, `detect_groove` mide el BPM y la confianza del MP3
+      (2026-10-08: `_measure_bpm` en `_finalize_generation`, cover de
+      `_run_ai_remix` y mezcla final de conservar-voz; en hilo aparte;
+      fallo de medición → sin campos, nunca se inventa; evento
+      «Tempo medido: X bpm» en la cola del job).
+- [x] La ficha guarda `bpm` (pedido) y `bpm_measured`/`bpm_confidence`
+      (medidos); `_carry_ficha` no arrastra la medición del origen salvo
+      que traiga una fresca.
+- [x] BIBLIOTECA lo enseña solo: `PEDÍA 170 · SALIÓ 130 BPM`, solo si hay
+      ambos valores y la diferencia ≥ `generation.bpm_display_tolerance`
+      (config, 3). Sin medición, la línea no existe.
+- [x] Nunca se maquilla: si no se puede medir, no se enseña nada
+      (`_measure_bpm` devuelve None → la ficha no lleva el campo; test
+      `FichaMedidaTest`).
+- [x] Verificación end-to-end con una generación real nueva (2026-10-08:
+      job `bd8bf24e`, «prueba m3 tempo» pedido a 150 bpm → evento
+      «Tempo medido: 149.8 bpm (seguridad 78%)», ficha con `bpm: 150` y
+      `bpm_measured: 149.8`, `/music/library` expone ambos campos)
 
 ### [Q1] [P1] [en código] La cola sobrevive al reinicio
 **Como** usuario, **quiero** que el historial de trabajos no se pierda al
