@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, ArrowRight, ArrowLeft, Wand2 } from 'lucide-react';
+import { CATALOG_GENRES } from '../genres';
 
 /**
  * Asistente de obra de calidad: 5 preguntas con opciones sugeridas.
@@ -16,22 +17,20 @@ const PURPOSES = [
 ];
 
 const MOODS = [
-  { id: 'alegre', tag: 'Alegre', words: 'luminoso y optimista' },
-  { id: 'epico', tag: 'Épico', words: 'épico y grandioso' },
-  { id: 'melancolico', tag: 'Melancólico', words: 'melancólico y nostálgico' },
+  { id: 'alegre', tag: 'Alegre', words: 'luminoso y optimista, brillante' },
+  { id: 'epico', tag: 'Épico', words: 'épico y grandioso, como un himno' },
+  { id: 'melancolico', tag: 'Melancólico', words: 'melancólico y emotivo' },
   { id: 'oscuro', tag: 'Oscuro', words: 'oscuro y tenso' },
-  { id: 'chill', tag: 'Chill', words: 'relajado y cálido' },
-  { id: 'energico', tag: 'Enérgico', words: 'enérgico y potente' },
+  { id: 'chill', tag: 'Chill', words: 'chill relajado y cálido' },
+  { id: 'energico', tag: 'Enérgico', words: 'enérgico y potente, driving' },
 ];
 
-const GENRES = [
-  { id: 'lofi', tag: 'Lo-fi', style: 'lo-fi hip hop con piano suave y vinilo' },
-  { id: 'techno', tag: 'Techno', style: 'techno con bombo seco y sintes' },
-  { id: 'orquestal', tag: 'Orquestal', style: 'orquestal con cuerdas y percusión' },
-  { id: 'ambient', tag: 'Ambient', style: 'ambient con pads largos y aire' },
-  { id: 'acustico', tag: 'Acústico', style: 'acústico con guitarras y folk' },
-  { id: 'electro', tag: 'Electrónica', style: 'electrónica moderna con bajos profundos' },
-];
+const GENRES = CATALOG_GENRES.map((g) => ({
+  id: g.id,
+  tag: g.label,
+  genre: g.genre,
+  bpm: g.bpm,
+}));
 
 const TEMPOS = [
   { id: 'slow', tag: 'Lento', bpm: 70 },
@@ -86,16 +85,16 @@ export default function QualityWizard({ onClose, onApply }) {
     const p = PURPOSES.find((x) => x.id === purpose);
     const tx = TEXTURES.find((x) => x.id === texture);
     const parts = [
-      g?.style,
+      g?.genre,
       m?.words,
       p?.extra,
       tx?.extra,
     ].filter(Boolean);
     return {
       prompt: parts.join(', '),
-      genre: g?.tag ?? null,
+      genre: g?.id ?? null,
       mood: m?.tag ?? null,
-      bpm: t?.bpm ?? null,
+      bpm: t?.bpm ?? g?.bpm ?? null,
       key_scale: key || null,
       duration: duration ? Number(duration) : null,
       summary: [p?.tag, g?.tag, m?.tag, t?.tag, tx?.tag].filter(Boolean).join(' · '),

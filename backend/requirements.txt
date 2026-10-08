@@ -9,4 +9,4 @@ httpx
 # El motor de música (ACE-Step 1.5) NO se instala aquí.
 # Vive aislado en vendor/ACE-Step-1.5 con su propio entorno de Python 3.11,
 # porque exige Python 3.11-3.12 y torch+cu128, y este backend corre en 3.10.
-# Este servicio se limita a hablar con su API local (ver config.py -> acestep).
+# Este servicio se limita a hablar con su API local (ver config.py -> acestep).

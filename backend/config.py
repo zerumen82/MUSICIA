@@ -70,11 +70,31 @@ class GenerationDefaults:
     guidance_scale: float = 7.0
     seed: int = -1
     use_random_seed: bool = True
-    batch_size: int = 1
+    batch_size: int = 2
+    # Dos variantes por tirada (doc del modelo: batch 2-4; «casi nunca
+    # aciertas con una»). Decisión 2026-10-06 (ask_user): x2 tiempo/GPU.
+    # Las 2 se descargan a BIBLIOTECA y el usuario elige (spec/02 [R3]).
     audio_format: str = "mp3"
     model: str = "acestep-v15-turbo"
-    # Uno solo residente. El XL pide 12 GB y el base no está medido en 8 GB.
-    allowed_models: tuple[str, ...] = ("acestep-v15-turbo",)
+    # Dos modelos medidos en esta GPU de 8 GB (spec/02 [M1]): el turbo horneado
+    # (rápido, sin CFG) y el sft con CFG de verdad (obedece el prompt).
+    allowed_models: tuple[str, ...] = ("acestep-v15-turbo", "acestep-v15-sft")
+    # Modelo de las operaciones de remix (REESTILAR, VERSIÓN, TRAMO):
+    # son las que tienen que obedecer el prompt. CREAR sigue en `model`.
+    remix_model: str = "acestep-v15-sft"
+    # Tareas que se consideran remix para elegir modelo (ver `model_for`).
+    remix_tasks: tuple[str, ...] = ("cover", "repaint")
+    # Pasos de difusión y guidance por modelo. El turbo hornea el CFG en la
+    # destilación: el motor fuerza guidance 1.0 y 8 pasos bastan. El sft sí
+    # usa CFG: 50 pasos y guidance 9.0 (su familia admite guidance de verdad;
+    # se subió de 7.0 el 2026-10-05 a petición de «que el estilo se cumpla»).
+    # Si un modelo no está en la tabla, valen inference_steps/guidance_scale.
+    steps_by_model: dict[str, int] = field(
+        default_factory=lambda: {"acestep-v15-turbo": 8, "acestep-v15-sft": 50}
+    )
+    guidance_by_model: dict[str, float] = field(
+        default_factory=lambda: {"acestep-v15-turbo": 1.0, "acestep-v15-sft": 9.0}
+    )
     lm_model: str = "acestep-5Hz-lm-0.6B"
     lm_backend: str = "pt"
     # Apagado de verdad: build_payload lo fija en False (decisión 2026-10-03:
@@ -82,6 +102,12 @@ class GenerationDefaults:
     # viejo mentía: nadie lo leía.
     thinking: bool = False
     use_lm: bool = True
+    # use_format (spec/02 [R3]): APAGADO el 2026-10-06 tras medirlo en vivo:
+    # con caption en español el LM devuelve otra cosa (piano contemplativo
+    # a 300 bpm para «hardcore en 4x4 con doble bombo») y el servidor
+    # SUSTITUYE caption y BPM por ese invento (llm_generation_inputs.py).
+    # Override por petición para futuros A/B; `thinking` sigue off.
+    use_format: bool = False
     infer_method: str = "ode"
     task_type: str = "text2music"
     # Solo estas tareas caben en el turbo de 8 GB. lego/extract/complete
@@ -89,8 +115,7 @@ class GenerationDefaults:
     allowed_tasks: tuple[str, ...] = ("text2music", "cover", "repaint")
     # 1.0 copia la forma; valores más bajos cambian más el estilo.
     cover_strength: float = 0.6
-    # Voz real + base nueva. 0.2 es la transferencia de estilo del motor:
-    # el prompt manda y la melodía del instrumental de origen sirve de guía.
+    # Reestilo (cover nativo): 0.2 es la transferencia de estilo del motor.
     remix_cover_strength: float = 0.2
     # El prompt dice "sin melodías": fuerza baja para que el caption gane y
     # la melodía original se pierda (el motor: a menor fuerza, más libertad).
@@ -103,12 +128,16 @@ class GenerationDefaults:
     instrumental_marker: str = "[instrumental]"
     max_slug_chars: int = 40
 
+    def model_for(self, task: str, requested: str | None = None) -> str:
+        """Modelo efectivo de una generación: lo pedido, o el de remix.
 
-@dataclass
-class TtsSettings:
-    default_voice: str = "es-ES-AlvaroNeural"
-    default_output_name: str = "voice_output.mp3"
-    max_text_chars: int = 5000
+        Único sitio donde se decide. Cubre los dos caminos: el remix que
+        construye su propia petición y la generación normal (VERSIÓN/TRAMO
+        son cover/repaint y van al modelo de remix sin pedirlo).
+        """
+        if requested:
+            return requested
+        return self.remix_model if task in self.remix_tasks else self.model
 
 
 @dataclass
@@ -141,12 +170,14 @@ class AppSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "INFO"
+    # Historial de trabajos en memoria: los activos no se tocan nunca; de los
+    # terminados se guardan los últimos N (la UI sondea /music/jobs cada 3 s).
+    job_history: int = 30
     cors_origins: list[str] = field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
     acestep: AcestepSettings = field(default_factory=AcestepSettings)
     generation: GenerationDefaults = field(default_factory=GenerationDefaults)
-    tts: TtsSettings = field(default_factory=TtsSettings)
     mixer: MixerSettings = field(default_factory=MixerSettings)
     paths: PathsSettings = field(default_factory=PathsSettings)
 

@@ -17,9 +17,15 @@
     "language": "es",
     "inference_steps": 8,
     "guidance_scale": 7.0,
+    "batch_size": 2,
+    "use_format": false,
     "audio_format": "mp3",
     "model": "acestep-v15-turbo",
-    "allowed_models": ["acestep-v15-turbo"],
+    "allowed_models": ["acestep-v15-turbo", "acestep-v15-sft"],
+    "remix_model": "acestep-v15-sft",
+    "remix_tasks": ["cover", "repaint"],
+    "steps_by_model": { "acestep-v15-turbo": 8, "acestep-v15-sft": 50 },
+    "guidance_by_model": { "acestep-v15-turbo": 1.0, "acestep-v15-sft": 9.0 },
     "lm_model": "acestep-5Hz-lm-0.6B",
     "lm_backend": "pt",
     "max_duration_seconds": 600.0,
@@ -27,9 +33,6 @@
     "remix_cover_strength": 0.2,
     "remix_cover_strength_no_melody": 0.1,
     "remix_cover_strength_like_original": 0.5
-  },
-  "tts": {
-    "default_voice": "es-ES-AlvaroNeural"
   },
   "mixer": {
     "min_gain_db": -60.0,

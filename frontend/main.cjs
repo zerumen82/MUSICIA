@@ -202,6 +202,20 @@ function createWindow() {
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     if (level >= 2) console.log(`[UI:${level}] ${message} (${sourceId}:${line})`);
   });
+
+  mainWindow.webContents.on('unhandledrejection', (_e, reason) => {
+    console.error(`[UI:1] UNHANDLED_REJECTION ${(reason && reason.message) || reason}`)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // El fallback en sí no debe dejar la ventana blanca: solo registrar.
+      console.error('[UI:1] Stack:', reason && reason.stack)
+      // Intentar recargar la vista de forma segura si lloja un error de RAM.
+      const url = mainWindow.webContents.getURL ? mainWindow.webContents.getURL() : ''
+      if (!url.startsWith('data:text/html')) {
+        mainWindow.reload()
+      }
+    }
+  });
+
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     console.log(`[CARGA FALLIDA] ${code} ${desc} main=${isMainFrame} ${url}`);
     if (willQuit || isMainFrame === false) return;

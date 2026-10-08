@@ -54,6 +54,12 @@ const slowClient = axios.create({ baseURL: API_BASE_URL, timeout: STUDIO_TIMEOUT
 const describeError = (error) => {
   const detail = error?.response?.data?.detail
   if (typeof detail === 'string') return detail
+  // FastAPI devuelve los errores de validación (422) como lista: se enseñan
+  // legibles en vez del genérico «Request failed with status code 422».
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => String(d?.msg ?? '').replace(/^Value error,\s*/i, '')).filter(Boolean)
+    if (msgs.length > 0) return msgs.join(' · ')
+  }
   const message = error?.message ?? ''
   if (!error?.response && /timeout/i.test(message)) return 'La API tardó demasiado en contestar.'
   if (!error?.response && /Network Error|ECONNREFUSED|ECONNABORTED/i.test(message)) return 'La API no contesta.'
@@ -78,6 +84,45 @@ export const api = {
   musicConfig: async () => {
     const { data } = await client.get('/music/config')
     return data
+  },
+
+  /** Capas detectadas del prompt + chips sugeridos (catálogo del backend). */
+  styleOptions: async (prompt) => {
+    try {
+      const { data } = await client.get('/music/style_options', {
+        params: { prompt },
+        timeout: HEALTH_PROBE_MS,
+      })
+      return data
+    } catch {
+      return null
+    }
+  },
+
+  /** Glosario real de estilos: catálogo de Musicia + vocabulario del motor. */
+  genreGlossary: async (q, limit = 50) => {
+    try {
+      const { data } = await client.get('/music/genre_glossary', {
+        params: { q, limit },
+        timeout: HEALTH_PROBE_MS,
+      })
+      return data
+    } catch {
+      return null
+    }
+  },
+
+  /** Combinaciones de dos estilos que existen en el vocabulario del modelo. */
+  genreCombine: async (a, b, limit = 50) => {
+    try {
+      const { data } = await client.get('/music/genre_glossary/combine', {
+        params: { a, b, limit },
+        timeout: HEALTH_PROBE_MS,
+      })
+      return data
+    } catch {
+      return null
+    }
   },
 
   /** Modelo residente. No cambia el que está en la GPU. */
@@ -161,10 +206,11 @@ export const api = {
     }
   },
 
-  /** Tempo y fase del golpe de una pista. */
-  groove: async (name) => {
+  /** Tempo y fase del golpe de una pista. sourceKind desambigua homónimos bib/sub. */
+  groove: async (name, sourceKind = null) => {
     try {
-      const { data } = await slowClient.get(`/audio/groove/${encodeURIComponent(name)}`)
+      const qs = sourceKind ? `?source_kind=${encodeURIComponent(sourceKind)}` : ''
+      const { data } = await slowClient.get(`/audio/groove/${encodeURIComponent(name)}${qs}`)
       return data
     } catch (error) {
       throw new Error(describeError(error))
@@ -244,6 +290,16 @@ export const api = {
   deleteAudio: async (name) => {
     try {
       const { data } = await client.delete(`/music/audio/${encodeURIComponent(name)}`)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Borrado en bloque de la biblioteca (una petición, reporte por archivo). */
+  deleteMany: async (names) => {
+    try {
+      const { data } = await client.post('/music/audio/delete_many', { names })
       return data
     } catch (error) {
       throw new Error(describeError(error))
@@ -346,10 +402,21 @@ export const api = {
     }
   },
 
-  /** Picos de amplitud para la forma de onda (buckets entre 50 y 2000). */
-  audioPeaks: async (name, buckets = 400) => {
+  /** Para un trabajo en curso (el motor se reinicia si estaba trabajando). */
+  cancelJob: async (jobId) => {
     try {
-      const { data } = await client.get(`/audio/peaks/${encodeURIComponent(name)}?buckets=${buckets}`)
+      const { data } = await client.post(`/music/jobs/${encodeURIComponent(jobId)}/cancel`)
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
+  /** Picos de amplitud para la forma de onda (buckets entre 50 y 2000). sourceKind desambigua homónimos bib/sub. */
+  audioPeaks: async (name, buckets = 400, sourceKind = null) => {
+    try {
+      const qs = sourceKind ? `&source_kind=${encodeURIComponent(sourceKind)}` : ''
+      const { data } = await client.get(`/audio/peaks/${encodeURIComponent(name)}?buckets=${buckets}${qs}`)
       return data
     } catch (error) {
       throw new Error(describeError(error))

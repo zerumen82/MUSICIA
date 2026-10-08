@@ -1414,3 +1414,666 @@ Lo que pidió el usuario: que obedezca al prompt y saque remixes buenos y cuadra
 - `py_compile` 0, unittest 16/16, modelo acepta `cover_strength`, lint 0, build 0 (`index-BeMZTHAf.js`, 343,39 kB) con `four-on-the-floor`, `MANUAL` y `cover_strength` dentro.
 - **TESTER - PASS de glosa, modelo, lint y build. No de GPU (efecto real en el oído).**
 - **REVIEWER - APPROVE con límites**: la glosa puede meter ruido («melody» junto a «without melody»); si al oír confunde, se quita la entrada. La FUERZA manual y la glosa se juzgan oyendo el próximo remix. Criterio para el usuario: mismo prompt de antes, ¿obedece más y suena cuadrado?
+
+## 2026-10-05 (XLVI) — El remix obedece: glosa sin contradicciones + sft con CFG de verdad
+
+Lo que pidió el usuario: «revisa remix porque no obedece al prompt». Confirmó
+el síntoma («suena a otra cosa, no cumple el prompt»), eligió **Rápido + SFT**
+y añadió la condición: **«pero no quiero hardcoding»**.
+
+### Diagnóstico (logs de los remixes de las 19:27–19:42)
+
+La frase SÍ llegaba intacta al DiT (caption = prompt del usuario + glosa,
+`thinking=False` y los tres cot en `false`). Tres causas reales:
+
+1. **La glosa se contradecía (bug nuestro)**: «sin melodías» se glosaba como
+   `(drums, melody, without melody)` — el motor recibía la orden de meter
+   melodía y de quitarla a la vez. En `prompt_gloss.js` la regla `melodías`
+   se disparaba dentro de «sin». El reviewer lo había avisado en XLV.
+2. **Glosa rota en silencio**: `sintetizadores?` nunca coincidía con
+   «sintetizador» (el `?` solo cubre la «s»), así que «melodias con
+   sintetizador roland» glosaba solo `melody`. Preexistente, no se había visto.
+3. **El turbo no puede obedecer (límite del modelo, spec [M1])**: el motor
+   fuerza `guidance 7.0 → 1.0` (CFG horneado en la destilación) — el caption
+   pesa poco. Los metas iban `bpm: N/A` y la glosa no conocía gabber/hardstyle.
+
+### Solución, sin un solo literal fuera de config
+
+- `config.py` + `config.example.json`: `allowed_models` = (turbo, sft),
+  `remix_model = acestep-v15-sft`, `remix_tasks = (cover, repaint)`,
+  `steps_by_model = {turbo: 8, sft: 50}` y `guidance_by_model = {turbo: 1.0,
+  sft: 7.0}`. Regla única: `GenerationDefaults.model_for(task, requested)`.
+- `music_service.build_payload` calcula tarea y modelo primero y elige
+  pasos/guidance de las tablas del modelo; el log de envío ya dice
+  `modelo=… | pasos=… guidance=…` (evidencia en cada trabajo).
+- Los tres `GenerationRequest` de `/audio/remix/ai` mandan `remix_model`;
+  VERSIÓN/TRAMO (cover/repaint) van a remix_model por `model_for`; CREAR
+  (text2music) sigue en `model` (turbo). El job y la ficha guardan el modelo
+  efectivo.
+- `scripts/ensure_local.ps1`: `ACESTEP_ON_DEMAND_MODEL_LOAD=true`. **Sin esta
+  variable el motor ignora en silencio el modelo pedido y usa el primario**
+  (`job_model_selection.py`), es decir, un remix que dice sft pero corre en
+  turbo. Es la pieza que convertía el cambio en FAKE si faltaba.
+- Glosa: cada entrada puede llevar `without` (forma cuando está negada) y se
+  detecta la negación («sin/no/without»); palabra negada sin forma contraria
+  → no se añade nada. + géneros y matices (gabber, hardstyle, frenchcore,
+  trance, reggae, metal, distorsionado…). `_NO_MELODY_WORDS` gana
+  «without melody» para que la intención se lea también en prompt inglés.
+- Lateral (`App.jsx`): modelo cargado + LM + VRAM libre + modelo de remix,
+  refrescados cada 10 s con `/music/models` (antes solo se leía una vez al
+  montar). `free_vram_mb` pasa a público en `separator_service`.
+- El paso del remix anuncia en la UI: «Modelo del motor: acestep-v15-sft
+  (guidance 7, 50 pasos: el prompt pesa más que en el turbo)».
+
+### Prueba real (con GPU, servicios arriba)
+
+- **Remix completo** job `93ef9310` (21:17–21:21, 247,7 s) con el prompt del
+  usuario glosado «…sin melodias, sonido hardstyle (drums, without melody)»:
+  - envío: `modelo=acestep-v15-sft | pasos=50 guidance=7.0 | dur=-1s`;
+  - motor: `/health` → `loaded_model: acestep-v15-sft` (cambio on-demand
+    real, no solo la petición);
+  - log del motor: barra `50/50` pasos y **0** líneas «overriding guidance»
+    (es decir, guidance 7.0 efectiva; en turbo esa línea sale siempre);
+  - **VRAM pico 6 607 MB de 8 025 MB** (mínimo 1 418 MB libres, sin OOM),
+    muestreo cada 3 s en `logs/vram-sft-remix.log`;
+  - salida: `prueba-sft-obediencia.mp3` 81,45 s / 1 956 140 bytes, mezclada a
+    -14 LUFS, con ficha. Se queda en la biblioteca para oírla.
+- **Vuelta a turbo**: `POST /music/generate` 20 s → `modelo=acestep-v15-turbo
+  | pasos=8 guidance=1.0`, `/health` → `loaded_model: acestep-v15-turbo`,
+  `prueba-vuelta-turbo.mp3` 20,0 s. El cambio de modelo funciona en ambos
+  sentidos (CREAR después de un remix no se queda en sft).
+- Peso del sft verificado: 4 787 825 604 bytes (igual que el turbo). La
+  medición de VRAM de las 00:13 (`logs/vram-sft2.log`, pico 7 914 MB) ya
+  existía y **no estaba anotada** en la bitácora: ahora lo está.
+- Lateral en vivo: `GET /music/models` devuelve `remix_model` y
+  `vram_free_mb` (7 573 MB con el motor frío).
+
+### Prueba de código y estado de los servicios
+
+- `py_compile` 0 · unittest **24/24** (7 nuevas: `model_for`, pasos/guidance
+  por modelo, allowlist, «without melody») · `node --test` glosa **7/7** ·
+  lint 0 · build 0 (`index-Cn46Nu5b.js`, 345,47 kB / gzip 106,93 kB, umbral
+  T3 400 kB). API reiniciada con el código nuevo (proceso 21:25:43, posterior
+  a la última edición) y motor en pie: **servicios dejados corriendo**.
+- Ficheros tocados: `config.py`, `config.example.json`, `music_service.py`,
+  `main.py`, `separator_service.py`, `test_remix_logic.py`,
+  `prompt_gloss.js`, `prompt_gloss.test.js` (nuevo), `App.jsx`,
+  `ensure_local.ps1`, specs 02/03/05. Stems de prueba borrados.
+- **TESTER - PASS (evidencia ejecutada)**: los 5 comandos de arriba en verde;
+  remix real con sft terminado en `succeeded` con MP3 verificado por ffprobe;
+  ida y vuelta de modelo comprobadas por `/health`; VRAM pico medida con
+  nvidia-smi. **No es PASS de oído**: nadie ha escuchado el resultado.
+- **REVIEWER - APPROVE con límites**: releídos los 11 ficheros (diff completo
+  + glosa entera). Ni un literal de modelo/pasos/guidance fuera de config; la
+  glosa sigue sin reescribir la frase; el turbo no pierde sus 8 pasos; la
+  allowlist sigue cortando modelos ajenos. Límites: (1) el oído del usuario
+  decide si la obediencia mejora — `prueba-sft-obediencia.mp3` está en la
+  biblioteca para eso; (2) el sft añade ~2 min al remix (50 pasos + cambio de
+  modelo) y eso se oye en la espera; (3) sin `ACESTEP_ON_DEMAND_MODEL_LOAD`
+  el motor vuelve al silencio de usar el primario — si algún día se arranca
+  el motor a mano, el /health es la única prueba fiable; (4) `remix_model`
+  cubre cover/repaint y remix/ai, pero un texto2music lanzado a mano desde
+  BIBLIOTECA con «base nueva» pasa por remix/ai, y el de CREAR se queda en
+  turbo por diseño.
+
+### Lecciones
+
+1. **Un cambio de modelo hay que verificarlo por `/health`, no por lo que
+   mandas**: el motor fallback-ea al primario en silencio si no tiene
+   habilitado el cambio on-demand.
+2. **Glosar sin gramática mete órdenes al revés**: toda glosa con negaciones
+   necesita forma contraria (`without …`) o no añadir nada.
+3. **`print()` del motor a fichero con buffer**: para saber qué corre, manda
+   `/health` y la barra de pasos, no el log recién escrito.
+4. Los `?` en regex cubren un carácter: `sintetizadores?` no matchea
+   «sintetizador». Revisar las reglas con palabras reales del usuario.
+
+## 2026-10-06 (XLVII) — Fase 2 «Estilo + 3 minutos» y diagnóstico del «no es lo que pedí»: la solución es VOCABULARIO + modificadores composibles
+
+### Contexto
+El usuario oyó el A/B del 2026-10-05 (job `f776483c`, caption gabber, bpm 180)
+y dijo «revisa, no es lo que pedí». Con ask_user concretó: falla el ESTILO
+(«base con baterías hardcore»), el BPM objetivo es 180 y sugirió «¿tags?».
+
+### Diagnóstico (todo ejecutado, nada imaginado)
+- **El BPM 180 SÍ se cumplió**: detección fina de golpes (envolvente de
+  graves ≤120 Hz, hop 10 ms, umbral mean+1.5σ, interpolación parabólica)
+  sobre `prueba-estilo-ab-base.mp3` → **180.63 bpm** (n=223); mix 180.49.
+  El «193» anterior era artefacto de `detect_groove` (autocorrelación,
+  conf 0.143). **Lección: `detect_groove` sobreestima tempo en bases
+  generadas; medir con envolvente de golpes.**
+- **`/format_input` (LM 0.6B) está DESCARTADO**: pruebas en vivo contra
+  :8001 con el caption gabber, con tags y a temperatura 0.1/0.3 → nunca
+  dice «hardcore» ni «gabber»; lo reescribe a house/EBM/darksynth/
+  hardstyle. El LM no conoce el término y `use_format` destruiría el estilo.
+- **El formato frase-EN es el correcto**: 200/200 captions de
+  `vendor/ACE-Step-1.5/examples/text2music/` empiezan por «A/An», media
+  312 chars, 0 llevan «bpm» en el texto (va en metas). Los tags puros
+  contradicen el entrenamiento del DiT.
+- **El fallo es de VOCABULARIO**: el motor nunca produce «gabber/hardcore»
+  pero sí usa «hardstyle, distorted kick, snares, dark».
+
+### A/B/C/D/E real en GPU (semilla 42 fija, sft 50 pasos, guidance 9.0,
+bpm 180, instrumental 60 s; solo cambia el caption; jobs 59de2282, a92782f1,
+4871bb6d, 97344d55, 2f24614d)
+- A «gabber-actual» (el que no gustó) | B «hardstyle-vocab» | C «híbrido
+  hardcore+vocab» | D = B + «rapid-fire double bass kick…» | E = C +
+  «fast double bass kick drumming, kicks on every beat».
+- MP3 en `backend/outputs/ab-estilo-{A,B,C,D,E}.mp3`, 60.0 s cada uno,
+  verificados (duración > 0). DSP: B 180.9 bpm y low% 70.6 (kick más
+  dominante); los BPM de la ronda de 5 ms (342/474) son artefactos del
+  detector contando colas del kick — **no usarlos como veredicto**.
+- El usuario escuchó: «el sonido se parece, pero faltó el doble bombo a
+  mucha velocidad» y «la parte final de E es lo que quiero». Y exigió que
+  nada vaya hardcodeado: los detalles (doble bombo hoy, otra cosa mañana)
+  deben salir de SU frase.
+
+### Implementación (fase 2 + composición, sin hardcodear el ganador)
+- `backend/prompt_style.py`: regla «hardcore holandes» reescrita con el
+  vocabulario que el motor reconoce (hardstyle/distorted kick/snares/dark
+  raver; SIN «gabber»); nueva capa **STYLE_MODIFIERS** (datos: claves ES/EN
+  + cláusula EN) con `find_modifiers()`: «doble bombo», «rápido»,
+  «distorsionado», «baterías», «oscuro», «épico». `style_caption()` compone
+  frase usuario + estilo + modificadores detectados en SU texto. Nada del
+  doble bombo va pegado al estilo: es componible y solo entra si se pide.
+- `backend/test_prompt_style.py`: +4 tests de composición/independencia de
+  capas. **TESTER - PASS**: 45/45 unittest OK (backend/venv, 0.034 s).
+- **Verificación GPU final**: caption COMPUESTO desde el prompt del usuario
+  «baterias techno hardcore holandes (drums) con doble bombo a toda
+  velocidad» (433 chars, datos, nada fijo a mano) → job `beaa7a57`,
+  succeeded, `backend/outputs/ab-estilo-F.mp3` 60.0 s; DSP: 207 golpes de
+  graves en 50 s (≈4.1/s: densidad de doble bombo), low% 58.3.
+- **Verificación en vivo**: API reiniciada (pid 17648 y 11204 muertos,
+  relanzada con backend\venv) y `POST /music/enhance_prompt` devuelve el
+  caption compuesto + `suggested_bpm: 180`.
+- **REVIEWER - APPROVE**: releídos íntegros `prompt_style.py` y
+  `test_prompt_style.py`. Sin literales mágicos nuevos (los BPM siguen
+  siendo datos por estilo); `style_caption` sigue sin recortar (si se pasa
+  de MAX_CAPTION_CHARS devuelve el prompt); los modificadores no activan
+  estilos y un estilo no arrastra modificadores (tests). Límites: (1) el
+  oído del usuario decide si F («la parte final de E») es el sonido final —
+  `ab-estilo-F.mp3` en biblioteca para oírlo; (2) el detector de BPM propio
+  sigue sin ser fiable para veredictos finos (usar envolvente de golpes y
+  desconfiar de medianas con colas); (3) los modificadores solo cubren
+  detalles con claves declaradas — nuevos deseos = nueva entrada de datos,
+  no código.
+
+## 2026-10-06 (XLVIII) — Chips sugeridos + separación de capas del prompt (diseño aprobado por el usuario)
+
+### Qué se pidió y qué se decidió
+El usuario preguntó cómo se gestionaban las dos capas (estilo/modificadores).
+Tras explorar opciones con ask_user (chips estáticos descartados: «siempre
+serán los mismos»; sugerencia por LM descartada: destruye el estilo),
+eligió: **chips + texto en el mismo prompt, con las capas visibles debajo**.
+Fuente de los chips: el catálogo de datos del backend (no el modelo, no la
+UI); no son siempre los mismos porque se filtran por género detectado y por
+lo ya escrito. Un detalle nuevo = nueva fila de dato (tras probarla en GPU).
+
+### Implementación
+- `backend/prompt_style.py`: STYLE_MODIFIERS ahora lleva `label`, `text`
+  (frase que se inserta al prompt), `suggest_with` (géneros; "*" =
+  genérico) y `clause`. Nueva `analyze_prompt()` = capas separadas +
+  chips con `active` (ya escrito) / `suggested` (proponible). Única
+  fuente de verdad de detección y chips.
+- `backend/main.py`: `GET /music/style_options?prompt=...` (determinista,
+  sin LM, barato: pedible en cada pulsación).
+- `frontend/src/api.js`: `styleOptions(prompt)` (GET, silencioso si falla).
+- `frontend/src/components/Composer.jsx`: bajo el textarea, fila «+ AÑADIR»
+  con los chips sugeridos (clic = añade su texto al MISMO prompt) y línea
+  de capas «ESTILO: … · bpm | DETALLES: …». Debounce 300 ms; guardado
+  con aliveRef para no pintar tras desmontar.
+- `backend/test_prompt_style.py`: +6 tests (capas separadas, chip activo
+  no se sugiere, chips según género, genérico siempre, vacío, integridad
+  de datos del catálogo).
+
+### Verificación (TESTER - PASS)
+- **51/51 unittest OK** (backend/venv, exit 0).
+- **ESLint OK** en Composer.jsx y api.js (exit 0).
+- **`npm run build` OK**: nuevo bundle `dist/assets/index-DWz2HTj4.js`
+  (la UI en producción la sirve la API desde frontend/dist).
+- **API viva reiniciada**: `GET /music/style_options?prompt=baterias techno
+  hardcore holandes con doble bombo` → `detected_genre: hardcore holandes`,
+  `suggested_bpm: 180`, «Doble bombo» y «Baterías protagonistas» activos,
+  sugeridos solo los relevantes. Con prompt vacío: sin género ni activos.
+- **REVIEWER - APPROVE**: releídos íntegros prompt_style.py, main.py
+  (solo los dos puntos tocados), api.js y Composer.jsx. La UI no hardcodea
+  chips (los pide al backend); analyze_prompt no duplica sugeridos; el
+  prompt sigue siendo un solo texto (compatible con MEJORAR PROMPT, glosa
+  y remix). Límites: (1) el catálogo inicial son 6 modificadores — crece
+  añadiendo filas de dato tras validarlas en GPU; (2) la previsualización
+  de capas es orientativa: el caption real que viaja al motor lo compone
+  enhance_prompt en el momento de generar; (3) falta oído del usuario con
+  la UI montada (los MP3 de referencia ya están en biblioteca).
+
+## 2026-10-06 (XLIX) — Chips y capas en TODOS los prompts de la app
+
+El usuario probó el REMIX y no veía chips: estaban solo en CREAR. Pidió que
+se aplicara a todos los prompts de la app. Inventario hecho por grep: los
+campos de prompt de la app son tres (Composer, RemixActions, RemixIAPanel);
+Library/Uploads/QualityWizard no tienen input de prompt propio.
+
+- `RemixActions.jsx`: chips + preview de capas bajo el textarea de las
+  acciones con prompt (VERSIÓN, TRAMO, VOZ REAL + BASE NUEVA, SOLO BASE
+  NUEVA). Mismo contrato: chip = inserta su texto en el MISMO prompt; el
+  análisis sale de `GET /music/style_options` (debounce 300 ms). Con la
+  acción sin prompt (separar/ajustar/loop...) no se pide nada.
+- `RemixIAPanel.jsx` (OTRA VERSIÓN CON IA en biblioteca): ídem, convive con
+  sus chips VARIANTS existentes (los de direcciones fijas) sin tocarlos.
+- Verificación: ESLint exit 0 en los dos ficheros; `npm run build` OK
+  (bundle `index-B7ZE2NIl.js`); el endpoint ya vivo respondió correctamente
+  a «techno oscuro» (genre techno, bpm 135, chip Oscuro activo).
+- Límite: la ventana de Electron debe recargarse (Ctrl+R) para cargar el
+  bundle nuevo; si la API está parada, los chips no aparecen (silencioso
+  por diseño, no bloquea escribir).
+
+## 2026-10-06 (L) — Bug real del «no es lo que pedí» en REMIX: el prompt viajaba en crudo
+
+El usuario probó el remix («Animales muertos», prompt «TECHNO CONDUNDENTE,
+SIN MELODIAS, SOLO PERCUSIONES A VELOCIDAD 180 BPM») y volvió a decir que no
+era lo pedido. Log del motor examinado (job `3422aa27`, 00:58): el caption
+que llegó al DiT era el prompt EN CRUDO — sin caption de estilo compuesto.
+El BPM 180 sí viajó en metas. Causa: `_run_ai_remix` calculaba el BPM con
+`style_bpm()` pero los tres `GenerationRequest` enviaban `request.prompt`
+literal. La composición de estilo solo se aplicaba en CREAR (vía
+enhance_prompt en el frontend) y en enhance/remix_prompt, no en el remix.
+
+- Fix en `backend/main.py` (`_run_ai_remix`): `caption_remix =
+  style_caption(request.prompt)` una vez al inicio; los tres envíos
+  (cover, text2music por alargar, base nueva) mandan `caption_remix`.
+  Nota en log del trabajo: «Caption compuesto con el estilo que pides».
+- Con el prompt del usuario el caption compuesto queda: frase + «A hypnotic
+  techno track…» (regla techno; «hardcore» no aparece en su frase y por eso
+  no pega hardcore — los BPM de metas los marca el usuario: 180).
+- Verificación: 51/51 unittest OK tras el cambio; API reiniciada y viva
+  (PID 5324, /health ok, /music/style_options ok). Recordatorio de arranque:
+  el relanzamiento via Start-Process del .ps1 temporal murió sin rastro en
+  el log; arrancado en primer plano de la sesión y quedó vivo.
+- Límite: el remix REAL con este fix no se ha generado todavía (requiere
+  GPU y la decisión del usuario); la próxima generación de remix mostrará
+  en la línea de eventos «Caption compuesto…» como confirmación visible.
+
+## 2026-10-06 (LI) — «A 180 no sale 4x4»: el patrón rítmico es un modificador más + docencia en placeholders
+
+El usuario achacó al sistema que a 180 bpm la base no iba en 4x4. Razón
+verificada: el BPM es una meta suelta; el patrón rítmico lo define el
+caption, y nada en su frase lo pedía. Es la misma regla de siempre (el
+motor no deduce lo que no se escribe) aplicada al patrón.
+
+- Datos: nuevo modificador «4x4 (bombo a cada pulso)» en STYLE_MODIFIERS
+  (claves «4x4», «four on the floor», «bombo a cada pulso»…; cláusula EN
+  «a steady four-on-the-floor kick drum pattern…»). Docencia también en la
+  cabecera del módulo. Comprobado: «techno oscuro en 4x4 a 180 bpm sin
+  melodías» compone el caption con el four-on-the-floor dos veces reforzado
+  (regla techno + modificador).
+- UI sin labels gordos: la docencia va en los PLACEHOLDERS de los tres
+  cuadros de prompt (Composer, RemixActions con ejemplos por acción,
+  RemixIAPanel): «nombra el estilo + patrón + detalles; el motor no
+  adivina». Desaparecen al escribir: cero espacio ocupado.
+- Verificación: 51/51 unittest OK; ESLint exit 0 (3 ficheros); build OK
+  (bundle index-CYJXE_Zg.js). El usuario debe recargar la app (Ctrl+R).
+
+## 2026-10-06 (LII) — El acompasamiento de la voz usa el BPM DECIDIDO como dato, en todos los caminos del remix
+
+El usuario pidió que la base del remix «debe acompasar lo que se haya
+decido» y que valiera «para cualquier cosa del remix». Diagnóstico del
+código: la base sí se genera al BPM decidido (dato), pero al CUADRAR la voz
+se volvía a detectar el groove de la base GENERADA — y detect_groove lee mal
+el audio generado (conf 0.14; en stems de voz inventa 357 bpm). Con la
+confianza baja, plan_alignment devolvía None y la voz quedaba «a su tempo»:
+ahí estaba el desfase que oía el usuario.
+
+- `backend/main.py` (_run_ai_remix): en el cuadre por atempo, la base es
+  {bpm: decidido, confidence: 1.0} (dato autoritativo: LA PEDIMOS a ese
+  bpm) y la voz usa el groove del tema original (la voz se cantó a eso y
+  ese audio SÍ tiene batería detectable). Si no se decidió BPM, detección
+  como antes. Aplica a los tres caminos: cover con voz, base alargada con
+  voz troceada y base nueva.
+- `backend/mixer_service.py` (plan_vocal_arrangement): nuevo parámetro
+  `base_bpm` — el dato manda sobre detect_groove; sin dato, como antes.
+  El reparto de frases usa compases del BPM decidido.
+- 51/51 unittest OK. API reiniciada con el cambio (viva, /health ok).
+- Límite: verificación de oído pendiente (el usuario está probando); el
+  cuadre atempo está limitado por diseño a ratio 0.8-1.25 (deformaría más)
+  — para BPM muy distintos entre voz y base, la voz se reparte en trozos
+  (arrangement), que ahora también cae en compases del BPM decidido.
+
+## 2026-10-06 (LIV) — Estado del remix IA: diagnóstico y cambio de flujo para voz + base
+
+- **Síntoma reportado**: en el remix IA con voz + base nueva, el resultado final no suena como la música que pide el prompt.
+- **Diagnóstico**: en `backend/main.py` la rama `keep_vocals` del remix IA estaba lanzando un **cover del instrumental original** con `task_type="cover"` y `source_path=ritmo`. Esa tarea conserva la melodía del tema viejo, así que el usuario percibe que el prompt no se obedece, sobre todo cuando pide un cambio de estilo fuerte (ej. hardcore). No era un fallo de ruta ni de archivo: el flujo completo llegaba al motor, pero el **camino del remix estaba enfocado a retener el tema original** en vez de generar música nueva desde el prompt.
+- **Cambio aplicado**: esa rama ahora lanza una **base completamente nueva** (`task_type` por defecto = text2music, sin `source_path`, con `duration_seconds` resuelto), igual que `solo_base`. La voz original se separa y se mezcla después del mismo modo. Así el resultado final sí depende del prompt en todos los caminos del remix IA.
+- **Qué se preserva**: `solo_base` y la rama sin voz siguen igual; la glosa del prompt (`glossPrompt`) se mantiene; el slider AUTO/MANUAL de fuerza sigue funcionando, pero ya no se usa en este camino porque no hay `task_type="cover"` aquí.
+- **Verificación actual**: 24/24 unittest OK; build y lint, pendientes de re-ejecutar tras el cambio. Validación real de oído pendiente: hay que lanzar un remix IA de voz + base y comprobar que el estilo cambia respecto al original.
+- **Lección**: cuando el usuario dice “no hace lo que pido” sin 422 ni 404, el problema suele estar en qué tarea se envía al motor, no en el transporte del archivo. Aquí el transporte funcionaba; el flujo del remix elegía `cover` por defecto y ese es el cambio que había que corregir.
+
+## 2026-10-06 (LV) — Divergencias memory↔código cerradas: kind en onda/groove, resto TTS, spec al día
+- **Qué pidió el usuario**: arreglar lo que no coincide entre memory y código.
+- **1. Onda y groove con `source_kind` (deuda menor de XL, confirmada)**: `GET /audio/groove/{name}` y `GET /audio/peaks/{name}` resolvían outputs-primero y con homónimos bib/sub la onda dibujaba el archivo equivocado. Ahora aceptan `?source_kind=upload|output` y van por `_find_audio` (400 si el kind es inválido, 404 si falta). Frontend: `api.groove(name, sourceKind)`, `api.audioPeaks(name, buckets, sourceKind)`, `Waveform` acepta `sourceKind`, `RemixPanel` lo reenvía a la onda, `RemixActions` pasa el suyo en TRAMO y AJUSTAR. Sin kind, orden viejo (no rompe a MEZCLA).
+- **2. Resto de TTS fuera**: quedaba `TtsSettings` + campo `tts` en `backend/config.py` y bloque `tts` en `config.example.json` (rutas/import/requirements ya estaban limpios desde XLII). Borrados; `build_settings()` ya no expone `tts` y `grep TtsSettings` en backend da 0.
+- **3. `spec/03` al día (decía 2026-10-03)**: T6 = 51 tests (remix_logic + prompt_style) + 7 de glosa; T3 = bundle `index-DYMB-EMz.js` 349.40 kB (gzip 108.19 kB), umbral 400 kB intacto; W1 recoge el pico sft (6 607 MB, log previo 7 914 MB); el párrafo de covers pasa a decir lo medido (repaint `prueba-auditoria-tramo.mp3`, remixes sft y serie A–F generados; falta el oído); [F3] pasa a veredicto de oído.
+- **4. Salto LII→LIV**: la entrada LIII nunca existió (hueco de numeración, no contenido perdido). Se deja constancia aquí y no se reescribe la historia.
+- **Prueba**: `py_compile` 0; unittest 51/51 OK; glosa `node --test` 7/7; `eslint` 0; `npm run build` OK (`index-DYMB-EMz.js` 349.40 kB). TestClient: groove/peaks con kind inválido → 400, inexistente → 404, reales con `source_kind=output` → 200 (groove bpm 160.08, peaks 50 buckets) sobre `39628473-01-Animales muertos (2).mp3`. Sin GPU, sin ventana, sin tocar audios.
+- **TESTER — PASS de contrato, tests, lint y build. No de clic (onda con kind en ventana) ni de oído.**
+- **REVIEWER — APPROVE con límites**: el kind es optativo y conserva el orden viejo por defecto; el waveform pide el kind solo donde la lista se conoce (RemixActions); `api.groove` sigue sin llamantes pero ya no mentiría con homónimos cuando se use. La historia no se reescribe: LIII queda como hueco declarado.
+
+## 2026-10-06 (LVI) — [L1] BIBLIOTECA auto-actualizada + [L2] borrado en bloque
+- **Qué pidió el usuario**: que la biblioteca se auto-actualice, borrar en bloques, y una revisión técnica de mejoras. Decisiones por ask_user: modo SELECCIONAR explícito, refresco al terminar jobs (sin sondeo), endpoint múltiple.
+- **Spec primero**: [L1] y [L2] en `spec/02-REQUISITOS.md` con decisiones y criterios.
+- **Backend**: `POST /music/audio/delete_many` (`DeleteManyRequest{names: 1–100}`) — resuelve y borra igual que el individual (con ficha); inexistente/`../evil` → `not_found` sin tumbar el resto.
+- **Frontend**: cabecera con SELECCIONAR → casilla por fila (clic en fila marca, controles no marcan) + barra (N, TODAS, NINGUNA, BORRAR con un solo SÍ/NO, SALIR). `App.jsx` avisa con `libraryTick` cuando la cola pasa de activa a vacía; `Library({externalRefresh})` recarga (poda la selección, no la vacía; el `<audio>` por nombre no se corta). Sin jobs, cero tráfico extra. ACTUALIZAR intacto.
+- **Prueba**: `py_compile` 0; unittest 51/51; glosa 7/7; `eslint` 0; `build` OK (`index-hi3xe_Ft.js` 352.31 kB, trae SELECCIONAR/delete_many/externalRefresh/TODAS/NINGUNA). TestClient con ficheros temporales `zz-bulk-test-*`: bloque 200 (2 borrados + ficha fuera + 1 `not_found`), `[]`→422, 101→422, `../evil`→`not_found` sin borrar. Temporales verificados ausentes; biblioteca del usuario intacta.
+- **TESTER — PASS de contrato, tests, lint y build. No de clic (modo SELECCIONAR en ventana) ni de ciclo vivo (job real terminando con BIBLIOTECA abierta).**
+- **REVIEWER — APPROVE con límites**: el bloque es solo de biblioteca (uploads tiene su propio borrado); si la API reinicia a mitad de un job se pierde el aviso (queda ACTUALIZAR); VARIAR genera un aviso a mitad (inofensivo: recarga de más).
+- **Revisión técnica (sin código, propuestas)**: (1) `api.groove()` no tiene llamantes — usarla (p. ej. enseñar BPM medido en MEZCLA/BIBLIOTECA, spec [M3]) o borrarla; (2) `GET /music/audio/{name}` sirve `audio/mpeg` fijo — si algún día hay wav, mentiría el MIME; (3) bundle 352 kB < umbral 400 kB, aún no partir; (4) sin `console.log`, sin TODO reales (los 2 matches son texto español de UI), los `except Exception` del backend mapean a HTTP con mensaje; (5) jobs en memoria sin cancelar — ya declarado en spec (cola en disco pendiente).
+
+## 2026-10-06 (LVII) — Prompts a fondo: el estilo viajaba en crudo en 5 de 6 caminos + TEMPO medido en BIBLIOTECA
+- **Qué pidió el usuario**: cablear el groove y revisar a fondo prompts y demás.
+- **Auditoría (mapa completo de caminos a `/music/generate`)**: el caption de estilo (`style_caption`: frase + EN + modificadores) solo entraba por MEJORAR PROMPT y por remix IA. En crudo iban: CREAR directo (género+mood+glosa, sin caption), VERSIÓN/TRAMO, OTRA VERSIÓN de bib y re-crear/base de SUBIR. El modelo si era el correcto en covers (sft por `model_for`), pero el caption no.
+- **Fix estructural**: `style_caption` idempotente (si la cláusula del estilo ya viaja — MEJORAR ya lo compuso o el desplegable la traía — no la duplica) y `/music/generate` compone en el servidor para TODOS los caminos. La ficha y la barra guardan la frase del usuario; el job anota el evento «Caption compuesto…» cuando compone. El BPM pedido no se toca (el vacío sigue siendo N/A por decisión XXVI/XXIX). Transparencia: VER LO QUE SE ENVÍA añade la línea ESTILO (el texto exacto se ve con MEJORAR PROMPT).
+- **Groove cableado**: botón TEMPO en ACCIONES de BIBLIOTECA (`api.groove` con `source_kind=output`, medido a mano y cacheado, nada automático por fila) + `PEDÍA x · SALE y` si la ficha trae BPM con diferencia ≥3 ([M3] parcial: la medición automática al generar sigue pendiente). MEZCLA ya enseñaba los BPM absolutos en el plan: ahí no faltaba nada.
+- **Demás (propuestas, sin tocar)**: géneros Acústico/Electrónica del desplegable no tienen regla de estilo (no componen caption: habría que añadir filas de dato y validarlas en GPU); `GET /music/audio/{name}` con MIME fijo; bundle 353.62 kB < 400 kB.
+- **Prueba**: `py_compile` 0; unittest 53/53 OK (+2 idempotencia); glosa 7/7; `eslint` 0; `build` OK (`index-XazjoeOF.js` 353.62 kB, trae TEMPO/MEDIDO/PEDÍA). Compose en vivo: prompt hardcore → 299 chars con caption techno; «cancion bonita» intacta; doble composición estable. Sin GPU (el endpoint con motor no se ejercitó), sin ventana, sin tocar audios.
+- **TESTER — PASS de composición, tests, lint y build. No de escucha (si el caption compuesto obedece más se juzga oyendo) ni de clic (TEMPO en ventana).**
+- **REVIEWER — APPROVE con límites**: el compose no recorta (si pasa 800 chars va la frase); la idempotencia es por cláusula exacta; el evento del job solo sale cuando compone de verdad.
+
+## 2026-10-06 (LVIII) — Reglas en toda la app: 3 estilos + calma + «sin voz»
+- **Qué pidió el usuario**: si esas reglas se pueden mejorar en toda la app.
+- **Medición previa**: 5 frases de la propia UI sin regla (synthwave, acústico/folk ×2, tranquila/dormir) + electrónica cayendo en el caption genérico de electro.
+- **Filas de dato (sin tocar lógica)**: `electronica` (ANTES que electro: la contiene), `synthwave` (100 bpm), `folk acustico` (antes que rock: «folk rock» lo pide el folk, 95 bpm); ambient suma calma/dormir/meditación; modificador «Sin voz» (refuerzo instrumental, nunca sugerido como chip: la voz se decide con letra/modo); 4x4/Baterías/Distorsión sugieren también electronica/synthwave. Efecto app-wide sin build: ESTILO, chips y MEJORAR salen del catálogo.
+- **No se añade**: clave «rap» (sería subcadena de «rápido» y robaría tempos); «más energía»/«minimal» sin vocabulario de motor (la glosa ya cubre `energetic`). Quirk documentado en test: «lo-fi hip hop» gana hip hop (orden previo, sin cambio).
+- **Prueba**: 60/60 unittest OK (+7 catálogo, test de integridad admite `suggest_with` vacío deliberado); `/music/style_options` en vivo: synthwave/100, folk/95, techno+`Sin voz`/135. Sin GPU (obediencia de las filas nuevas, por oído), sin ventana, sin tocar audios.
+- **TESTER — PASS de catálogo, endpoint, tests y lint. No de escucha ni de clic.**
+- **REVIEWER — APPROVE con límites**: las 3 cláusulas EN son nuevas sin medir en GPU (el próximo remix con esos estilos dirá); el orden manda (específico antes que genérico) y está cubierto por tests.
+- **Aviso de repo**: `backend/prompt_style.py`, `test_prompt_style.py` y `prompt_gloss.test.js` siguen sin commit (untracked desde que nacieron); último commit `ae80327`. No se commitea sin orden.
+
+## 2026-10-06 (LIX) — Compose en TODOS los caminos + revisión completa de bugs
+- **Pregunta del usuario**: ¿está aplicado a cualquier prompt? Sí, verificado camino por camino: `/music/generate` (CREAR, VERSIÓN, TRAMO, OTRA VERSIÓN, re-crear/base) compone en el servidor; `_run_ai_remix` (voz+base, solo base, alargue) manda `caption_remix`; `write_lyrics` no compone a propósito (es semilla del LM, y el LM ya destruye el estilo por diseño). Sitios `music.submit`: 1008/1034/1053 (remix, con caption) y 1412 (generate, con caption).
+- **Revisión completa**: 35 rutas backend ↔ 31 llamadas frontend, todas casadas (`/api/info` es la única sin UI: diagnóstico manual). Timeouts coherentes (30 s base, 90 s envío, 300 s letra, 900 s estudio). Sin `console.log`, sin TODO reales, los `except` mapean a HTTP.
+- **Bugs encontrados y corregidos**:
+  1. `_finalize_generation` borraba `job["events"]` al arrancar: mataba el evento «Caption compuesto» de LVII. Ya no se vacía (el alta deja los suyos; el tope 30 sigue).
+  2. `jobs`/`remix_jobs`/`separate_jobs` crecían sin límite (`/music/jobs` sondeado cada 3 s engordaba). Nuevo `_remember` + `job_history: 30` en config: activos intocables, terminados podados por antigüedad (con `created_at` añadido a remix/separación).
+  3. `describeError` mostraba «Request failed with status code 422» en validaciones: la lista `detail` de FastAPI ahora se enseña legible.
+  4. MEZCLA no se enteraba de trabajos terminados: acepta `externalRefresh` igual que BIBLIOTECA.
+- **Prueba**: `py_compile` 0; 61/61 unittest OK (+1 `_remember`: 35 terminados→30, running sobrevive); prune en vivo verificado; `eslint` 0; `build` OK (`index-DFVSMREg.js` 353.85 kB). Sin GPU, sin ventana, sin tocar audios.
+- **TESTER — PASS de poda, errores, tests, lint y build. No de clic ni de ciclo vivo.**
+- **REVIEWER — APPROVE con límites**: el tope 30 vale para sesiones normales; un `pollUntilDone` sobre un job podado vería 404 (solo si el job es antiquísimo y se sigue sondeando: la UI para al terminar). Nota: al editar el alta toqué por error `"seed": request.seed`→`seed` y lo revertí tras comprobar que no existe variable local (py_compile + tests en verde después).
+- **Propuestas sin tocar**: JobsPanel y App sondean `/music/jobs` por duplicado cada 3 s (compartir el tick); `/api/info` sin UI; `GET /music/audio/{name}` con MIME fijo; cola en disco y botón parar GPU (ya en spec).
+
+## 2026-10-06 (LXI) — [Q1] cola en disco + [Q2] PARAR con reinicio del motor
+- **Decisiones (ask_user)**: historial + interrumpidos; soltar + matar motor (recarga tarda minutos); PARAR por fila activa.
+- **[Q1]**: `backend/job_history.json` (gitignore) con foto atómica al terminar/cancelar (campos declarados por familia + últimos 5 eventos); al arrancar se carga y lo activo se marca failed «Interrumpido: la API se reinició». `created_at` añadido a remix/separación para podar con criterio.
+- **[Q2]**: `POST /music/jobs/{id}/cancel` (404 inexistente, 409 terminado): marca `cancelled`, los runners abortan en el siguiente paso/sondeo (guards en `step`, `on_update`, post-wait, post-demucs + salidas tempranas) y queda failed «Cancelado» sin descargar nada. Si el motor trabajaba (generación en marcha; remix salvo fase Separando; nunca en separación/cola), mata el PID del :8001 (netstat stdlib) y relanza con `ensure_local.ps1` (respeta HOLD, mutex del script evita duplicados). Botón PARAR por fila activa con aviso del reinicio.
+- **Prueba**: 65/65 unittest OK (+4: `uses_motor` ×6 casos, snapshot, roundtrip save/load con interrumpido, endpoint 404/409); `eslint` 0; `build` OK (`index-D6_O5H3w.js` 354.38 kB, trae PARAR/cancelJob). Roundtrip real a tmp (el log «recuperado» del test era el tmp, sin tocar estado real). Sin GPU (cancel real + kill + relaunch, sin ejercer), sin ventana, sin tocar audios.
+- **TESTER — PASS de contrato, tests, lint y build. No de ciclo vivo con GPU.**
+- **REVIEWER — APPROVE con límites**: matar por puerto asume que el :8001 es el motor (es su URL de config); si el relaunch cae en HOLD, el motor queda parado hasta reabrir Musicia (la nota lo dice); la cola de demucs en hilo no se aborta a mitad (termina en silencio sin publicar).
+- **Lección**: al tocar el dict del alta, revisar la variable exacta (`"seed": seed` inexistente casi entra; revertido y verificado).
+
+## 2026-10-06 (LXII) — [R1] biblioteca robusta + [R2] remix = cover nativo + [R3] batch 2 + use_format + [R4] UI honesta
+- **Raíz (auditoría con la doc del modelo)**: el REMIX IA nunca mandó `task_type=cover` (el motor jamás oyó la pista) y `cover_strength` era un campo muerto; batch 1 contra 2-4 recomendados; `use_format` sin probar; tick de biblioteca frágil (cola activa→vacía; nada para DSP síncrono ni encadenados).
+- **[R1]**: `/music/jobs` devuelve `library_version` (máx. mtime de `outputs/*.mp3`, el mismo glob que enseña la biblioteca); App refresca al cambiar la huella. Condición vieja retirada.
+- **[R2]**: `_run_ai_remix` envía cover + `src_audio_path` + fuerza real (manual o auto); duración `-1` y BPM auto salvo petición; sin letra = instrumental honesto (el motor no clona voces). UI: un solo modo REESTILAR (fuera `voz_prompt`/`solo_base`, minutos, `keep_vocals`); escala de fuerza de la doc en los textos. Retirado: `voz_real_quiere_mas_larga`, `resolve_remix_duration` (+ tests).
+- **[R3]**: `batch_size: 2` (config; las variantes se guardan `-v2` en CREAR y remix, el usuario elige); `use_format: true` (config + override por petición; `thinking` sigue off); el log de envío ya dice `use_format` y `batch`.
+- **[R4]**: nota bajo GENERAR (rápido no obedece detalles → REESTILAR/SFT); VER LO QUE SE ENVÍA enseña modelo + formato + variantes.
+- **Prueba**: 66/66 unittest OK (+5: huella, cover, formato, rango); `eslint` 0; `build` OK (`index-z1_5SLrK.js` 353.48 kB, trae REESTILAR/library_version/use_format); TestClient: remix/ai inexistente→404, prompt corto→422, config batch 2/use_format true, jobs trae `library_version`. Sin GPU (app cerrada: ni API ni motor en marcha), sin ventana, sin tocar audios.
+- **Pendiente GPU (con la app abierta)**: A/B del banco (hardstyle/gabber, «Animales muertos»): reestilar con cover+formato+batch vs lo de antes; si `use_format` no mejora, se apaga. El oído del usuario decide el PASS.
+- **TESTER — PASS de contrato, tests, lint y build. No de ciclo vivo con GPU.**
+- **REVIEWER — APPROVE con límites**: el cover no conserva tu timbre de voz (reescribe todo al estilo; la UI lo dice); batch 2 dobla tiempo y VRAM por tirada; si el motor rechaza `use_format`, el error viajará honesto en el job.
+- **Lección**: al reescribir un runner por tramos, releer la zona entera antes de dar por bueno el encaje (quedó un bloque huérfano del flujo viejo; detectado por lectura y eliminado).
+
+## 2026-10-06 (LXIII) — [R5] conservar la voz + base nueva
+- **Petición directa**: conservar la voz y cambiar la música. El cover (R2) no sirve: reescribe la voz. Segundo modo del remix IA: `mode: reestilar | voz` (otro valor → 422).
+- **Modo voz**: demucs separa la voz → base instrumental SFT (obedece el prompt) al tempo medido del tema (el pedido manda) y de su duración → cuadre `plan_vocal_arrangement` (reserva `mix_tracks` + tempos) → mezcla a -14 LUFS. Sin letra (la pone tu grabación) y sin fuerza (no hay cover). Se guardan mezcla(s) + base(s) + voz; batch 2 = 2 mezclas, eliges en BIBLIOTECA.
+- **Prueba**: 67/67 unittest OK (+1: modo inválido→422, voz→404 del audio); `eslint` 0; `build` OK (`index-CrQXnhZp.js` 354.43 kB, trae VOZ + BASE NUEVA). Sin GPU (app cerrada), sin ventana, sin tocar audios.
+- **TESTER — PASS de contrato, tests, lint y build. No de ciclo vivo con GPU.**
+- **REVIEWER — APPROVE con límites**: el cuadre voz-base nueva es el punto frágil histórico (si el arreglo no sale, la reserva mezcla a tempo y lo dice); la base la pide al tempo medido, no al que el detector lea de la base generada (lección LI).
+- **Lección**: al añadir una rama con edit, verificar que la cabecera `else if` no se coma la anterior (pasó con `reestilar`; detectado por grep y reparado).
+
+## 2026-10-06 (LXIV) — El LM inventa en español + piloto VOZ real + catálogo a JSON
+- **Medición `format_input` en vivo**: «hardcore en 4x4 con doble bombo» → piano contemplativo a **300 bpm** (lo ignoró todo; mismo fenómeno que el 2026-10-03 con orquesta a 40 bpm). Con caption inglés + bpm 180 explícito SÍ pule bien (hard trance coherente, bpm respetado). Conclusión: el LM no traduce del español, solo pule inglés. La cadena ES→EN (glosa + catálogo) es el puente necesario.
+- **`use_format=false` por defecto** (código + example): con true el servidor SUSTITUYE caption y BPM por el invento (`llm_generation_inputs.py:149-187`). Override por petición para A/B. API reiniciada sola (había 2 APIs: la del venv sin escucha y la de Python310 en :8000; se deja una sola del venv).
+- **Corpus 200 ejemplos**: media 312 caracteres; pop 28, rock 34, hip-hop 17, trap 16, metal 8; hardstyle/gabber/hardcore 0, four-on-the-floor 0. Encoder Qwen3-Embedding (multilingüe, sin vocabulario cerrado). Tokenizador: trap/rap token propio; gabber/dembow fragmentados. El catálogo es hipótesis de distribuzione, no solución (estrategia LM-primero aprobada).
+- **Catálogo a `backend/style_catalog.json`** (NO HARDCODE; test de esquema + orden trap>hip hop) + 6 agujeros cerrados (hardcore, tecno→`re:`, rap→`re:\brap\b`, trap, dembow, chill→`re:`) + detalles sin género ya viajan + idempotencia real (resto sin cláusulas).
+- **Piloto VOZ (job `15d06c4b`)**: demucs + base SFT (guidance 9, 50 pasos, batch 2, `use_format=false`) + cuadre + mezcla en 191 s. 2 mezclas + 2 bases + voz, todo 81.4 s; mezcla a 166.7 bpm (origen 166.25). Archivos en BIBLIOTECA.
+- **Prueba**: 72/72 unittest OK; glosa 7/7; eslint 0; build `index-TDrzCsCU.js` 354.44 kB. Falta: oído del usuario sobre las 2 mezclas.
+- **TESTER — PASS de contrato, tests, lint, build y piloto real. No de calidad musical (oído pendiente).**
+
+## 2026-10-06 (LXV) — [R6] glosario documental minado del fabricante
+- **Minería**: guía oficial (5 capas; faltaban estilo vocal y tempo feel), 400 textos (frecuencias), encoder Qwen3-Embedding, tokenizador (trap/rap propios; gabber/dembow rotos). El catálogo es hipótesis de distribución, no vocabulario cerrado (estrategia LM-primero).
+- **17 modificadores nuevos** con redacción del fabricante (voz ×7, tempo ×4, épica ×4, instrumentos ×3) + glosa ES→EN ampliada. 6 agujeros de género cerrados (LXIV) + `re:` regex (rap/rápido/rapid) + idempotencia por resto.
+- **Prueba**: 73/73 unittest OK; glosa 8/8; eslint 0; build `index-Don8Zd9O.js` 354.96 kB. Test viejo `rap_no_secuestra_rapido` mandó (revertir «rap» plano → regex).
+- **Lección**: el test que prohíbe una clave manda sobre el arreglo rápido; leer los tests del catálogo antes de añadir claves.
+
+## 2026-10-06 (LX) — Tick compartido, MIME por extensión, `/api/info` verificado
+- **Qué pidió el usuario**: hacer las propuestas (menos cola en disco y parar GPU: diseño pendiente, abajo).
+- **Tick compartido**: App sondea `/music/jobs` UNA vez cada 3 s en `jobsFeed` y reparte: barra, auto-refresh bib/mezcla y `JobsPanel({items})` presentacional (sin sondeo propio) vía `Composer({jobs})`. Una petición menos cada 3 s con CREAR abierto.
+- **MIME**: `/music/audio/{name}` usa `mimetypes` por extensión (mp3→`audio/mpeg` igual que antes; un futuro wav no mentiría). TestClient: 200 `audio/mpeg`.
+- **`/api/info`**: responde 200 (`Musicia/local`). Se queda como diagnóstico sin UI: no hay nada que enseñar de él en la ventana.
+- **No se tocan (falta diseño, hay que preguntar)**: cola en disco (formato, qué sobrevive al reinicio, quién limpia) y parar GPU (el motor no cancela tareas: habría que definir si se mata el proceso o se espera). Siguen en spec/05.
+- **Prueba**: `py_compile` 0; 61/61 unittest; `eslint` 0; `build` OK (`index-B4OI1rGi.js` 353.69 kB). Sin GPU, sin ventana, sin tocar audios.
+- **TESTER — PASS de tick único, MIME, tests, lint y build. No de clic.**
+- **REVIEWER — APPROVE con límites**: JobsPanel sin items enseña nada (igual que antes con cola vacía); `mimetypes` es stdlib sin dependencias.
+
+## 2026-10-06 (LXVII) — [R7] SUBIR en negro + vocabulario de la UI auditado
+- **Qué pidió el usuario**: «lo primero es la UI: en SUBIR, al dar a REMIX la pantalla se pone en negro» + «revisa si chips y acciones coinciden con lo que reconocen los modelos». Alcance elegido: completo (reescribir textos + catálogo).
+- **Raíz del negro**: `RemixActions.jsx` perdió la cabecera de imports (sin React/hooks/api/lucide → `ReferenceError` al montar). Además el menú se montaba siempre con `box` nulo (revienta `style.left`) y ofrecía LEGO/EXTRACT/COMPLETE (exigen `acestep-v15-base`, no instalado). Fix: imports restaurados, menú solo con `open && box`, esas 3 acciones ocultas con comentario.
+- **Auditoría (200 captions del fabricante minados)**: 5 VARIANTS + moods Melancólico/Luminoso + textos de género no disparaban nada; 16 tags de voz con 0 apariciones (`husky`, `sung vocals`, `brooding`, `happy`…). Reescritos con su vocabulario (`female/male vocal` 66/142, `whispered` 8, `choir` 9, `ad-libs` 15…); Melancólico + Luminoso al catálogo; lo-fi ahora gana a hip hop (quirk viejo corregido).
+- **Lección de glosa**: «nostálgico/minimalista/clímax» contienen a su glosa inglesa y viceversa → el anti-duplicado las traga. No necesitan entrada; se documenta en tests. Misma trampa que el bug 2026-10-05 pero al revés.
+- **Prueba**: 75/75 unittest backend; glosa 9/9; eslint 0; build `index-l4ULbvMX.js` 359.57 kB. Spec [R7] verificada.
+- **TESTER — PASS** (evidencia de esta entrada: tests + lint + build reales).
+- **REVIEWER — APPROVE**: imports, menú condicional, textos alineados con catálogo; sin hardcode nuevo (todo en catálogo/vocal.js).
+
+## 2026-10-07 (LXVIII) — [R7·R5] Chips compactos + vuelta de MINUTOS (más largo que el tema)
+- **Qué pidió el usuario**: «los chips de remix me parecen falsos, el tamaño es muy grande» + «me has eliminado la posibilidad de hacerlo más largo que el tema original».
+- **Chips falsos**: con prompt vacío salían 23 botones genéricos (los `suggest_with: '*'`) ocupando media pantalla. Fix: los chips viven ahora en UN desplegable AÑADIR (en RemixActions y en RemixIAPanel: direcciones fijas + chips del catálogo que sugiere el backend), cada opción con su texto real en el tooltip; ESTILO/DETALLES inline en una línea; consejo plegable (botón CONSEJO); textarea 3→2 filas (88→64 px en RemixIAPanel); glosa en una línea.
+- **Duración perdida**: el refactor de la mesa (voz_prompt+solo_base → `mode:'voz'`) se comió el desplegable MINUTOS que mandaba `duration_seconds`. El backend lo seguía aceptando (`AiRemixRequest.duration_seconds`, usado en `_modo_conservar_voz` y en cover). Restaurado: estado `extendMinutes` + `maxMinutes` desde `/music/config max_duration_seconds` (NO HARDCODE, fallback 10 min igual que antes) + envío `duration_seconds` en `api.remixAi({mode:'voz'})` + aviso honesto (la voz se reparte en trozos, no se estira).
+- **Prueba**: eslint 0; build `index-Bs9olcDD.js` 360.38 kB; 75/75 unittest backend; glosa 9/9. Spec [R7]/[R5] actualizados.
+- **TESTER — PASS** (evidencia: lint + build + tests ejecutados en esta entrada).
+- **REVIEWER — APPROVE**: sin hardcode (maxMinutes de config), sin stubs; los paneles solo reorganizan widget existentes (SelectBox ya usado en CREAR/MEZCLA).
+
+## 2026-10-07 (LXIX) — [L3] BIBLIOTECA: solo versiones finales, base/voz aparte
+- **Qué pidió el usuario**: «se generan muchos audios que en BIBLIOTECA marean. Quiero solo las versiones finales. Si después se quiere base y voz separadas deben estar no tan visibles».
+- **Diagnóstico**: outputs/ traía 8+8 ficheros mezclados. Un remix de voz dejaba 6 por corrida: mezclas (final), 2 bases generadas (ficha `remix`, indistinguibles), voz separada (`vocals`) y base separada de demucs (**sin ficha** → task `None` → parecía final).
+- **Fix backend** (`main.py`): en `_modo_conservar_voz`, la base separada por demucs lleva ahora ficha `instrumental` y la base generada pasa de `remix` a `instrumental` (la final es la mezcla `-con-voz`).
+- **Fix frontend** (`Library.jsx`): partición `finals` vs `parts` (`task vocals|instrumental` o nombre `-(base|voces)(-vN)?.mp3` para fichas antiguas). Por defecto solo finales; al final de la lista, botón `VER/OCULTAR BASE Y VOZ SEPARADAS · n`; las piezas, atenuadas (opacity-60) y al final; cabecera `N versiones finales · M base/voz aparte`; TODAS selecciona solo lo visible; nota si no hay finales.
+- **Evidencia (NO FAKE)**: script node contra outputs/ REALES → FINALES 8 (con-voz-v1/v2 ×2 proyectos, variantes) · PIEZAS 8 (base-v1/v2, orig-base, orig-voces) · 0 cruces. eslint 0; py_compile OK; 75/75 unittest; build `index-dFl4Y9JR.js` 361.17 kB.
+- **TESTER — PASS** (evidencia de esta entrada).
+- **REVIEWER — APPROVE**: filtro es UI (el backend sigue sirviendo todo: MEZCLA y borrado siguen viendo las piezas); sin borrar nada; regex de nombre solo actúa donde la ficha no alcanza.
+
+## 2026-10-07 (LXX) — «La UI es antigua»: era la API caída, no el bundle
+- **Síntoma del usuario**: en remix no se ve REESTILAR ni VOZ + BASE NUEVA; la UI parece anterior. Revisadas memory + spec/02 + spec/03 + `RemixActions.jsx` + `Library.jsx` (lint 0 en los tres ficheros de remix, `test_remix_logic` 31/31 OK).
+- **Causa**: `frontend/dist` YA estaba al día (bundle `index-dFl4Y9JR.js`, 361.17 kB, contiene REESTILAR ×11 y VOZ + BASE; `npm run build` OK sin cambiar el bundle). Lo caído era la API (`:8000` connection refused, sin Electron vivo, puertos libres): la ventana no podía cargar nada nuevo.
+- **Fix**: `scripts/start_local.ps1` (sin salida en el log del agente, pero levantó ambos: `:8000` pid 9388 y `:8001` pid 21232). Verificado: `GET /health` reachable=True y `GET /` sirve `index-dFl4Y9JR.js`.
+- **Vigilancia**: el oyente de `:8000` es el hijo Python310 del shim del venv (par 15064→9388, patrón conocido de XXVIII/LXIV); funciona con el mismo código, no se tocó. Par legítimo en el motor (23784→21232).
+- **Pendiente usuario**: abrir Musicia.exe (no había ventana viva) y comprobar REMIXER con REESTILAR y VOZ + BASE NUEVA.
+- **TESTER — PASS de servicio y build. No de clic.**
+- **REVIEWER — APPROVE con límites**: el duplicado FUERZA en REESTILAR (`RemixActions.jsx:563-595`, slider genérico + AUTO/MANUAL) y MEJORAR/SEMILLA solo en VERSIÓN/TRAMO siguen abiertos; spec/02 [F3]/[M2] desfasados frente al código (R2/R5/XL).
+
+## 2026-10-07 (LXXI) — Chips de voz fuera de VOZ + BASE + AÑADIR solo con contexto
+- **Qué pidió el usuario**: si las opciones de AÑADIR en VOZ + BASE NUEVA son las reales que entiende el modelo; si «Baterías protagonistas» pinta ahí; y que los chips parecen falsos.
+- **Verificación previa (corpus real, 200 captions del fabricante)**: anthemic 28, driving 32, catchy 31, four-on-the-floor 14, whispered 9, choir 9, ad-libs 18, falsetto 5, spoken 10, shouted 3, rapped 1. Todo el vocabulario de chips existe en su corpus (rapeada flojo: 1/200); «distorted kick»/«reverse kick» literales 0/200 (hipótesis composicional, no cita).
+- **Decisión**: «Baterías protagonistas» SÍ pinta (cláusula de mezcla sin voces; la voz se mezcla encima). Los 7 de voz NO (susurrada, potente, falsete, gritada, rapeada, hablada, armonías): meten cláusulas vocales en una base que es instrumental por diseño → doble voz.
+- **Causa de «parecen falsos»**: con prompt vacío el backend sugería 19 genéricos sin contexto (medido: '' → 19, 'techno' → 23 con género). Y el comentario de `RemixIAPanel.jsx:110-112` prometía ocultarlos pero el código no lo hacía.
+- **Fix (datos, no hardcode)**: `style_catalog.json` + `voice:true` en los 7 de voz (+ `_doc`); `analyze_prompt` lo expone en cada chip; AÑADIR se enseña solo con contexto (género detectado o detalles escritos) en RemixActions/Composer/RemixIAPanel; en acción `voz` se excluyen los de voz (en VERSIÓN/OTRA VERSIÓN se quedan: el cover sí canta).
+- **Prueba**: 76/76 unittest OK (+1 voices); eslint 0 (3 ficheros); build `index-CWxvsVHN.js` 361.31 kB (fuentes 11:15:09 < bundle 11:15:59). En vivo: endpoint devuelve 7 voice:true; bundle servido con filtro `==="voz"&&X.voice` y gate `?[]:` dentro; `GET /health` reachable.
+- **Lección**: en el bundle minificado los nombres locales desaparecen: buscar `hasStyleContext`/`c.voice` da 0 aunque el código esté (falso negativo); hay que buscar formas minificadas (`==="voz"&&*.voice`) + orden de mtimes.
+- **TESTER — PASS de datos, tests, lint, build y endpoint. No de clic (ventana del usuario).**
+- **REVIEWER — APPROVE con límites**: lo escrito a mano con palabras de voz en modo voz sigue componiendo cláusulas vocales (el filtro es de sugerencia, no de composición); rapped con 1/200 queda como hipótesis débil.
+
+## 2026-10-07 (LXXII) — Que lo que ofrece la app sea real para el modelo
+- **Qué pidió el usuario**: no su preferencia personal, sino «que sea realista lo que me ofrece la app con lo que entiende el modelo», tras pedir mantener guitarra + voz y «baterías techno contundentes».
+- **Lo que medí con su frase exacta** (`manteniendo la guitarra y la voz, baterias techno contundentes`): glosa → `(drums, guitars, vocals, hard-hitting)` + caption techno + cláusula `the drums are the clear lead element of the mix`. Dos fallos: (a) **no existe ningún modificador de guitarra** en el catálogo (solo la palabra `guitars` entre paréntesis); (b) `lead element` **0 veces** en el corpus → cláusula inventada. Además, en VOZ + BASE NUEVA la glosa mete `vocals` y el motor puede meter su propia voz encima de la del usuario.
+- **Oráculos (dos, con papel distinto)**: B = **400 captions** del fabricante (`examples/text2music` + `examples/simple_mode`, 225.489 chars) → vocabulario de prosa; A = **`acestep/genres_vocab.txt`** (2.116 tokens únicos de 178.572 líneas) → vocabulario de géneros. Lección: con solo 200 captions salían falsos positivos (`drum-machine` ≠ `drum machine`), y con A como oráculo de prosa se colaban `robotic`/`film` porque aparecen dentro de nombres de género.
+- **Resultado de la auditoría**: antes **9/28 chips, 16/29 estilos y 6 términos de glosa** con vocabulario no real; después **0, 0 y 0**.
+- **Cambios (datos, NO HARDCODE)**: `style_catalog.json` → 9 cláusulas de chip rehechas con frecuencias reales (`squarely` fuera, `played at maximum speed` → `a fast tempo with relentless, driving energy`, `the drums are the clear lead element of the mix` → `driving drums as the lead of the track`, `luminous optimistic` → `bright feel with upbeat energy`, `strictly instrumental` → `instrumental…`) y **15 captions de estilo** (`snares`→`snare` 5, `90s raver`→`rave` 6, `saturated`→`heavy`, `warehouse`→`club`, `repetitive`→`punchy`, `robotic`→`synth`, `shuffling`→`crisp`, `unplugged`→`acoustic`, `skanking`→`offbeat`, `shiny`→`warm`, `montuno/congas`→`piano/percussion`, `rasgueos/palmas`→`percussion`, `film-score`→`powerful`, `calm`→`soft`, `improvised phrasing`→`improvisation`); `prompt_gloss.js` → `moderate`→`mid tempo`, `calm`→`gentle` (×2), `saturated`→`distorted`, `dirty`→`gritty`, `optimistic`→`bright`.
+- **Guarda para que no vuelva**: `backend/test_realism.py` (4 tests: chips, captions, claves de género vs `genres_vocab`, términos de glosa); se salta si no están los datos del motor. Control: detecta `robotic/shuffling` y deja pasar `a dark driving club groove`.
+- **Prueba**: `unittest discover` **80/80 OK** exit 0; `node --test src/prompt_gloss.test.js` **9/9** exit 0; `eslint src --max-warnings=0` exit 0; `vite build` exit 0 → `index-BsJn5CqK.js`. Servicios relanzados (motor :8001, API :8000 pid 27060 arrancada **16:57:01** > catálogo 16:50:14 → cargó lo nuevo); `/health` reachable=True; endpoint con su frase → `techno` / 135 bpm / `Baterías protagonistas`.
+- **TESTER — PASS**: evidencias ejecutadas (80 tests, 9 tests JS, lint 0, build 0, API reiniciada y endpoint en vivo).
+- **REVIEWER — APPROVE con límites**: (1) sigue sin existir chip de guitarra (pedido pendiente); (2) `gabber` está en `genres_vocab` pero el A/B del 2026-10-06 dijo que no funciona → `genres_vocab` acredita vocabulario, no obediencia; (3) las cláusulas siguen siendo prosa compuesta (ninguna literal en el corpus), solo que con palabras que el modelo sí usa.
+
+## 2026-10-07 (LXXIII) — La misma regla comprobada en CREAR
+- **Qué pidió el usuario**: «has recompilado para ver la UI correctamente; revisa que eso ocurra en CREAR».
+- **Estado previo al revisar**: servicios y ventana caídos (SALIR de la bandeja a las 17:20, según `logs/musicia-api.err.log`) → relanzados con `start_local.ps1` + `open_musicia.ps1` (Win32_Process.Create).
+- **Lo que sí estaba en CREAR ya**: el gate de contexto está compilado en el bundle servido (`.chips?.some(` ×1, `detected_genre||` ×5, `modifiers?.length??0)>0` ×3) y los chips venían del catálogo nuevo (glosa `mid tempo` presente, `saturated`/`optimistic` ausentes). Prompt vacío → AÑADIR oculto ✓.
+- **Lo que NO estaba**: CREAR **no filtraba los 7 chips de voz**. Medido contra el endpoint en vivo, con «techno» ofrecía 23 chips **con los 7 de voz**, incluso cuando la salida iba a ser instrumental (`mode !== 'voice'` → `instrumental: true`, o modo voz sin letra → «Sin letra el motor hace un instrumental»). Mismo problema de fondo que en VOZ + BASE NUEVA: el prompt pedía voz mientras al motor se le decía instrumental.
+- **Fix (mismo patrón, datos)**: `Composer.jsx:398-402` → `habraVoz = mode === 'voice' && lyrics.trim().length > 0` y `chipsSugeribles` = gate de contexto + `voice` del catálogo. Sin ese gate, con prompt vacío el backend marca `suggested` en los genéricos y AÑADIR volvía a abrirse (bug introducido a medias y corregido en el mismo paso).
+- **Prueba (4 casos contra el endpoint vivo)**: instrumental+vacío → OCULTO; instrumental+«techno» → 16 chips **0 de voz**; instrumental+«baterias contundentes» → 12 chips **0 de voz**; con LETRA+«techno» → 23 chips **7 de voz**. `eslint src --max-warnings=0` exit 0; `vite build` exit 0 → **`index-Do1EUr0c.js`**, que es el que sirve `:8000`.
+- **TESTER — PASS** (simulación de la lógica de CREAR contra el endpoint real + lint + build + bundle servido verificado).
+- **REVIEWER — APPROVE**: el filtro es de sugerencia, no de composición: si el usuario escribe a mano «voz susurrada» en un instrumental, `style_caption` la compone igual (limitación conocida, ya anotada en LXXI).
+
+## 2026-10-07 (LXXIV) — Revertido: los chips no se esconden
+- **Qué pidió el usuario**: «has vuelto a eliminar los chips… cuando los chips son reales del modelo son geniales». Es decir: el problema era la REALIDAD de los chips, no su cantidad. Una vez reales, hay que mostrarlos.
+- **Qué había escondido yo (mi interpretación, no su petición)**: (1) AÑADIR completo con prompt vacío (gate de contexto), (2) los 7 chips de voz en VOZ + BASE NUEVA, (3) los 7 chips de voz en CREAR cuando la salida iba a ser instrumental. Todo ello en tres componentes.
+- **Decisión**: se quitan LOS FILTROS y se conserva SOLO el trabajo de realismo (`backend/test_realism.py` sigue garantizando que todo lo ofrecido es vocabulario del modelo). El `voice` del catálogo se queda como dato (lo siguen usando el test de backend y el filtro de VOZ si se retoma).
+- **Cambios**: `Composer.jsx` → `chipsSugeribles = (styleInfo?.chips ?? []).filter(c => c.suggested)` (sin `habraVoz`, sin `conContexto`); `RemixActions.jsx` → `chipOptions` sin `hasStyleContext` ni `action === 'voz' && c.voice` (el `styleInfo &&` de la línea de ESTILO/DETALLES pasa a usar `styleInfo` directamente); `RemixIAPanel.jsx` → `extraOptions` con `styleInfo?.chips ?? []` sin gate.
+- **Prueba (6 casos contra el endpoint vivo)**: CREAR vacío **19**, CREAR «techno» **23**, CREAR «baterias contundentes» **19**, VOZ vacío **19**, VOZ «techno» **23**, VERSIÓN «techno» **23** — todos VISIBLES, con los 7 chips de voz incluidos. `eslint src --max-warnings=0` exit 0; `vite build` exit 0 → **`index-Dh_eIlaI.js`** (es el que sirve `:8000`, con glosa nueva y sin prosa vieja); `unittest discover` **80/80** exit 0.
+- **Lección**: confundí «los chips parecen falsos» (realidad, sí era suyo) con «menos chips» (mi inferencia). Dos veces seguidas añadí filtros que no me había pedido. Regla: si el dato es real, se muestra; solo se filtra cuando el usuario lo pida.
+- **Incidencia operativa**: servicios y ventana vuelven a caer cuando se cierra la app (SALIR de la bandeja); relanzados con `start_local.ps1` + `open_musicia.ps1` (Win32_Process.Create) a las 17:34.
+
+## 2026-10-07 (LXXV) — Chips más pequeños + GLOSARIO del modelo (y combinar)
+- **Peticiones**: «los chips de CREAR deben ser más pequeños» + «glosario directo del modelo de estilos y subestilos que entiende el modelo» + «combinar estilos, como techno hardcore».
+- **Chips más pequeños**: `Composer.jsx` AÑADIR pasa de `h-4 px-2 text-[9px]` a `h-3.5 px-1.5 text-[8px] leading-none` y la fila de `gap-2` a `gap-1.5` (los de remix/otra versión son desplegables, no botones).
+- **Fuente del glosario (hallazgo, no inventado)**: `vendor/ACE-Step-1.5/acestep/genres_vocab.txt` = **178.572 líneas**, y `acestep/constrained_logits_processor.py:187-191,953-1002` lo carga en un **trie** para usarlo como **whitelist sobre los logits del campo `genres`** (`:1939-1961`): lo que no está en el archivo, el modelo no puede escribirlo. Si la frase trae palabras que casan, recorta el sub-trié a esas entradas (`:1004-1058`). Es literalmente «lo que el modelo entiende».
+- **Combinar**: comprobado antes de prometerlo — el archivo SÍ tiene formas combinadas (`hardcore techno`, `industrial techno`, `techno industrial`, `techno ambient`, `drum and bass`); 1.374 entradas con «techno» y 2.277 con «hardcore». `combine()` solo devuelve lo que existe (exactas primero) y **0** si la mezcla no está.
+- **Plan aprobado por el usuario** (decidido antes de tocar código): alcance = catálogo + buscador completo; clic = añadir al prompt; sitio = todas las opciones con prompt; después, sobre la marcha, + combinación de dos estilos.
+- **Backend**: `backend/genre_glossary.py` (carga con caché por mtime igual que el motor, `search`, `combine`, `catalog_styles`, límite 200 nunca el archivo entero; sin archivo → vacío y avisa, **nunca rellena con datos inventados**) + endpoints `GET /music/genre_glossary` y `GET /music/genre_glossary/combine` en `main.py` (def síncrono: FastAPI lo manda al threadpool, la búsqueda no bloquea el evento).
+- **Frontend**: `frontend/src/components/Glossary.jsx` reutilizable (botón, panel posicionado como SelectBox, buscador con debounce de 250 ms y protección contra respuestas fuera de orden, sección *Estilos de Musicia* con BPM, sección del vocabulario y bandeja COMBINAR con ⇄) + `api.genreGlossary/api.genreCombine`. Se conecta en `Composer.jsx`, `RemixActions.jsx` y `RemixIAPanel.jsx` vía `addTexto()` (refactor mínimo de `addChip`).
+- **Pruebas**: backend **88/88** (8 nuevas en `test_genre_glossary.py`, incluida la NO-FAKE: *todo resultado es una línea literal del archivo* y la de archivo ausente), `node --test` 9/9, `eslint src --max-warnings=0` exit 0, `vite build` exit 0 → **`index-DzctidoK.js`**.
+- **Prueba real contra :8000**: `?limit=3` → `total=178572`, `styles=29` · `q=house` → `4836` con «house» el primero · `techno+hardcore` → `total=181`, exacta **`hardcore techno`** · `techno+industrial` → `industrial techno` y `techno industrial` · `zzqq+wxyz` → `0` · bundle servido con «GLOSARIO DEL MODELO», «ESTILOS DE MUSICIA», «COMBINAR».
+- **Fallo mío corregido en el acto**: una edición en `api.js` borró la línea `musicModels: async () => {`; lo vi al releer el archivo y lo restauré junto con los dos métodos nuevos. Lección: tras editar un objeto grande, releer el trozo antes de seguir.
+- **Incidencia operativa**: servicios caídos otra vez (SALIR), relanzados a las 20:29 y ventana abierta.
+
+## 2026-10-07 (LXXVI) — Ver y enviar el mismo idioma: chips y variantes en inglés
+- **Peticiones encadenadas**: «los chips de remix los pones en castellano y cuando eliges el estilo lo pone en inglés» → «me ha gustado el tema de los estilos» → «lo quiero igual con las variantes, presentes en todos los prompts» → «yo creo que al revés, los chips deberían ser en inglés también». Decisión final aprobada: **todo lo que se muestra y se añade, en inglés, marcado como ELEGIDO si ya está en tu frase, y variantes en los tres prompts**.
+- **Por qué se veía inglés**: la incoherencia la metió el glosario (LXXV), que añadía la caption `style` (inglés) mientras los chips añadían `text` (español). El resto del pipeline ya era inglés: `style_caption` compone en inglés y `glossPrompt` glosa es→en.
+- **Backend**: `prompt_style.analyze_prompt` expone ahora `clause` en cada chip (la cláusula literal del catálogo, ya validada por `test_realism`). La etiqueta y el `text` en español siguen saliendo (útiles para detección y tests).
+- **Chips en inglés en los 3 sitios**: `Composer.jsx` (botones), `RemixActions.jsx` y `RemixIAPanel.jsx` (SelectBox AÑADIR) muestran y añaden `chip.clause`; `addChip` usa `clause ?? text`.
+- **Variantes en módulo compartido**: `frontend/src/variants.js` (10 entradas con `label` y `add` en inglés + `toggleVariantText`/`removeTexto`) y `frontend/src/components/VariantChips.jsx`, que se pinta en **CREAR, remix y OTRA VERSIÓN** (antes solo en esta y en español; salen del desplegable AÑADIR para no duplicarse).
+- **Minado de las 10 variantes (ojo, no a ojo)**: script de validación contra los 400 captions + `genres_vocab` y contra `analyze_prompt`. Correcciones que hizo falta: `calm` y `few` no estaban en el corpus; `powerful` disparaba el chip **Voz potente** (instrumenal con voz mandada); `double bass` disparaba **Doble bombo**. Final: 10/10 con prosa real y 10/10 disparando estilo o modificador (antes «minimal» no disparaba nada y el motor improvisaba).
+- **Glosario**: los estilos de Musicia se muestran en inglés (su caption real) con el nombre+bpm en el tooltip; lo que ya está en tu frase se marca **ELEGIDO** y pulsarlo lo quita (`removeTexto`). `genre_glossary.catalog_styles` añade `genre` = primera clave cuyas palabras están todas en el vocabulario del modelo (**26/29**; las 3 restantes caen al nombre y no se inventa nada). Props del componente: `prompt` + `setPrompt` (mismo patrón que `VariantChips`).
+- **Pruebas**: backend **90/90** (2 nuevas: `test_chip_lleva_su_clausula_en_ingles` y `test_realism.test_variantes_del_modelo`), `node --test` 9/9, `eslint src --max-warnings=0` exit 0, `vite build` exit 0 → **`index-D9hCQ3I7.js`**.
+- **Prueba real contra :8000**: chips con `clause` en inglés (`A toda velocidad → a fast tempo with relentless, driving energy`), glosario con `genre` (26/29), bundle servido con `MORE ENERGY`, `high energy driving rhythm`, `VARIANTES`, `ELEGIDO` y **sin** las etiquetas viejas (`MÁS ENERGÍA` → False).
+- **Lección**: traducir un texto a inglés **no basta**: hay que pasarlo por el mismo control (corpus + `analyze_prompt`), porque palabras normales en español chocaban con el catálogo (`double bass` = doble bombo, `powerful` = voz potente).
+- **Incidencia operativa**: el usuario remezcló hasta las 20:44 («Animales muertos-con-voz-v2»), cerró la app y los servicios se pararon (SALIR); relanzados a las 20:56 y ventana abierta.
+
+## 2026-10-07 (LXXVII) — AÑADIR de CREAR en lista
+- **Petición**: «¿me has puesto en CREAR los chips? Los chips además deben ser pequeños o en una lista». Sí estaban, pero como botones en línea: con las cláusulas en inglés (LXXVI) cada uno era una frase larga y la fila se desbordaba.
+- **Cambio**: `Composer.jsx` deja de pintar botones y usa el mismo `SelectBox AÑADIR` de remix (`chipOptions` + `addChipById`, `clearable={false}`), con GLOSARIO al lado y VARIANTES debajo. Es además el criterio que ya estaba anotado en el propio archivo («las filas de chips llenaban la ventana») y el que pidió el usuario: lista.
+- **Verificación**: `eslint --max-warnings=0` exit 0, `vite build` exit 0 → **`index-mzWwSKtF.js`**; bundle servido con `DETALLE DEL CATÁLOGO` ×2 (CREAR + remix, antes ×1), sin restos de los botones inline, y con `MORE ENERGY`/`ELEGIDO`/`GLOSARIO`. Servicios y ventana relanzados a las 22:04 (SALIR otra vez).
+
+## 2026-10-07 (LXXVIII) — El glosario añade el género, no la definición; y AÑADIR decía por qué estaba vacío
+- **Peticiones**: «en el glosario me has puesto la definición que pone en el prompt y yo solo quiero el género» y «en AÑADIR no despliega nada».
+- **Glosario = solo género**: cada fila de ESTILOS DE MUSICIA muestra y añade `genre` (p. ej. `gabber`, `hard techno`), no `text` (la caption completa, que es la «definición» que antes se colaba). El tooltip mantiene `nombre · bpm` para saber de qué estilo va. La caption la completa el motor por su cuenta al enviar (`style_caption`). El buscador filtra **también** el catálogo de Musicia (antes solo aparecía con consulta vacía, así que buscar «hardcore» no mostraba el estilo propio).
+- **AÑADIR vacío = API caída, no código**: `api.styleOptions` devuelve `null` si la petición falla → 0 opciones → menú vacío sin explicación. La API estaba otra vez caída (SALIR). Ahora el estado se dice: `AÑADIR · SIN DATOS DEL MOTOR` (sin conexión) o `AÑADIR · SIN SUGERENCIAS`, y solo se pinta el desplegable si hay opciones. Con la API arriba: 19 chips con prompt vacío, 21 con «techno oscuro en 4x4», **116 ms** (timeout de axios 8000 ms, margen amplio).
+- **Bug real encontrado al mirarlo**: `catalog_styles()` exigía que **cada palabra** de la clave fuera una línea de `genres_vocab.txt`, así que descartaba claves multipalabra cuya frase completa sí existe: `hard techno` y `hard house` son líneas literales y no se asignaban. Ahora la regla es *frase literal exacta* (las claves `re:` se ignoran): **26/29 → 28/29** estilos con género real; solo `uptempo hard dance` no tiene forma literal y cae a su nombre (sin inventar). Además `catalog_styles()` sin argumentos carga el vocabulario él mismo: antes `catalog_styles()` devolvía `genre=None` para todos (trampa que me encontré al probarlo a mano).
+- **Pruebas**: backend **91/91** (nueva `test_genre_es_una_linea_literal_del_vocabulario`: todo `genre` es línea literal + regresión de `hard techno`/`hard house`), `node --test` 9/9, `eslint` exit 0, `vite build` exit 0 → **`index-D78TFyRM.js`**.
+- **Prueba real contra :8000 tras reiniciar**: `con genre: 28/29`, `hard techno→hard techno`, `hard bounce→hard house`, `hardcore holandes→gabber`; `/music/style_options` con prompt vacío → 19 sugeridos; bundle servido = `index-D78TFyRM.js`; ventana «Musica» abierta y `health reachable=True`.
+- **Lección**: un desplegable que no despliega casi nunca es la vista: en este stack suele ser que el servicio está caído. Diagnosticar con la petición real antes de tocar el componente.
+
+## 2026-10-07 (LXXIX) — AÑADIR: en español al elegir, en inglés al añadir
+- **Petición**: «en AÑADIR me pones la definición en inglés. Debes ponerla cuando se selecciona, en inglés, pero en el desplegable en español, más sintético».
+- **Cambio en los tres AÑADIR** (`Composer`, `RemixActions`, `RemixIAPanel`): la opción del desplegable es ahora la **etiqueta corta del catálogo en español** (`A toda velocidad`, `Oscuro`) y el `title` es `Se añade: «…»` con la **cláusula en inglés**, que es la que se mete en el prompt al pulsar (sigue mandando `addChip` → `chip.clause ?? chip.text`; el motor recibe inglés, que es el idioma de las captions). El botón del desplegable no cambia (`DETALLE DEL CATÁLOGO` / `DIRECCIÓN O DETALLE`).
+- **Pruebas**: sin cambios de backend → `unittest` 91/91, `node --test` 9/9, `eslint` exit 0, `vite build` exit 0 → **`index-B0ijN-oY.js`**.
+- **Prueba real contra :8000**: bundle servido = `index-B0ijN-oY.js` con los 3 `Se añade: «` (antes mostraba la cláusula como etiqueta); `/music/style_options` → `label='A toda velocidad' | clause='a fast tempo with relentless, driving energy'`, 19 chips sugeridos. Como la API sirve `dist` desde disco, recargar basta; la ventana Electron hay que abrirla de nuevo.
+- **Incidencia operativa**: a las 22:19 la API y el motor desaparecieron **sin error en el log** (el `musicia-api.log.bak` termina en 200 OK a las 22:18:49, con el usuario escribiendo `prompt=gabber`): proceso terminado desde fuera, el mismo patrón de SALIR del bandeja. Relanzado a las 22:21:30 y ventana nueva (PID 18564).
+
+## 2026-10-07 (LXXX) — Resumen de la sesión: criterios consolidados y estado verificado
+- **Arco del día (LXVIII → LXXIX)**: chips compactos → BIBLIOTECA → «la UI es antigua» (era la API caída) → chips de voz → realismo (NO FAKE aplicado a chips/captions/glosa) → misma regla en CREAR → **revertido el filtro de chips** → chips pequeños + **GLOSARIO** → **todo en inglés** (chips, variantes, ELEGIDO) → **AÑADIR en lista** → **glosario solo con el género** → **AÑADIR: lista en español, añade en inglés**.
+- **Decisiones del usuario, con sus palabras (el orden importa, hubo que deshacer inferencias)**:
+  1. «cuando los chips son reales del modelo son geniales» → *si el dato es real se muestra; solo se filtra si lo pido* (se desmontaron dos rondas de filtros no pedidos).
+  2. «los chips de CREAR deben ser más pequeños» → `h-3.5 px-1.5 text-[8px]`.
+  3. glosario = catálogo + buscador completo, clic añade, en **todas** las opciones con prompt, combinar estilos, estado ELEGIDO, variantes en **todos** los prompts → aprobado.
+  4. «al revés, los chips deberían ser en inglés también» + variantes en inglés → ver y enviar el mismo idioma.
+  5. «los chips deben ser pequeños o en una lista» → AÑADIR pasó de botones en línea a `SelectBox` (los botones con cláusulas inglesas desbordaban la fila).
+  6. «en el glosario me has puesto la definición… yo solo quiero el género» y «en AÑADIR no despliega nada».
+  7. «en el desplegable en español, más sintético, pero que al seleccionar se ponga en inglés».
+- **Criterios consolidados (aplicar sin que los vuelvan a pedir)**:
+  - **NO FAKE**: todo lo que se ofrece sale de los oráculos (`genres_vocab.txt` + 400 captions del fabricante); nada inventado, y si falta el archivo se dice, no se rellena.
+  - **Ver en español, enviar en inglés**: etiquetas cortas de los desplegables en español; lo que se añade al prompt es la cláusula/caption/variante en inglés (idioma de las captions de entrenamiento); el tooltip siempre enseña lo que se va a añadir.
+  - **Nunca un menú vacío sin explicación**: si `styleOptions` falla → `AÑADIR · SIN DATOS DEL MOTOR`; si no hay sugerencias → `SIN SUGERENCIAS`. Casi siempre el culpable es el servicio caído, no la vista.
+  - **Listas, no filas de botones** («las filas de chips llenaban la ventana»).
+  - **El glosario añade solo el género literal** del modelo; la caption completa la rellena el motor con `style_caption`.
+  - **Validar textos nuevos** contra corpus + `analyze_prompt` (lección: `powerful` disparaba *Voz potente*, `double bass` *Doble bombo*, `calm`/`few` no estaban en el corpus).
+  - **Releer el archivo tras cada edición de objetos grandes** (lección: se borró `musicModels` de `api.js`).
+- **Estado verificado (2026-10-07 22:2x)**: `unittest discover` **91/91** · `node --test src/prompt_gloss.test.js` **9/9** · `eslint src --max-warnings=0` exit **0** · `vite build` exit **0** → **`index-B0ijN-oY.js`** (367.52 kB), que es el que sirve `:8000` · API `:8000` + motor `:8001` arriba, `health reachable=True` · ventana «Musica» abierta · `/music/style_options` (19 chips con prompt vacío, 116 ms) · `/music/genre_glossary` **28/29** estilos con `genre` literal (solo `uptempo hard dance` cae a su nombre).
+- **Ficheros tocados hoy en esta ronda**: `backend/genre_glossary.py` (regla de `genre` = frase literal + carga auto del vocabulario), `backend/test_genre_glossary.py` (nueva `test_genre_es_una_linea_literal_del_vocabulario`), `frontend/src/components/Composer.jsx` (AÑADIR en lista + estado honesto), `frontend/src/components/Glossary.jsx` (solo género + buscador filtra el catálogo), `frontend/src/components/RemixActions.jsx` y `RemixIAPanel.jsx` (etiqueta en español, añade inglés), `spec/02-REQUISITOS.md` (criterios LXXIV-LXXIX).
+- **Incidencia operativa recurrente (RESUELTA, sin cambio)**: el stack se ha caído y relanzado **varias veces hoy** (20:29, 20:56, 22:03, 22:21), siempre con el log cortado en 200 OK sin error. Investigado: `open_musicia.ps1` deja los procesos vivos al cerrarse y la única parada programada es la de `main.cjs` al pulsar **SALIR** (que llama a `stop_local.ps1`). **Decisión del usuario: «los maté yo, déjalo así»** → no se cambia nada; comportamiento actual (SALIR = apagar motor y API) es el correcto. Si en una ronda posterior todo está caído, solo hay que relanzar con `scripts/start_local.ps1` + `scripts/open_musicia.ps1` y verificar `/health`.
+
+## 2026-10-08 — Revisión y corrección de cláusulas de chips y estilos contra corpus real
+
+- **Qué**: Revisión exhaustiva de TODAS las cláusulas (chips/modificadores y captions de estilos) en backend/style_catalog.json para garantizar que usen EXCLUSIVAMENTE vocabulario que el modelo ACE-Step entiende, basado en los 400 captions del fabricante (vendor/ACE-Step-1.5/examples/text2music/ + simple_mode/).
+
+- **Por qué**: El usuario reportó: revisa lo que ha creado no es lo que pedí. los chips no son géneros, son definiciones que añades extra para el prompt. y yo quiero que las entienda el modelo. También quería saber si los estilos se pueden mezclar (ej: FLAMENCO POP).
+
+- **Resultado**:
+  - 11 problemas identificados: cláusulas con palabras NO presentes en el corpus: grit, pulse, rave, hardcore, pumping, hands, liquid, half, long, loud, improvisation.
+  - 11 correcciones aplicadas: todas las cláusulas ahora usan vocabulario literal del corpus.
+  - Validación: 0 problemas tras re-ejecutar validación contra corpus.
+  - Tests: 91/91 pasan (46 test_prompt_style.py + 5 test_realism.py + 40 otros).
+  - Sobre mezcla de estilos: SÍ, el sistema permite mezclar estilos (ej: FLAMENCO POP detecta ambos y añade sus captions).
+
+- **Cambios específicos en backend/style_catalog.json**:
+  - MODIFICADORES: Voz gritada (with grit -> eliminado), Pulso constante (pulse -> beat).
+  - ESTILOS: hardcore holandes (rave -> eliminado), frenchcore (hardcore -> eliminado), uptempo hard dance (pumping/rave -> driving), hard bounce (hands-up -> energetic), drum and bass (liquid -> eliminado), dubstep (half-time -> eliminado), trance (long -> eliminado), metal (loud -> powerful), jazz (improvisation -> solo).
+
+- **Lecciones**:
+  1. Las cláusulas deben usar vocabulario LITERAL del corpus, no composicional (aunque suene bien).
+  2. El test test_realism.py es la fuente de verdad para validar vocabulario.
+  3. El usuario confirma: chips son definiciones EXTRA (no géneros), deben entenderse por el modelo.
+  4. La mezcla de estilos SÍ funciona: el prompt del usuario puede contener múltiples géneros y todos se detectan y añaden.
+
+## 2026-10-08 — UI: colores más vibrantes para texto y placeholders
+
+- **Qué**: A petición del usuario, se mejoró la legibilidad y visibilidad de los textos en la UI.
+
+- **Por qué**: El usuario pidió: 'quiero en los CSS las letras en colores más vibrantes... y los placeholders también, más vistosos de leer'.
+
+- **Resultado**: 
+  - Texto principal (--text): #ffffff (más brillante)
+  - Texto secundario (--muted): #c8c8d4 (más visible)
+  - Texto tenue (--faint): #8f8f9a
+  - Acento verde (--acc): #d4ff4a (más vibrante)
+  - Placeholders: ahora usan var(--muted) con opacity: 0.85
+  - Chips: texto en var(--text) en lugar de var(--muted), hover y active más brillantes
+  - Labels y títulos: ahora en color var(--acc) para mayor visibilidad
+  - Botones: texto en var(--acc), hover con box-shadow verde
+  - Inputs: border en var(--acc) al focus, con box-shadow
+  - Nav: hover y active en var(--acc) en lugar de var(--text)
+  - Build: OK, bundle index-C6yc2Vr9.js (367.52 kB)
+
+## 2026-10-08 — Glosario vacío: backend apagado
+
+- **Qué**: El usuario reportó: 'LAS UIS NO MUESTRAN NADA EN EL GLOSARIO'.
+
+- **Por qué**: El endpoint /music/genre_glossary depende del backend (puerto 8000) y el motor (puerto 8001).
+
+- **Resultado**:
+  - Diagnóstico: ambos servicios (8000 y 8001) estaban apagados.
+  - Acción: ejecutado scripts/start_local.ps1 para iniciar servicios.
+  - Verificación: endpoint /music/genre_glossary responde con 178,572 géneros.
+  - Test con curl: devuelve items y styles correctamente.
+
+- **Lección**: El glosario NO usa el catálogo local, depende del backend en ejecución para leer genres_vocab.txt.
+
+## 2026-10-08 (LXXXI) — Glosario de géneros y chips verificados contra el modelo + UI visible + commit
+
+- **Qué pidió el usuario**: «REVISA QUE ESTÉ BIEN EL GLOSARIO DE GÉNEROS Y CHIPS SEGÚN EL MODELO, Y SE VEA EN LA UI. COMITEA Y PUSHEA TODO Y ANOTALO».
+- **Auditoría del glosario/chips vs. el modelo (oráculos de datos, no de código)**:
+  - `test_realism.py` — 6/6 OK **con datos presentes** (400 captions del fabricante en `vendor/ACE-Step-1.5/examples/` + `acestep/genres_vocab.txt`): cláusulas de chips, captions de estilo, claves de estilo, términos de glosa, VARIANTES del UI y tags de voz usan solo vocabulario que el modelo escribe. No se salta (verificado con `-v`: los 6 salen `ok`, no `skipped`).
+  - Suite backend completa: **92/92 OK** (`test_realism` + `test_prompt_style` + `test_genre_glossary` + `test_remix_logic`).
+  - Glosa frontend: **9/9 OK** (`node --test src/prompt_gloss.test.js`).
+- **Endpoints en vivo (API y motor arrancados con `scripts/start_local.ps1`)**:
+  - `GET /music/genre_glossary?q=techno` → 1.374 coincidencias + estilos con caption/bpm/claves (hardcore holandes 180, frenchcore 170…); carga 178.572 géneros de `genres_vocab.txt`.
+  - `GET /music/genre_glossary/combine?a=flamenco&b=pop` → «Flamenco pop», «flamenco pop», «pop flamenco» (mezcla de estilos real).
+  - `GET /music/style_options?prompt=baterias techno hardcore holandes sin melodias a 180 bpm` → `detected_genre: hardcore holandes`, `suggested_bpm: 180`, chips con `clause` del corpus (four-on-the-floor, double bass drumming…), «Baterías protagonistas» `active: true`.
+  - **UTF-8 correcto** en respuesta («Baterías», no mojibake).
+- **UI visible**:
+  - `GET /` sirve el bundle nuevo `index-BNy2M9oo.js` (368,46 kB / gzip 113,84 kB).
+  - El bundle contiene `GLOSARIO`, `GLOSARIO DEL MODELO`, `genre_glossary`, `style_options`, `AÑADIR`, `CONSEJO`, `ESTILO`.
+  - `Glossary.jsx` cableado en los 3 puntos de prompt: `Composer.jsx` (CREAR), `RemixActions.jsx` (acciones de remix), `RemixIAPanel.jsx` (otra versión).
+- **Limpieza previa al commit**:
+  - `backend/requirements.txt` estaba borrado sin registro en la bitácora y la Quickstart de AGENTS.md lo sigue usando → **restaurado** idéntico a HEAD (fastapi, uvicorn, pydub, python-multipart, aiofiles, loguru, httpx; sin edge-tts, que ya se quitó en XLII). Dependencias cruzadas con los imports reales del backend y con el pip list del venv: sincronizado.
+  - `.gitignore` ya excluye `backend/job_history.json` (estado de ejecución, se regenera solo).
+- **TESTER — PASS (evidencia ejecutada)**: 92/92 backend + 6/6 realism con datos + 9/9 glosa + lint 0 (`eslint src --max-warnings=0`) + build 0 (`index-BNy2M9oo.js`) + API viva con los 3 endpoints respondiendo + motor en `/health` `status: ok` + UI serviendo el bundle nuevo con el glosario dentro. **No es PASS de clic en ventana** (no hay browser tooling en esta sesión): el cableado está verificado por bundle y endpoints, no por un clic humano.
+- **REVIEWER — APPROVE con límites**: el glosario depende de la API en ejecución (si los servicios están caídos, la UI lo muestra vacío — ya anotado en la entrada anterior); el «estilo» que añade cada género sale de `style_catalog.json` validado contra corpus. Límite: la calidad de la mezcla de estilos (FLAMENCO POP) se juzga oyendo, no con tests.
+- **Commit**: todo el trabajo desde el último commit (`ae80327`) queda commiteado y pusheado en esta entrada.
+- **Lección**: el «FALTA: AÑADIR» de un grep sobre el bundle fue falso —`Get-Content` sin UTF-8 mojibakea—; releer con `[System.IO.File]::ReadAllText(..., UTF8)` antes de concluir que algo no está en el bundle.

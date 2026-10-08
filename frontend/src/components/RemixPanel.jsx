@@ -6,7 +6,7 @@ import Waveform from './Waveform';
  * Panel de remix DSP compartido (tempo/tono/volumen/fundidos/invertir +
  * recorte visual). onRun recibe los parámetros y hace la llamada.
  */
-export default function RemixPanel({ onRun, result, fileName }) {
+export default function RemixPanel({ onRun, result, fileName, sourceKind = null }) {
   const [tempo, setTempo] = useState(1.0);
   const [pitch, setPitch] = useState(0);
   const [gain, setGain] = useState(0);
@@ -42,7 +42,7 @@ export default function RemixPanel({ onRun, result, fileName }) {
 
   return (
     <div className="flex flex-col gap-4 pt-4">
-      {fileName && <Waveform key={fileName} fileName={fileName} onSelection={onSelection} />}
+      {fileName && <Waveform key={fileName} fileName={fileName} sourceKind={sourceKind} onSelection={onSelection} />}
       <div className="flex items-center gap-3">
         <span className="label shrink-0">VELOCIDAD</span>
         <input type="range" min={0.5} max={2} step={0.05} value={tempo}

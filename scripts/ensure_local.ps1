@@ -99,6 +99,9 @@ try {
             Write-Output 'MOTOR=starting'
         } else {
             $env:ACESTEP_LM_BACKEND = 'pt'
+            # Cambio de modelo por trabajo (spec/02 [M1]): sin esto el motor
+            # ignora en silencio el modelo pedido y usa el primario.
+            $env:ACESTEP_ON_DEMAND_MODEL_LOAD = 'true'
             Start-Servicio 'MOTOR' `
                 (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
                 @('-m', 'acestep.api_server') `

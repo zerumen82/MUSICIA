@@ -5,7 +5,7 @@ import { api } from '../api';
  * Forma de onda interactiva: pinta los picos reales (GET /audio/peaks)
  * y permite seleccionar el tramo útil arrastrando (trim inicio/fin).
  */
-export default function Waveform({ fileName, onSelection }) {
+export default function Waveform({ fileName, onSelection, sourceKind = null }) {
   const [peaks, setPeaks] = useState(null);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
@@ -16,7 +16,7 @@ export default function Waveform({ fileName, onSelection }) {
 
   useEffect(() => {
     let active = true;
-    api.audioPeaks(fileName, 600)
+    api.audioPeaks(fileName, 600, sourceKind)
       .then((d) => {
         if (!active) return;
         setPeaks(d.peaks);
@@ -26,7 +26,7 @@ export default function Waveform({ fileName, onSelection }) {
         if (active) setError(e.message);
       });
     return () => { active = false; };
-  }, [fileName]);
+  }, [fileName, sourceKind]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;

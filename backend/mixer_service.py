@@ -279,11 +279,15 @@ def _bar_starts(duration: float, groove: dict | None, mixer) -> list[float]:
     return starts or [0.0]
 
 
-def plan_vocal_arrangement(base: Path, vocal: Path, mixer) -> dict | None:
+def plan_vocal_arrangement(base: Path, vocal: Path, mixer, base_bpm: float | None = None) -> dict | None:
     """Reparte la voz en la base cuando la base es claramente más larga.
 
     Devuelve None si las dos duran parecido: ahí sigue el cuadre de siempre.
     No propone estirar la voz.
+
+    `base_bpm`: si se conoce el BPM al que se generó la base (dato decidido,
+    no estimación), manda sobre detect_groove, que lee mal las bases
+    generadas. Sin dato, detección como antes.
     """
     base_s = _audio_seconds(base)
     vocal_s = _audio_seconds(vocal)
@@ -291,10 +295,13 @@ def plan_vocal_arrangement(base: Path, vocal: Path, mixer) -> dict | None:
         return None
     if vocal_s > base_s * float(mixer.arrange_shorter_than):
         return None
-    try:
-        groove = detect_groove(base)
-    except (ValueError, FileNotFoundError):
-        groove = None
+    if base_bpm:
+        groove = {"bpm": float(base_bpm), "confidence": 1.0, "phase_ms": 0.0}
+    else:
+        try:
+            groove = detect_groove(base)
+        except (ValueError, FileNotFoundError):
+            groove = None
     if groove and float(groove.get("confidence") or 0) >= MIN_GROOVE_CONFIDENCE:
         piece_s = mixer.beats_per_bar * 60.0 / float(groove["bpm"])
     else:

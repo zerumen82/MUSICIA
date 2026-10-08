@@ -10,7 +10,7 @@ import SelectBox from './SelectBox';
  * BASE ▾ · VOZ ▾ · volumen · CUADRAR ▾ · -14 LUFS · MEZCLAR.
  * Debajo, solo si hace falta: el plan de cuadre explicado y el resultado.
  */
-export default function MixLab() {
+export default function MixLab({ externalRefresh = 0 }) {
   const [library, setLibrary] = useState([]);
   const [uploads, setUploads] = useState([]);
   const [base, setBase] = useState('');
@@ -46,6 +46,14 @@ export default function MixLab() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Igual que BIBLIOTECA: al terminar un trabajo, las listas se recargan
+  // (una mezcla o separación nueva aparece en los desplegables sin tocar nada).
+  const firstTick = React.useRef(true);
+  useEffect(() => {
+    if (firstTick.current) { firstTick.current = false; return; }
+    void refresh();
+  }, [externalRefresh, refresh]);
 
   const canMix = base && vocal && !mixing;
 

@@ -2,23 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Sparkles, Dices, X } from 'lucide-react';
 import { api } from '../api';
 import SelectBox from './SelectBox';
-
-// Variantes que REESCRIBEN el prompt con una dirección musical clara.
-// Se aplican como chips conmutables sobre el texto actual.
-const VARIANTS = [
-  { id: 'energia', label: 'MÁS ENERGÍA', add: 'más enérgica, ritmo acelerado y con pegada' },
-  { id: 'calma', label: 'MÁS CALMA', add: 'más tranquila y espaciosa, tempo relajado' },
-  { id: 'oscura', label: 'OSCURA', add: 'ambiente oscuro y melancólico, armonías en tono menor' },
-  { id: 'luminosa', label: 'LUMINOSA', add: 'luminosa y optimista, armonías abiertas' },
-  { id: 'acustica', label: 'ACÚSTICA', add: 'instrumentación acústica, guitarras y cuerdas naturales' },
-  { id: 'electronica', label: 'ELECTRÓNICA', add: 'producción electrónica, sintetizadores y beats programados' },
-  { id: 'orquestal', label: 'ORQUESTAL', add: 'arreglos orquestales, cuerdas y percusión cinematográfica' },
-  { id: 'lofi', label: 'LO-FI', add: 'estética lo-fi, textura cálida con ruido de vinilo' },
-  { id: 'epica', label: 'ÉPICA', add: 'escalado épico, dinámica creciente y clímax final' },
-  { id: 'minimal', label: 'MINIMAL', add: 'arreglo minimalista, pocos elementos y mucho aire' },
-];
-
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+import Glossary from './Glossary';
+import VariantChips from './VariantChips';
+import { glossPrompt } from '../prompt_gloss';
 
 /**
  * Panel de re-creación con IA, compartido por SUBIR y BIBLIOTECA.
@@ -37,6 +23,8 @@ export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = n
   const [name, setName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre numerado
   const [lyrics, setLyrics] = useState(initialLyrics); // letra opcional: con letra canta, sin ella es instrumental
   const [launching, setLaunching] = useState(false);
+  const [styleInfo, setStyleInfo] = useState(null); // capas + chips (del backend)
+  const [showTips, setShowTips] = useState(false); // el consejo solo ocupa sitio si se pide
 
   // Con voz: el motor solo canta si le llega letra; sin ella hace instrumental.
   const conVoz = kind === 'voz' || kind === 'mixta';
@@ -55,18 +43,25 @@ export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = n
     return () => { active = false; };
   }, [fileName, kind, sourceKind]);
 
-  const toggleVariant = (add) => {
-    setPrompt((p) => {
-      const has = p.toLowerCase().includes(add.toLowerCase());
-      if (has) {
-        const re = new RegExp(`(,\\s*)?${escapeRe(add)}`, 'i');
-        return p.replace(re, '').replace(/,\s*,/g, ',').replace(/^[\s,]+|[\s,]+$/g, '');
-      }
-      return p ? `${p}, ${add}` : add;
-    });
-  };
-
   const rollSeed = () => setSeed(Math.floor(Math.random() * 999_999) + 1);
+
+  /** Chips sugeridos mientras escribes: mismo catálogo del backend que en
+      CREAR y REMIX (sin LM, sin listas en la UI). Debounce 300 ms. */
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const info = await api.styleOptions(prompt.trim());
+      setStyleInfo(info);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [prompt]);
+
+  /** Cualquier texto (chip o entrada del glosario) se añade al prompt:
+      un solo cuadro, todo editable. */
+  const addTexto = (text) => {
+    const base = prompt.trim();
+    setPrompt(base ? `${base} ${text}` : text);
+  };
+  const addChip = (chip) => addTexto(chip.clause ?? chip.text);
 
   const launch = async () => {
     if (launching || generating || !prompt.trim()) return;
@@ -86,32 +81,63 @@ export default function RemixIAPanel({ fileName, kind = 'musica', sourceKind = n
 
   const busy = launching || generating;
 
+  /** Un solo desplegable AÑADIR: todos los chips que sugiere el backend.
+      Son vocabulario real del modelo (los valida backend/test_realism.py):
+      la lista en español sintético y, al elegir, se añade la cláusula en
+      inglés (en el tooltip se ve cuál es la que viaja). */
+  const extraOptions = (styleInfo?.chips ?? [])
+    .filter((c) => c.suggested)
+    .map((c) => ({
+      id: `c:${c.label}`, label: c.label, title: `Se añade: «${c.clause ?? c.text}»`,
+    }));
+  const applyExtra = (id) => {
+    const chip = (styleInfo?.chips ?? []).find((c) => c.label === id.slice(2));
+    if (chip) addChip(chip);
+  };
+
   return (
     <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-4">
       <span className="label">OTRA VERSIÓN CON IA · PROMPT EDITABLE + SEMILLA</span>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <SelectBox label="DIRECCIÓN" placeholder="AÑADIR" clearable={false}
-          options={VARIANTS.map(({ id, label, add }) => ({ id, label, title: add }))}
-          value=""
-          onChange={(id) => {
-            const chosen = VARIANTS.find((v) => v.id === id);
-            if (chosen) toggleVariant(chosen.add);
-          }} />
-        {VARIANTS.filter((v) => prompt.toLowerCase().includes(v.add.toLowerCase())).map((v) => (
-          <button key={v.id} type="button" onClick={() => toggleVariant(v.add)}
-            className="btn btn-ghost h-8 px-2.5" title="Quitar esta dirección">
-            {v.label} <X size={11} />
-          </button>
-        ))}
-      </div>
-
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Describe cómo quieres la nueva versión: mismo espíritu pero más oscuro, versión acústica…"
-        className="bg-transparent outline-none resize-none text-[13.5px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[88px] font-medium border-l-2 border-[var(--acc-line)] pl-4 py-1.5"
+        placeholder="Describe la versión: nombra el estilo («hardcore», «acústica»…), el patrón («en 4x4») y detalles. Sin estilo, el motor improvisa."
+        className="bg-transparent outline-none resize-none text-[13px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[64px] font-medium border-l-2 border-[var(--acc-line)] pl-3 py-1"
       />
+      <div className="flex items-center gap-2 flex-wrap">
+        <SelectBox label="AÑADIR" placeholder="DIRECCIÓN O DETALLE" clearable={false}
+          options={extraOptions} value="" onChange={applyExtra} />
+        <Glossary prompt={prompt} setPrompt={setPrompt} />
+        <button type="button" onClick={() => setShowTips((v) => !v)}
+          className="mono text-[9.5px] text-[var(--faint)] hover:text-[var(--muted)] ml-auto shrink-0">
+          {showTips ? 'OCULTAR CONSEJO' : 'CONSEJO'}
+        </button>
+      </div>
+      <VariantChips prompt={prompt} setPrompt={setPrompt} />
+      {prompt.trim() && (
+        <div className="mono text-[9px] text-[var(--faint)] break-all leading-relaxed">
+          ENVÍA: {glossPrompt(prompt.trim())}
+        </div>
+      )}
+      {prompt.trim() && showTips && (
+        <div className="text-[11px] text-[var(--text)] bg-[var(--surface-1)] border border-[var(--line)] rounded px-2 py-1.5">
+          💡 <span className="font-medium">Tips:</span> Para conservar voz/guitarra, menciona explícitamente lo que quieres mantener (ej: «manteniendo la voz clara y guitarra principal»). Para cambios de estilo dramaticos (ej: a hardstyle), usa fuerza 0,3-0,5 en el panel de remix. Para cambios sutiles, usa 0,7-0,9.
+        </div>
+      )}
+      {styleInfo && (styleInfo.detected_genre || styleInfo.modifiers?.length > 0) && (
+        <div className="mono text-[10px]">
+          {styleInfo.detected_genre && (
+            <span className="text-[var(--acc)]">
+              ESTILO: {styleInfo.detected_genre}{styleInfo.suggested_bpm ? ` · ${styleInfo.suggested_bpm} bpm` : ''}
+            </span>
+          )}
+          {styleInfo.detected_genre && styleInfo.modifiers?.length > 0 && <span className="text-[var(--faint)]"> · </span>}
+          {styleInfo.modifiers?.length > 0 && (
+            <span className="text-[var(--muted)]">{styleInfo.modifiers.join(', ')}</span>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-1 min-w-[240px]">

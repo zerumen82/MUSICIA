@@ -1,0 +1,728 @@
+{
+  "_doc": "CatÃ¡logo de estilos y modificadores (NO HARDCODE: datos, no cÃ³digo). Lo lee prompt_style.py. Claves: subcadenas, o regex con prefijo 're:' para palabras que serÃ­an subcadena de otras (rap/rÃ¡pido). El primer estilo cuyas claves aparecen gana; el orden importa (trap antes que hip hop porque 'trap' contiene 'rap'). BPM = tempo tÃ­pico del estilo (dato); lo pedido por el usuario manda siempre. Fuentes 2026-10-06: guÃ­a oficial de captions (5 capas: gÃ©nero, instrumentos, mood, estilo vocal, tempo feel), 400 textos del fabricante minados (frecuencias) y 1 A/B de oÃ­do (hardstyle/doble bombo). Los modificadores de voz llevan voice:true (la base de VOZ + BASE NUEVA es instrumental por diseÃ±o y no los sugiere).",
+  "styles": [
+    {
+      "keys": [
+        "hardcore holand",
+        "dutch hardcore",
+        "gabber",
+        "hakken",
+        "hardcore techno",
+        "hardcore"
+      ],
+      "name": "hardcore holandes",
+      "style": "A hardstyle track with heavily distorted, punchy kick drums, aggressive snare, a pounding relentless rhythm, dark rave energy and a raw, aggressive mix",
+      "bpm": 180
+    },
+    {
+      "keys": [
+        "frenchcore"
+      ],
+      "name": "frenchcore",
+      "style": "A pounding frenchcore track with a fast distorted kick, aggressive relentless energy and a dark, heavy hardcore mix",
+      "bpm": 170
+    },
+    {
+      "keys": [
+        "uptempo",
+        "rawstyle",
+        "makina"
+      ],
+      "name": "uptempo hard dance",
+      "style": "A high-energy hard dance track with a hard distorted kick, relentless pumping rhythm and an aggressive rave atmosphere",
+      "bpm": 160
+    },
+    {
+      "keys": [
+        "hardstyle"
+      ],
+      "name": "hardstyle",
+      "style": "A driving hardstyle track with a punchy distorted reverse kick, powerful euphoric synth leads and a tight, energetic groove",
+      "bpm": 150
+    },
+    {
+      "keys": [
+        "hard bounce",
+        "hardbounce",
+        "hard house",
+        "hardhouse"
+      ],
+      "name": "hard bounce",
+      "style": "A bouncy hard house track with a heavy kick, groovy off-beat bass, hands-up energy and a punchy club mix",
+      "bpm": 140
+    },
+    {
+      "keys": [
+        "hard techno"
+      ],
+      "name": "hard techno",
+      "style": "A dark, relentless hard techno track with a pounding kick, hypnotic industrial percussion and a raw, high-energy club sound",
+      "bpm": 145
+    },
+    {
+      "keys": [
+        "drum and bass",
+        "drum n bass",
+        "drum'n'bass",
+        "dnb",
+        "jungle"
+      ],
+      "name": "drum and bass",
+      "style": "A fast drum and bass track with crisp breakbeats, a deep rolling sub-bass and an energetic, liquid dancefloor groove",
+      "bpm": 174
+    },
+    {
+      "keys": [
+        "dubstep"
+      ],
+      "name": "dubstep",
+      "style": "A heavy dubstep track with wobble bass, hard syncopated drums and a dark half-time groove",
+      "bpm": 140
+    },
+    {
+      "keys": [
+        "trance"
+      ],
+      "name": "trance",
+      "style": "A uplifting trance track with shimmering arpeggiated synths, a rolling bassline and a long, emotional, euphoric build",
+      "bpm": 138
+    },
+    {
+      "keys": [
+        "techno",
+        "re:\\btecno\\b"
+      ],
+      "name": "techno",
+      "style": "A hypnotic techno track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove",
+      "bpm": 135
+    },
+    {
+      "keys": [
+        "electronica",
+        "edm",
+        "idm",
+        "big room"
+      ],
+      "name": "electronica",
+      "style": "A modern electronic dance track with a powerful four-on-the-floor kick, deep rolling bass drops and a polished, high-energy club mix",
+      "bpm": 128
+    },
+    {
+      "keys": [
+        "electro"
+      ],
+      "name": "electro",
+      "style": "An electro track with syncopated drum machine beats, synth bass and a crisp, futuristic production",
+      "bpm": 128
+    },
+    {
+      "keys": [
+        "synthwave",
+        "retrowave",
+        "ochentero",
+        "anos 80",
+        "synth pop"
+      ],
+      "name": "synthwave",
+      "style": "A retro synthwave track with analog bass, nostalgic neon arpeggios, gated drums and a nocturnal, cinematic 80s atmosphere",
+      "bpm": 100
+    },
+    {
+      "keys": [
+        "house"
+      ],
+      "name": "house",
+      "style": "A warm house track with a four-on-the-floor kick, crisp hi-hats, a groovy bassline and a soulful, danceable feel",
+      "bpm": 124
+    },
+    {
+      "keys": [
+        "reggaeton",
+        "dembow"
+      ],
+      "name": "reggaeton",
+      "style": "A reggaeton track with the classic dembow rhythm, punchy sub-bass and a clean, modern urban production",
+      "bpm": 95
+    },
+    {
+      "keys": [
+        "trap"
+      ],
+      "name": "trap",
+      "style": "A dark trap track with rolling hi-hats, deep 808 sub-bass and a moody, atmospheric groove",
+      "bpm": 140
+    },
+    {
+      "keys": [
+        "lo fi",
+        "lofi",
+        "lo-fi"
+      ],
+      "name": "lo-fi",
+      "style": "A relaxed lo-fi hip hop track with dusty vinyl drums, soft warm chords and a mellow, nostalgic atmosphere",
+      "bpm": 85
+    },
+    {
+      "keys": [
+        "hip hop",
+        "hip-hop",
+        "re:\\brap\\b"
+      ],
+      "name": "hip hop",
+      "style": "A hip hop track with punchy boom-bap drums, a deep bassline and a laid back, head-nodding groove",
+      "bpm": 90
+    },
+    {
+      "keys": [
+        "acustico",
+        "acustica",
+        "folk",
+        "cantautor",
+        "unplugged"
+      ],
+      "name": "folk acustico",
+      "style": "An intimate acoustic folk track with warm nylon-string guitars, soft hand percussion and a raw, heartfelt acoustic performance",
+      "bpm": 95
+    },
+    {
+      "keys": [
+        "metal"
+      ],
+      "name": "metal",
+      "style": "A heavy metal track with distorted electric guitars, aggressive double bass drumming and a powerful, loud mix",
+      "bpm": 145
+    },
+    {
+      "keys": [
+        "rock"
+      ],
+      "name": "rock",
+      "style": "An energetic rock track with driving live drums, electric guitars and a punchy, band-style production",
+      "bpm": 120
+    },
+    {
+      "keys": [
+        "reggae",
+        "dub"
+      ],
+      "name": "reggae",
+      "style": "A laid back reggae track with offbeat chords, a deep bassline and a warm, sunny sound",
+      "bpm": 90
+    },
+    {
+      "keys": [
+        "funk",
+        "disco"
+      ],
+      "name": "funk",
+      "style": "A groovy funk disco track with tight live drums, a punchy slap bass and warm rhythm guitars",
+      "bpm": 115
+    },
+    {
+      "keys": [
+        "salsa"
+      ],
+      "name": "salsa",
+      "style": "A lively salsa track with bright brass, piano, percussion and a dancing tropical groove",
+      "bpm": 100
+    },
+    {
+      "keys": [
+        "flamenco"
+      ],
+      "name": "flamenco",
+      "style": "A passionate flamenco track with acoustic guitar, percussion and an intense, earthy groove",
+      "bpm": 100
+    },
+    {
+      "keys": [
+        "orquestal",
+        "orchestral",
+        "cinemat",
+        "epic",
+        "banda sonora"
+      ],
+      "name": "orquestal",
+      "style": "A cinematic orchestral track with soaring strings, powerful brass and dramatic percussion in a wide, powerful production",
+      "bpm": 100
+    },
+    {
+      "keys": [
+        "ambient",
+        "tranquilo",
+        "tranquila",
+        "relajado",
+        "relajada",
+        "para dormir",
+        "meditacion",
+        "re:\\bchill\\b"
+      ],
+      "name": "ambient",
+      "style": "A soft ambient track with evolving synth pads, no drums and a spacious, atmospheric, meditative soundscape",
+      "bpm": 70
+    },
+    {
+      "keys": [
+        "jazz"
+      ],
+      "name": "jazz",
+      "style": "A smooth jazz track with brushed drums, a walking bassline and warm melodic improvisation",
+      "bpm": 110
+    },
+    {
+      "keys": [
+        "pop"
+      ],
+      "name": "pop",
+      "style": "A catchy pop track with clean production, a strong chorus and a bright, polished arrangement",
+      "bpm": 110
+    }
+  ],
+  "modifiers": [
+    {
+      "label": "4x4 (bombo a cada pulso)",
+      "text": "en 4x4, con el bombo a cada pulso",
+      "keys": [
+        "4x4",
+        "four on the floor",
+        "four-on-the-floor",
+        "cuatro por compas",
+        "bombo a cada pulso"
+      ],
+      "suggest_with": [
+        "hardcore holandes",
+        "frenchcore",
+        "uptempo hard dance",
+        "hardstyle",
+        "hard techno",
+        "hard bounce",
+        "techno",
+        "house",
+        "electro",
+        "electronica",
+        "synthwave"
+      ],
+      "clause": "a steady four-on-the-floor kick drum"
+    },
+    {
+      "label": "Doble bombo",
+      "text": "con doble bombo a toda velocidad",
+      "keys": [
+        "doble bombo",
+        "dobble bombo",
+        "double bass",
+        "doble pedal",
+        "double kick"
+      ],
+      "suggest_with": [
+        "hardcore holandes",
+        "frenchcore",
+        "uptempo hard dance",
+        "hardstyle",
+        "hard techno",
+        "hard bounce",
+        "techno",
+        "metal"
+      ],
+      "clause": "aggressive double bass drumming"
+    },
+    {
+      "label": "A toda velocidad",
+      "text": "a toda velocidad",
+      "keys": [
+        "rapido",
+        "rapidisimo",
+        "a toda velocidad",
+        "velocidad",
+        "fast",
+        "speed"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a fast, energetic tempo"
+    },
+    {
+      "label": "Distorsionado",
+      "text": "distorsionado",
+      "keys": [
+        "distorsion",
+        "distorsionado",
+        "distorted",
+        "crudo",
+        "raw"
+      ],
+      "suggest_with": [
+        "hardcore holandes",
+        "frenchcore",
+        "uptempo hard dance",
+        "hardstyle",
+        "hard techno",
+        "hard bounce",
+        "metal",
+        "dubstep",
+        "electro",
+        "electronica"
+      ],
+      "clause": "heavy distorted synths and guitars"
+    },
+    {
+      "label": "BaterBaterêdas protagonistas",
+      "text": "con las baterBaterêdas como protagonistas",
+      "keys": [
+        "baterias",
+        "bateria",
+        "drums",
+        "percusion",
+        "percussion"
+      ],
+      "suggest_with": [
+        "hardcore holandes",
+        "frenchcore",
+        "uptempo hard dance",
+        "hardstyle",
+        "hard techno",
+        "hard bounce",
+        "techno",
+        "metal",
+        "rock",
+        "funk",
+        "electronica",
+        "synthwave"
+      ],
+      "clause": "driving drums as the lead of the track"
+    },
+    {
+      "label": "Oscuro",
+      "text": "oscuro",
+      "keys": [
+        "oscuro",
+        "dark",
+        "sombrio",
+        "tenebroso"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a dark aggressive energy"
+    },
+    {
+      "label": "Ã‰pico",
+      "text": "Ã©pico",
+      "keys": [
+        "epico",
+        "epic",
+        "emocionante",
+        "uplifting"
+      ],
+      "suggest_with": [
+        "orquestal",
+        "trance",
+        "pop",
+        "rock",
+        "metal",
+        "drum and bass"
+      ],
+      "clause": "an epic, euphoric emotional lift throughout"
+    },
+    {
+      "label": "MelancÃ³lico",
+      "text": "melancÃ³lico y nostÃ¡lgico",
+      "keys": [
+        "melancolico",
+        "melancholic",
+        "nostalgico",
+        "nostalgic",
+        "emotivo"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a melancholic, nostalgic emotional mood"
+    },
+    {
+      "label": "Luminoso",
+      "text": "luminoso y optimista, brillante",
+      "keys": [
+        "luminoso",
+        "bright",
+        "brillante",
+        "optimista",
+        "optimistic"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a bright, upbeat energy"
+    },
+    {
+      "label": "Voz susurrada",
+      "text": "con voz susurrada",
+      "keys": [
+        "susurrada",
+        "susurrado",
+        "susurro",
+        "whispered",
+        "whisper"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "soft, whispered vocals",
+      "voice": true
+    },
+    {
+      "label": "Voz potente",
+      "text": "con voz potente",
+      "keys": [
+        "re:\\bpotente(s)?\\b",
+        "powerful"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "powerful, commanding lead vocals",
+      "voice": true
+    },
+    {
+      "label": "Falsete",
+      "text": "en falsete",
+      "keys": [
+        "falsete",
+        "falsetto"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "soaring falsetto vocals",
+      "voice": true
+    },
+    {
+      "label": "Voz gritada",
+      "text": "con voz gritada",
+      "keys": [
+        "gritada",
+        "gritado",
+        "gritando",
+        "shouted",
+        "screaming"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "raw, shouted vocals with grit",
+      "voice": true
+    },
+    {
+      "label": "Voz rapeada",
+      "text": "con voz rapeada",
+      "keys": [
+        "rapeada",
+        "rapeado",
+        "rapped",
+        "re:\\brap\\b"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "rhythmic rapped verses",
+      "voice": true
+    },
+    {
+      "label": "Voz hablada",
+      "text": "con voz hablada",
+      "keys": [
+        "hablada",
+        "hablado",
+        "spoken"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "intimate, spoken passages",
+      "voice": true
+    },
+    {
+      "label": "Armonías y coros",
+      "text": "con armonías y coros de fondo",
+      "keys": [
+        "armonias",
+        "harmonies",
+        "coros de fondo",
+        "backing vocals",
+        "ad-libs"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "rich vocal harmonies with ad-libs",
+      "voice": true
+    },
+    {
+      "label": "Tempo lento",
+      "text": "a tempo lento",
+      "keys": [
+        "lento",
+        "lenta",
+        "slow"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a slow, laid-back tempo"
+    },
+    {
+      "label": "Tempo moderado",
+      "text": "a tempo moderado",
+      "keys": [
+        "moderado",
+        "moderada",
+        "moderate",
+        "mid-tempo",
+        "medio tiempo"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a steady mid-tempo feel"
+    },
+    {
+      "label": "Imparable (driving)",
+      "text": "imparable, driving",
+      "keys": [
+        "driving",
+        "imparable",
+        "arrollador"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a relentless driving rhythm"
+    },
+    {
+      "label": "Pulso constante",
+      "text": "con pulso constante",
+      "keys": [
+        "constante",
+        "steady"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a tight, steady pulse"
+    },
+    {
+      "label": "Himno",
+      "text": "como un himno",
+      "keys": [
+        "himno",
+        "anthemic",
+        "anthem"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "an anthemic, sing-along chorus"
+    },
+    {
+      "label": "Explosivo",
+      "text": "explosivo",
+      "keys": [
+        "explosivo",
+        "explosiva",
+        "explosive"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "explosive high-energy drops"
+    },
+    {
+      "label": "Con capas",
+      "text": "con muchas capas",
+      "keys": [
+        "capas",
+        "layered"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "layered, evolving textures"
+    },
+    {
+      "label": "Pegadizo",
+      "text": "pegadizo",
+      "keys": [
+        "pegadizo",
+        "pegadiza",
+        "catchy"
+      ],
+      "suggest_with": [
+        "*"
+      ],
+      "clause": "a catchy, memorable hook"
+    },
+    {
+      "label": "Riffs",
+      "text": "con riffs",
+      "keys": [
+        "riff",
+        "riffs"
+      ],
+      "suggest_with": [
+        "rock",
+        "metal",
+        "funk",
+        "hardcore holandes",
+        "hardstyle",
+        "hard techno"
+      ],
+      "clause": "punchy distorted guitar riffs"
+    },
+    {
+      "label": "Caja de ritmos",
+      "text": "con caja de ritmos",
+      "keys": [
+        "caja de ritmos",
+        "drum machine"
+      ],
+      "suggest_with": [
+        "techno",
+        "house",
+        "electro",
+        "electronica",
+        "synthwave",
+        "hip hop",
+        "trap"
+      ],
+      "clause": "a raw, electronic drum-machine groove"
+    },
+    {
+      "label": "Contrabajo",
+      "text": "con contrabajo",
+      "keys": [
+        "contrabajo",
+        "upright bass"
+      ],
+      "suggest_with": [
+        "jazz",
+        "folk acustico",
+        "funk"
+      ],
+      "clause": "a deep, upright bassline"
+    },
+    {
+      "label": "Sin voz",
+      "text": "sin voz, instrumental",
+      "keys": [
+        "instrumental",
+        "sin voz",
+        "sin voces",
+        "sin cantar",
+        "no vocals"
+      ],
+      "suggest_with": [],
+      "clause": "instrumental with no vocals"
+    }
+  ]
+}

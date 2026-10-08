@@ -18,6 +18,9 @@ backend/outputs/
 # Config local
 backend/config.json
 
+# Estado de ejecución (no es biblioteca ni config: se regenera solo)
+backend/job_history.json
+
 # Cachés Python
 __pycache__/
 *.pyc

@@ -62,35 +62,10 @@ def stage_source_audio(source: str) -> str:
     return dest
 
 
-# Si el usuario no elige minutos, la base nueva dura como el origen y no pasa
-# de 4 minutos. Es el tope que ya tenía el remix antes de poder elegir.
-REMIX_UNSPECIFIED_CAP_SECONDS = 240.0
-REMIX_MIN_SECONDS = 10.0
-
-
 def lyrics_are_song(text: str | None) -> bool:
     """Una palabra suelta («BASE») no es una letra: si se envía, el motor la canta."""
     words = re.findall(r"[^\W\d_]{2,}", text or "", flags=re.UNICODE)
     return len(words) >= 8
-
-
-def resolve_remix_duration(
-    requested: float | None,
-    source_seconds: float,
-    *,
-    max_seconds: float,
-) -> float:
-    """Duración de la base nueva. La elegida manda, dentro del máximo de config."""
-    if requested is None:
-        base = float(source_seconds or 60)
-        return min(base, float(max_seconds), REMIX_UNSPECIFIED_CAP_SECONDS)
-    duration = float(requested)
-    if duration < REMIX_MIN_SECONDS or duration > float(max_seconds):
-        raise MusicEngineError(
-            f"La duración debe estar entre {REMIX_MIN_SECONDS:g} y {max_seconds:g} s "
-            f"(recibido: {duration:g})"
-        )
-    return duration
 
 
 @dataclass
@@ -110,6 +85,7 @@ class GenerationRequest:
     seed: int | None = None
     use_random_seed: bool | None = None
     batch_size: int | None = None
+    use_format: bool | None = None
     audio_format: str | None = None
     model: str | None = None
     task_type: str | None = None
@@ -327,6 +303,20 @@ class MusicService:
                 "(con la letra vacía el motor genera un instrumental)"
             )
 
+        # Tarea y modelo primero: los pasos y el guidance dependen del modelo.
+        task = request.task_type or defaults.task_type
+        model = defaults.model_for(task, request.model)
+        inference_steps = (
+            request.inference_steps
+            if request.inference_steps is not None
+            else defaults.steps_by_model.get(model, defaults.inference_steps)
+        )
+        guidance_scale = (
+            request.guidance_scale
+            if request.guidance_scale is not None
+            else defaults.guidance_by_model.get(model, defaults.guidance_scale)
+        )
+
         payload = {
             "prompt": request.prompt,
             "lyrics": lyrics,
@@ -337,12 +327,8 @@ class MusicService:
             if request.time_signature is None
             else request.time_signature,
             "vocal_language": defaults.language if request.language is None else request.language,
-            "inference_steps": defaults.inference_steps
-            if request.inference_steps is None
-            else request.inference_steps,
-            "guidance_scale": defaults.guidance_scale
-            if request.guidance_scale is None
-            else request.guidance_scale,
+            "inference_steps": inference_steps,
+            "guidance_scale": guidance_scale,
             "seed": defaults.seed if request.seed is None else request.seed,
             # Una semilla escrita tiene que repetir el resultado. Si no, el
             # motor ignora el número y la comparación A/B no es real.
@@ -357,7 +343,7 @@ class MusicService:
             "audio_format": defaults.audio_format
             if request.audio_format is None
             else request.audio_format,
-            "model": defaults.model if request.model is None else request.model,
+            "model": model,
             # thinking genera códigos de audio y el DiT los sigue. El 2026-10-03
             # a las 23:27 el caption era el del usuario y aun así sonó otra cosa:
             # 1200 códigos mandaban más que la frase. Los tres cot en false
@@ -366,26 +352,29 @@ class MusicService:
             "use_cot_caption": False,
             "use_cot_language": False,
             "use_cot_metas": False,
-            "task_type": defaults.task_type,
+            # use_format SÍ usa el LM, pero solo para reescribir caption y
+            # letra al formato de entrenamiento (spec/02 [R3]): no genera
+            # códigos de audio. Lo pedido manda; si no, la config.
+            "use_format": (
+                defaults.use_format if request.use_format is None else request.use_format
+            ),
+            "task_type": task,
             "infer_method": defaults.infer_method,
         }
         if defaults.use_lm:
             payload["lm_model_path"] = defaults.lm_model
             payload["lm_backend"] = defaults.lm_backend
 
-        task = request.task_type or defaults.task_type
         if task not in defaults.allowed_tasks:
             raise MusicEngineError(
-                f"Tarea no disponible en el turbo de 8 GB: {task}. "
+                f"Tarea no disponible en esta GPU de 8 GB: {task}. "
                 f"Usa una de: {', '.join(defaults.allowed_tasks)}"
             )
-        model = payload["model"]
         if model not in defaults.allowed_models:
             raise MusicEngineError(
                 f"Modelo no residente en esta GPU de 8 GB: {model}. "
                 f"El que permanece cargado es: {', '.join(defaults.allowed_models)}"
             )
-        payload["task_type"] = task
         if task in {"cover", "repaint"}:
             if not request.source_path:
                 raise MusicEngineError("Esta tarea necesita el audio de origen")
@@ -434,9 +423,12 @@ class MusicService:
         if staged:
             self._staged[task_id] = staged
         logger.info(
-            f"Tarea enviada al motor: {task_id} | dur={payload.get('audio_duration')}s | "
+            f"Tarea enviada al motor: {task_id} | modelo={payload.get('model')} "
+            f"| pasos={payload.get('inference_steps')} guidance={payload.get('guidance_scale')} | "
+            f"dur={payload.get('audio_duration')}s | "
             f"thinking={payload.get('thinking')} cot_caption={payload.get('use_cot_caption')} "
-            f"cot_metas={payload.get('use_cot_metas')} | prompt={request.prompt[:180]!r}"
+            f"cot_metas={payload.get('use_cot_metas')} use_format={payload.get('use_format')} "
+            f"batch={payload.get('batch_size')} | prompt={request.prompt[:180]!r}"
         )
         return task_id, str(data.get("status", "queued"))
 

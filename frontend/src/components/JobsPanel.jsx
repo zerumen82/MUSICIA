@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, Play, Pause, CheckCircle2, Layers } from 'lucide-react';
-import { api, JOB_POLL_INTERVAL_MS } from '../api';
+import React, { useState } from 'react';
+import { Loader2, AlertTriangle, Play, Pause, CheckCircle2, Layers, X } from 'lucide-react';
+import { api } from '../api';
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
@@ -12,28 +12,30 @@ const STATUS_UI = {
 };
 
 /**
- * Cola de trabajos de la sesión (backend /music/jobs) + comparador A/B:
- * marca hasta 2 pistas terminadas y las reproduce juntas para comparar.
+ * Cola de trabajos de la sesión + comparador A/B: marca hasta 2 pistas
+ * terminadas y las reproduce juntas para comparar.
+ * Presentacional: los items los sondea App.jsx UNA vez cada 3 s y los
+ * reparte (barra, auto-refresh y este panel beben del mismo tick).
  */
-export default function JobsPanel() {
-  const [jobs, setJobs] = useState([]);
+export default function JobsPanel({ items = [] }) {
+  const jobs = items;
   const [playing, setPlaying] = useState(null); // job_id
   const [abMarks, setAbMarks] = useState([]); // hasta 2 job_ids marcados
+  const [cancelling, setCancelling] = useState(null); // job_id en curso de parada
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const data = await api.musicJobs();
-        if (!cancelled) setJobs(data.items ?? []);
-      } catch {
-        /* silencioso: el panel es secundario */
-      }
-    };
-    void tick();
-    const t = setInterval(tick, JOB_POLL_INTERVAL_MS);
-    return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  // PARAR (spec/02 [Q2]): suelta el trabajo sin descargar nada. Si el motor
+  // estaba trabajando se reinicia (recargar el modelo tarda minutos).
+  const cancel = async (jobId) => {
+    if (cancelling) return;
+    setCancelling(jobId);
+    try {
+      await api.cancelJob(jobId);
+    } catch {
+      /* el feed enseña el estado real en el siguiente tick */
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   const toggleMark = (jobId) => {
     setAbMarks((cur) => {
@@ -68,6 +70,11 @@ export default function JobsPanel() {
             {Math.floor((job.elapsed_seconds ?? 0) / 60)}:{String(Math.round((job.elapsed_seconds ?? 0) % 60)).padStart(2, '0')}
           </span>
           <span className="text-[12px] text-zinc-300 truncate flex-1 min-w-0">{job.phase || job.prompt}</span>
+          <button onClick={() => void cancel(job.job_id)} disabled={cancelling === job.job_id}
+            title="Para este trabajo. Si el motor estaba trabajando se reinicia (recargar el modelo tarda minutos)."
+            className="mono text-[9px] px-1.5 py-0.5 shrink-0 border border-[var(--line)] text-[var(--faint)] hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300 flex items-center gap-1">
+            {cancelling === job.job_id ? <Loader2 size={9} className="animate-spin" /> : <X size={9} />} PARAR
+          </button>
         </div>
       ))}
 

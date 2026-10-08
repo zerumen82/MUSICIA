@@ -36,7 +36,7 @@ def is_available() -> bool:
         return False
 
 
-def _free_vram_mb() -> int:
+def free_vram_mb() -> int:
     """VRAM libre en MB (0 si no hay GPU o nvidia-smi no está)."""
     if shutil.which("nvidia-smi") is None:
         return 0
@@ -52,7 +52,7 @@ def _free_vram_mb() -> int:
 
 def pick_device() -> str:
     """GPU si hay VRAM de sobra (el motor ACE-Step también la usa); si no, CPU."""
-    free = _free_vram_mb()
+    free = free_vram_mb()
     return "cuda" if free >= GPU_MIN_FREE_MB else "cpu"
 
 
@@ -75,7 +75,7 @@ class SeparatorService:
             raise FileNotFoundError(f"No existe la pista: {source.name}")
 
         device = pick_device()
-        logger.info(f"Separando {source.name} en {device} (VRAM libre: {_free_vram_mb()} MB)")
+        logger.info(f"Separando {source.name} en {device} (VRAM libre: {free_vram_mb()} MB)")
 
         work = out_dir / "_separacion"
         work.mkdir(parents=True, exist_ok=True)

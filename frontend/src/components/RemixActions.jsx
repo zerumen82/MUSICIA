@@ -1,40 +1,46 @@
+// Mesa de remix de una pista (SUBIR y BIBLIOTECA).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, ChevronDown, Check, AlertTriangle } from 'lucide-react';
 import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
 import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
 import SelectBox from './SelectBox';
-import { expandLyric, structureLyric } from '../vocal';
+import Glossary from './Glossary';
+import VariantChips from './VariantChips';
+import { structureLyric } from '../vocal';
 import { glossPrompt } from '../prompt_gloss';
 
-/**
- * Mesa de remix de una pista.
- * El menú solo elige. HACER lanza la acción, con el prompt ya escrito.
- * Versión y tramo mandan el audio al motor (cover / repaint). Ajustar es DSP.
- * sourceKind dice de qué lista viene ('upload' = SUBIR, 'output' = BIBLIOTECA)
- * para que el backend toque ese archivo y no un homónimo de la otra carpeta.
- */
-const ACTIONS = [
+// Acciones que usan el modelo ACE-Step (generación IA)
+const AI_ACTIONS = [
   { id: 'version', label: 'VERSIÓN · CAMBIAR EL ESTILO', needs: 'prompt', needsBpm: true, needsStrength: true },
   { id: 'tramo', label: 'TRAMO · REHACER UN TROZO', needs: 'prompt', needsRange: true },
+  { id: 'reestilar', label: 'REESTILAR · OYE TU PISTA', needs: 'prompt', needsBpm: true, needsStrength: true },
+  { id: 'voz', label: 'VOZ + BASE NUEVA', needs: 'prompt', needsBpm: true },
+  // LEGO / EXTRACT / COMPLETE exigen el modelo base (acestep-v15-base),
+  // no instalado: se ocultan hasta medirlo (spec/05 fuera de propuesta).
+];
+
+// Acciones que usan procesamiento local (DSP/demucs)
+const LOCAL_ACTIONS = [
   { id: 'ajustar', label: 'AJUSTAR · TEMPO, TONO, RECORTE' },
-  { id: 'voz_prompt', label: 'VOZ REAL + BASE NUEVA', needs: 'prompt', needsBpm: true },
-  { id: 'solo_base', label: 'SOLO BASE NUEVA', needs: 'prompt', needsBpm: true, needsMinutes: true },
-  { id: 'instrumental', label: 'QUITAR VOCES' },
-  { id: 'acapella', label: 'SOLO LA VOZ' },
   { id: 'loop4', label: 'LOOP DE 4 COMPASES' },
   { id: 'medio', label: 'MEDIO TIEMPO' },
   { id: 'doble', label: 'DOBLE TIEMPO' },
   { id: 'bpm', label: 'FORZAR TEMPO A', needs: 'bpm' },
+  { id: 'instrumental', label: 'QUITAR VOCES' },
+  { id: 'acapella', label: 'SOLO LA VOZ' },
 ];
+
+// Concatenar para la acción original (mantener compatibilidad)
+const ACTIONS = [...AI_ACTIONS, ...LOCAL_ACTIONS];
 
 const MENU_MAX_PX = 288;
 
 const PROMPT_PLACEHOLDER = {
-  version: 'estilo nuevo: drum and bass, bajo pesado…',
-  tramo: 'qué tiene que sonar en este tramo…',
-  voz_prompt: 'prompt de la base nueva: techno oscuro…',
-  solo_base: 'prompt de la base nueva: techno oscuro…',
+  version: 'Estilo nuevo: nómbralo («hardcore», «drum and bass»…) y di el patrón («en 4x4») y detalles. Sin nombre de estilo, el motor improvisa.',
+  tramo: 'Qué debe sonar aquí: estilo + patrón + detalles («percusión hardcore en 4x4, sin melodías»).',
+  reestilar: 'Nuevo estilo: nómbralo («hardcore», «drum and bass»…) y di el patrón («en 4x4») y detalles. El motor OYE tu pista y la reviste: conserva la estructura, cambia el resto.',
+  voz: 'Música nueva para tu voz: nombra el estilo («techno oscuro en 4x4»…) y el patrón. Tu voz se conserva tal cual; la música la genera el modelo estricto al tempo de tu tema.',
 };
 
 const STATUS = {
@@ -69,18 +75,19 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
   const [key, setKey] = useState(ficha?.key_scale ?? '');
   const [seed, setSeed] = useState('');
   const [songName, setSongName] = useState('');
-  const [minutes, setMinutes] = useState('2');
-  const [extendMinutes, setExtendMinutes] = useState('');
-  const [maxMinutes, setMaxMinutes] = useState(10);
   const [enhancing, setEnhancing] = useState(false);
   const [strength, setStrength] = useState(null);
-  const [forceAuto, setForceAuto] = useState(true); // voz_prompt: AUTO deduce del prompt; off = mando yo
+  const [forceAuto, setForceAuto] = useState(true); // reestilar: AUTO deduce del prompt; off = mando yo
   const [repaintStart, setRepaintStart] = useState('');
   const [repaintEnd, setRepaintEnd] = useState('');
   const [status, setStatus] = useState(null);
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
   const [box, setBox] = useState(null);
+  const [styleInfo, setStyleInfo] = useState(null); // capas + chips (del backend)
+  const [extendMinutes, setExtendMinutes] = useState(''); // vacío = dura el tema
+  const [maxMinutes, setMaxMinutes] = useState(10); // real desde /music/config
+  const [showTips, setShowTips] = useState(false); // el consejo solo si se pide
   const ref = useRef(null);
   const menuRef = useRef(null);
 
@@ -90,8 +97,11 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
       .then((cfg) => {
         if (!alive) return;
         if (typeof cfg?.cover_strength === 'number') setStrength(cfg.cover_strength);
-        const cap = Math.floor(Number(cfg?.max_duration_seconds) / 60);
-        if (cap >= 1) setMaxMinutes(cap);
+        // Tope de MINUTOS = duración máxima del motor (config, no hardcode).
+        const maxS = Number(cfg?.max_duration_seconds);
+        if (Number.isFinite(maxS) && maxS > 0) {
+          setMaxMinutes(Math.max(1, Math.floor(maxS / 60)));
+        }
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -145,6 +155,28 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
   }, []);
 
   const current = ACTIONS.find((a) => a.id === action);
+
+  /** Chips sugeridos mientras escribes en el remix: mismo catálogo del
+      backend que en CREAR (sin LM, sin listas en la UI). Debounce 300 ms. */
+  useEffect(() => {
+    if (!(current?.needs === 'prompt')) {
+      setStyleInfo(null);
+      return undefined;
+    }
+    const t = setTimeout(async () => {
+      const info = await api.styleOptions(prompt.trim());
+      setStyleInfo(info);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [prompt, current?.needs]);
+
+  /** Cualquier texto (chip o entrada del glosario) se añade al prompt:
+      un solo cuadro, todo editable. */
+  const addTexto = (text) => {
+    const base = prompt.trim();
+    setPrompt(base ? `${base} ${text}` : text);
+  };
+  const addChip = (chip) => addTexto(chip.clause ?? chip.text);
 
   const absorb = (incoming, pipeline) => {
     setJob((cur) => {
@@ -235,15 +267,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         return;
       }
     }
-    if (id === 'solo_base') {
-      const chosen = Number(minutes);
-      if (!Number.isInteger(chosen) || chosen < 1 || chosen > maxMinutes) {
-        setJob(null);
-        setStatus({ tone: 'err', text: 'Elige los minutos de la base nueva' });
-        return;
-      }
-    }
-    if (id === 'version' && strength !== null) {
+    if ((id === 'version' || id === 'reestilar') && strength !== null) {
       const fuerza = Number(strength);
       if (Number.isNaN(fuerza) || fuerza < 0 || fuerza > 1) {
         setJob(null);
@@ -259,7 +283,7 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         begin('crear', id === 'tramo' ? 'Enviando el tramo al motor…' : 'Enviando la versión al motor…');
         const letra = lyrics.trim() ? structureLyric(lyrics) : null;
         const started = await api.generateMusic({
-          prompt: glossPrompt(prompt.trim()),
+          prompt: prompt.trim(),
           instrumental: !letra,
           lyrics: letra,
           source_name: fileName,
@@ -275,60 +299,43 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         const done = await waitUntil(() => api.musicStatus(started.job_id));
         result = done.output_name;
         setStatus({ tone: 'ok', text: `Listo: ${result}` });
-      } else if (id === 'voz_prompt' || id === 'solo_base') {
-        begin('crear', 'Preparando el remix…');
-        const seconds = Number(minutes) * 60;
-        let letra = '';
-        if (id === 'voz_prompt' && lyrics.trim()) {
-          letra = structureLyric(lyrics.trim());
-        }
-        if (id === 'solo_base') {
-          letra = lyrics.trim();
-          const palabras = letra.match(/[^\W\d_]{2,}/gu) ?? [];
-          if (letra && palabras.length < 8) {
-            setJob((cur) => (cur ? {
-              ...cur,
-              phase: 'Eso no es una letra. La base sale instrumental, con tu prompt.',
-            } : cur));
-            letra = '';
-          } else if (letra) {
-            const note = `Adaptando la letra a ${minutes} min…`;
-            setJob((cur) => (cur ? {
-              ...cur,
-              phase: note,
-              events: [...(cur.events ?? []), { t: cur.elapsed_seconds ?? 0, text: note }],
-            } : cur));
-            try {
-              const written = await api.writeLyrics({
-                prompt: prompt.trim(),
-                lyrics: letra,
-                duration_seconds: seconds,
-                bpm: bpm ? Number(bpm) : null,
-              });
-              const adapted = (written?.lyrics || '').trim();
-              const adaptedWords = (adapted.match(/[^\W\d_]{2,}/gu) ?? []).length;
-              letra = adaptedWords >= 8 ? adapted : expandLyric(letra);
-            } catch {
-              letra = expandLyric(letra);
-            }
-            setLyrics(letra);
-          }
-        }
+      } else if (id === 'voz') {
+        // Conservar voz (spec/02 [R5]): la voz se separa y la música es
+        // nueva. Sin letra (la pone tu grabación) y sin fuerza (no hay cover).
+        begin('crear', 'Separando tu voz y pidiendo música nueva…');
         const started = await api.remixAi({
           file_name: fileName,
           source_kind: sourceKind,
-          prompt: glossPrompt(prompt.trim()),
-          keep_vocals: id === 'voz_prompt',
+          prompt: prompt.trim(),
           bpm: bpm ? Number(bpm) : null,
-          duration_seconds: id === 'solo_base'
-            ? seconds
-            : (extendMinutes ? Number(extendMinutes) * 60 : null),
-          lyrics: letra || null,
-          cover_strength: id === 'voz_prompt' && !forceAuto && strength !== null ? Number(strength) : null,
+          // MINUTOS: vacío = dura el tema; elegido = base nueva más larga
+          // (el backend la pide al motor con esa duración, spec 2026-10-06).
+          duration_seconds: extendMinutes ? Number(extendMinutes) * 60 : null,
+          output_name: songName.trim() || null,
+          mode: 'voz',
         });
         const done = await waitUntil(() => api.remixAiStatus(started.job_id));
+        const variants = done.result?.variants ?? [];
         result = done.result?.mix ?? done.result?.base;
-        setStatus({ tone: 'ok', text: `Listo: ${result}` });
+        setStatus({ tone: 'ok', text: variants.length > 1 ? `Listo: ${variants.join(', ')} (elige en BIBLIOTECA)` : `Listo: ${result}` });
+      } else if (id === 'reestilar') {
+        // Cover nativo (spec/02 [R2]): el motor oye la pista y la reviste.
+        // Sin letra nueva sale instrumental; el motor no clona tu voz.
+        begin('crear', 'Enviando el reestilo al motor…');
+        const letra = lyrics.trim() ? structureLyric(lyrics.trim()) : '';
+        const started = await api.remixAi({
+          file_name: fileName,
+          source_kind: sourceKind,
+          prompt: prompt.trim(),
+          bpm: bpm ? Number(bpm) : null,
+          lyrics: letra || null,
+          output_name: songName.trim() || null,
+          cover_strength: !forceAuto && strength !== null ? Number(strength) : null,
+        });
+        const done = await waitUntil(() => api.remixAiStatus(started.job_id));
+        const variants = done.result?.variants ?? [];
+        result = done.result?.mix ?? done.result?.base;
+        setStatus({ tone: 'ok', text: variants.length > 1 ? `Listo: ${variants.join(', ')} (elige en BIBLIOTECA)` : `Listo: ${result}` });
       } else if (id === 'instrumental' || id === 'acapella') {
         begin('separar', 'En cola', 'queued');
         const res = await api.separate(
@@ -380,16 +387,16 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
       return;
     }
     setEnhancing(true);
-    try {
-      const res = await api.enhancePrompt({ prompt: glossPrompt(prompt.trim()), bpm: bpm ? Number(bpm) : null });
-      setPrompt(res.enhanced ?? prompt);
-      const added = Array.isArray(res.additions) ? res.additions.slice(0, 3).join(', ') : '';
-      setStatus({ tone: 'ok', text: added ? `Se añade: ${added}. La frase no se reescribe.` : 'La frase se queda como la escribiste' });
-    } catch (e) {
-      setStatus({ tone: 'err', text: e.message });
-    } finally {
-      setEnhancing(false);
-    }
+     try {
+       const res = await api.enhancePrompt({ prompt: prompt.trim(), bpm: bpm ? Number(bpm) : null });
+       setPrompt(res.enhanced ?? prompt);
+       const added = Array.isArray(res.additions) ? res.additions.slice(0, 3).join(', ') : '';
+       setStatus({ tone: 'ok', text: added ? `Se añade: ${added}. La frase no se reescribe.` : 'La frase se queda como la escribiste' });
+     } catch (e) {
+       setStatus({ tone: 'err', text: e.message });
+     } finally {
+       setEnhancing(false);
+     }
   };
 
   const applyAjuste = async (params) => {
@@ -406,6 +413,21 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
     } finally {
       setBusy(false);
     }
+  };
+
+  /** AÑADIR ofrece todos los chips que sugiere el backend: son vocabulario
+      real del modelo (los valida backend/test_realism.py), así que no se
+      esconden ni por prompt vacío ni por modo instrumental/voz. En la lista
+      la etiqueta corta en español; al elegirla se añade la cláusula en
+      inglés (en el tooltip se ve cuál es). */
+  const chipOptions = (styleInfo?.chips ?? [])
+    .filter((c) => c.suggested)
+    .map((c) => ({
+      id: c.label, label: c.label, title: `Se añade: «${c.clause ?? c.text}»`,
+    }));
+  const addChipById = (id) => {
+    const chip = (styleInfo?.chips ?? []).find((c) => c.label === id);
+    if (chip) addChip(chip);
   };
 
   const statusInfo = job?.status === 'failed'
@@ -433,17 +455,26 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
             <span className="mono text-[11px] truncate">{current?.label ?? 'ELIGE UNA ACCIÓN'}</span>
             <ChevronDown size={12} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
           </button>
-          {open && box && (
-            <div ref={menuRef}
-              className="fixed z-50 overflow-y-auto border border-[var(--line-strong)] bg-[var(--surface-2)] p-1 flex flex-col shadow-lg"
-              style={{ left: box.left, top: box.top, bottom: box.bottom, minWidth: box.minWidth, maxHeight: MENU_MAX_PX }}>
-              {ACTIONS.map((a) => (
-                <button key={a.id} type="button" onClick={() => { setOpen(false); setAction(a.id); setStatus(null); setJob(null); setForceAuto(true); }}
-                  className="text-left px-3 py-2 hover:bg-[var(--acc-dim)] text-zinc-200">
-                  <span className="mono text-[11.5px]">{a.label}</span>
-                </button>
-              ))}
-            </div>
+          {open && (
+             <div ref={menuRef}
+               className="fixed z-50 overflow-y-auto border border-[var(--line-strong)] bg-[var(--surface-2)] p-1 flex flex-col shadow-lg"
+               style={box ? { left: box.left, top: box.top, bottom: box.bottom, minWidth: box.minWidth, maxHeight: MENU_MAX_PX } : { visibility: 'hidden', maxHeight: MENU_MAX_PX }}>
+               {AI_ACTIONS.map((a) => (
+                 <button key={a.id} type="button" onClick={() => { setOpen(false); setAction(a.id); setStatus(null); setJob(null); setForceAuto(true); }}
+                   className="text-left px-3 py-2 hover:bg-[var(--acc-dim)] text-zinc-200">
+                   <span className="mono text-[11.5px]">{a.label}</span>
+                   <span className="mono text-[9px] text-[var(--acc)] ml-1">[IA]</span>
+                 </button>
+               ))}
+               <div className="border-t border-[var(--line)] my-1" />
+               {LOCAL_ACTIONS.map((a) => (
+                 <button key={a.id} type="button" onClick={() => { setOpen(false); setAction(a.id); setStatus(null); setJob(null); setForceAuto(true); }}
+                   className="text-left px-3 py-2 hover:bg-[var(--acc-dim)] text-zinc-200">
+                   <span className="mono text-[11.5px]">{a.label}</span>
+                   <span className="mono text-[9px] text-[var(--muted)] ml-1">[LOCAL]</span>
+                 </button>
+               ))}
+             </div>
           )}
         </div>
         {action && action !== 'ajustar' && (
@@ -453,61 +484,125 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
         )}
       </div>
 
-      {current?.needs === 'prompt' && (
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
-          placeholder={PROMPT_PLACEHOLDER[action]}
-          className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] resize-y" />
+       {current?.needs === 'prompt' && (
+         <div className="flex flex-col gap-2">
+            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2}
+              placeholder={PROMPT_PLACEHOLDER[action]}
+              className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] resize-y" />
+            <div className="flex items-center gap-3 flex-wrap">
+              {prompt.trim() && (
+                <span className="mono text-[9px] text-[var(--faint)] break-all max-w-[60ch]">
+                  ENVÍA: {glossPrompt(prompt.trim())}
+                </span>
+              )}
+              <button type="button" onClick={() => setShowTips((v) => !v)}
+                className="mono text-[9.5px] text-[var(--faint)] hover:text-[var(--muted)] ml-auto shrink-0">
+                {showTips ? 'OCULTAR CONSEJO' : 'CONSEJO'}
+              </button>
+            </div>
+            {prompt.trim() && showTips && (
+              <div className="text-[11px] text-[var(--text)] bg-[var(--surface-1)] border border-[var(--line)] rounded px-2 py-1.5">
+                💡 <span className="font-medium">Tips:</span> Para conservar voz/guitarra, menciona explícitamente lo que quieres mantener (ej: «manteniendo la voz clara y guitarra principal»). Para cambios de estilo dramaticos (ej: a hardstyle), usa fuerza 0,3-0,5. Para cambios sutiles, usa 0,7-0,9.
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <SelectBox label="AÑADIR" placeholder="DETALLE DEL CATÁLOGO" clearable={false}
+                options={chipOptions} value="" onChange={addChipById} />
+              <Glossary prompt={prompt} setPrompt={setPrompt} />
+            </div>
+            <VariantChips prompt={prompt} setPrompt={setPrompt} />
+            {styleInfo && (
+              <div className="mono text-[10px]">
+                {styleInfo.detected_genre && (
+                  <span className="text-[var(--acc)]">
+                    ESTILO: {styleInfo.detected_genre}{styleInfo.suggested_bpm ? ` · ${styleInfo.suggested_bpm} bpm` : ''}
+                  </span>
+                )}
+                {styleInfo.detected_genre && styleInfo.modifiers?.length > 0 && <span className="text-[var(--faint)]"> · </span>}
+                {styleInfo.modifiers?.length > 0 && (
+                  <span className="text-[var(--muted)]">{styleInfo.modifiers.join(', ')}</span>
+                )}
+              </div>
+            )}
+        </div>
       )}
-      {action === 'voz_prompt' && (
+      {action === 'reestilar' && (
         <span className="mono text-[10px] text-[var(--faint)]">
-          {extendMinutes
-            ? 'Si esos minutos pasan de la canción, la base nueva no oye el tema y la voz se reparte en trozos, sin estirarse. Si no llegan, el cover dura lo que dura la canción.'
-            : 'La voz grabada se queda. La base oye el tema y dura lo que dura la canción.'}
-          {' '}Con letra, la base nueva la canta y la voz original se guarda aparte, sin mezclarse encima.
+          El motor OYE tu pista y la reviste del estilo que pides: conserva la estructura, cambia el resto.
+          {' '}Sin letra nueva sale instrumental: no clona tu voz. Salen 2 variantes y eliges en BIBLIOTECA.
         </span>
       )}
-      {action === 'voz_prompt' && (
+      {action === 'voz' && (
+        <span className="mono text-[10px] text-[var(--faint)]">
+          Tu voz se separa y se conserva tal cual; debajo se genera música nueva con el estilo que pides,
+          al tempo de tu tema (o al BPM que escribas). Salen 2 mezclas y eliges en BIBLIOTECA.
+        </span>
+      )}
+      {action === 'reestilar' && (
         <label className="flex flex-col gap-1">
-          <span className="label">LETRA · VACÍO = LA VOZ ORIGINAL SE QUEDA</span>
+          <span className="label">LETRA NUEVA · VACÍO = REESTILO INSTRUMENTAL</span>
           <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={3}
-            placeholder="Si la escribes, la base nueva la canta"
+            placeholder="Si la escribes, la versión la canta con el estilo nuevo"
             className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] resize-y" />
         </label>
       )}
+      {(action === 'reestilar' || action === 'voz') && (
+        <label className="flex items-center gap-2">
+          <span className="label">NOMBRE</span>
+          <input value={songName} onChange={(e) => setSongName(e.target.value)} placeholder="nombre del reestilo"
+            className="px-2 py-1.5 flex-1 min-w-0 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
+        </label>
+      )}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        {(current?.needsBpm || current?.needs === 'bpm') && (
-          <label className="flex items-center gap-2">
-            <span className="label">BPM</span>
-            <input value={bpm} onChange={(e) => setBpm(e.target.value.replace(/[^0-9]/g, ''))} placeholder="auto"
-              className="px-2 py-1.5 w-16 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
-          </label>
-        )}
-        {current?.needsStrength && strength !== null && (
-          <label className="flex items-center gap-2">
-            <span className="label shrink-0">FUERZA</span>
-            <input type="range" min={0} max={1} step={0.05} value={strength}
-              onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
-            <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
-          </label>
-        )}
-        {action === 'voz_prompt' && (
-          <label className="flex items-center gap-2">
-            <span className="label shrink-0">FUERZA</span>
-            <button type="button" onClick={() => setForceAuto((v) => !v)}
-              className={`btn btn-ghost h-8 px-2.5 ${forceAuto ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
-              title="AUTO deduce la fuerza de tu prompt (sin melodías = baja). Apágalo para fijarla tú.">
-              {forceAuto ? 'AUTO' : 'MANUAL'}
-            </button>
-            {!forceAuto && strength !== null && (
-              <>
-                <input type="range" min={0} max={1} step={0.05} value={strength}
-                  onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
-                <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
-              </>
-            )}
-          </label>
-        )}
+       <div className="flex items-center gap-2 flex-wrap">
+         {(current?.needsBpm || current?.needs === 'bpm') && (
+           <label className="flex items-center gap-2">
+             <span className="label">BPM</span>
+             <input value={bpm} onChange={(e) => setBpm(e.target.value.replace(/[^0-9]/g, ''))} placeholder="auto"
+               className="px-2 py-1.5 w-16 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
+           </label>
+         )}
+         {action === 'voz' && (
+           <div className="flex items-center gap-2">
+             <SelectBox label="MINUTOS" placeholder="COMO EL TEMA" clearable
+               options={Array.from({ length: maxMinutes }, (_, i) => ({ id: String(i + 1), label: `${i + 1} MIN` }))}
+               value={extendMinutes} onChange={setExtendMinutes} />
+             <span className="mono text-[10px] text-[var(--faint)]">vacío = dura el tema · más = base más larga (la voz se reparte en trozos, no se estira)</span>
+           </div>
+         )}
+         {current?.needsStrength && strength !== null && (
+           <label className="flex items-center gap-2">
+             <span className="label shrink-0">FUERZA</span>
+             <input type="range" min={0} max={1} step={0.05} value={strength}
+               onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
+             <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
+             {action !== 'reestilar' || !forceAuto && (
+               <span className="mono text-[10px] text-[var(--muted)] block mt-1">
+                 0,3-0,5 = cambio significativo │ 0,7-0,9 = cambio sutil
+               </span>
+             )}
+           </label>
+         )}
+       {action === 'reestilar' && (
+           <label className="flex items-center gap-2">
+             <span className="label shrink-0">FUERZA</span>
+             <button type="button" onClick={() => setForceAuto((v) => !v)}
+               className={`btn btn-ghost h-8 px-2.5 ${forceAuto ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+               title="AUTO deduce la fuerza de tu prompt (sin melodías = baja, como la original = alta). Apágalo para fijarla tú: 0,3-0,5 cambia mucho, 0,7-0,9 es sutil.">
+               {forceAuto ? 'AUTO' : 'MANUAL'}
+             </button>
+             {!forceAuto && strength !== null && (
+               <>
+                 <input type="range" min={0} max={1} step={0.05} value={strength}
+                   onChange={(e) => setStrength(Number(e.target.value))} className="w-28" />
+                 <span className="num w-8 text-right">{Number(strength).toFixed(2)}</span>
+                 <span className="mono text-[10px] text-[var(--muted)] block mt-1">
+                   0,3-0,5 = cambio significativo │ 0,7-0,9 = cambio sutil
+                 </span>
+               </>
+             )}
+           </label>
+         )}
         {current?.needsRange && (
           <>
             <label className="flex items-center gap-2">
@@ -527,35 +622,6 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
           </>
         )}
       </div>
-
-      {action === 'voz_prompt' && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <SelectBox label="MINUTOS" placeholder="COMO LA CANCIÓN"
-            options={Array.from({ length: maxMinutes }, (_, i) => ({ id: String(i + 1), label: `${i + 1} MIN` }))}
-            value={extendMinutes} onChange={setExtendMinutes} />
-          <span className="mono text-[10px] text-[var(--faint)]">vacío = dura la canción. Más minutos = base nueva y la voz en trozos</span>
-        </div>
-      )}
-
-      {current?.needsMinutes && (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <SelectBox label="MINUTOS" clearable={false}
-              options={Array.from({ length: maxMinutes }, (_, i) => ({ id: String(i + 1), label: `${i + 1} MIN` }))}
-              value={minutes} onChange={setMinutes} />
-            <span className="mono text-[10px] text-[var(--faint)]">la base nueva dura esto, no lo que dure el audio de origen</span>
-          </div>
-        </div>
-      )}
-
-      {current?.needsMinutes && (
-        <label className="flex flex-col gap-1">
-          <span className="label">LETRA · VACÍO = INSTRUMENTAL · SE ADAPTA A LOS MINUTOS</span>
-          <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={3}
-            placeholder="Una o dos frases bastan. Al pulsar HACER se alargan para llenar los minutos."
-            className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] resize-y" />
-        </label>
-      )}
 
       {(action === 'version' || action === 'tramo') && (
         <div className="flex flex-col gap-2">
@@ -591,17 +657,17 @@ export default function RemixActions({ fileName, onDone, initialAction = '', fic
       {action === 'tramo' && (
         <div className="flex flex-col gap-1">
           {/* key = otra pista remonta la onda: el recorte anterior no se hereda. */}
-          <Waveform key={fileName} fileName={fileName} onSelection={onRange} />
+          <Waveform key={fileName} fileName={fileName} sourceKind={sourceKind} onSelection={onRange} />
           <span className="mono text-[10px] text-[var(--faint)]">Arrastra la onda para marcar el trozo. Hasta vacío = el final de la pista.</span>
         </div>
       )}
 
       {action === 'ajustar' && (
-        <RemixPanel fileName={fileName} onRun={applyAjuste} />
+        <RemixPanel fileName={fileName} sourceKind={sourceKind} onRun={applyAjuste} />
       )}
 
       {current?.needsStrength && strength !== null && (
-        <span className="mono text-[10px] text-[var(--faint)]">Fuerza 1 se parece al original. Más baja, cambia más el estilo. El motor no se puede parar a mitad.</span>
+        <span className="mono text-[10px] text-[var(--faint)]">Fuerza 0,3-0,5: cambia mucho el estilo. 0,7-0,9: sutil, se parece al original. 1 casi lo copia.</span>
       )}
 
       {ACTION_NOTE[action] && (

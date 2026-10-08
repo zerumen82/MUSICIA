@@ -7,11 +7,14 @@ import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from
 import QualityWizard from './QualityWizard';
 import JobsPanel from './JobsPanel';
 import SelectBox from './SelectBox';
+import Glossary from './Glossary';
+import VariantChips from './VariantChips';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
 } from '../vocal';
 import { glossPrompt } from '../prompt_gloss';
+import { CATALOG_GENRES, findGenre } from '../genres';
 
 const UI = {
   minDuration: 10,
@@ -22,31 +25,20 @@ const UI = {
   step: 5,
 };
 
-/* Opciones reales que el backend acepta (MusicGenRequest): nada inventado. */
-const GENRES = [
-  { id: 'techno', tag: 'Techno', style: 'techno oscuro con bombo seco y sintetizadores graves' },
-  { id: 'lofi', tag: 'Lo-fi', style: 'lo-fi hip hop relajado con piano suave y vinilo de fondo' },
-  { id: 'synthwave', tag: 'Synthwave', style: 'synthwave nocturno con bajo analógico y arpegios retro' },
-  { id: 'epic', tag: 'Épica', style: 'música orquestal épica con cuerdas y percusión cinematográfica' },
-  { id: 'jazz', tag: 'Jazz', style: 'jazz café smooth con saxofón cálido y contrabajo' },
-  { id: 'ambient', tag: 'Ambient', style: 'ambient etéreo con pads largos y texturas espaciales' },
-  // Los tres los pide el asistente (QualityWizard): mismos tags para no perderlos.
-  { id: 'orquestal', tag: 'Orquestal', style: 'orquestal con cuerdas y percusión' },
-  { id: 'acustico', tag: 'Acústico', style: 'acústico con guitarras y folk' },
-  { id: 'electronica', tag: 'Electrónica', style: 'electrónica moderna con bajos profundos' },
-];
+/* Opciones reales que el backend acepta (MusicGenRequest): los 29 estilos oficiales del modelo. */
+const GENRES = CATALOG_GENRES;
 
 const MOODS = [
-  { id: 'nocturno', tag: 'Nocturno', text: 'ambiente nocturno' },
-  { id: 'tranquilo', tag: 'Tranquilo', text: 'ritmo tranquilo y relajado' },
-  { id: 'energico', tag: 'Enérgico', text: 'energía creciente y ritmo marcado' },
+  { id: 'nocturno', tag: 'Nocturno', text: 'nocturno y oscuro' },
+  { id: 'tranquilo', tag: 'Tranquilo', text: 'tranquilo y relajado, tempo lento' },
+  { id: 'energico', tag: 'Enérgico', text: 'enérgico y potente, driving e imparable' },
   { id: 'melancolico', tag: 'Melancólico', text: 'melancólico y emotivo' },
-  { id: 'cinematico', tag: 'Cinematográfico', text: 'tensión cinematográfica creciente' },
+  { id: 'cinematico', tag: 'Cinematográfico', text: 'cinematográfico, épico, con capas' },
   // Los cuatro los pide el asistente (QualityWizard): mismos tags para no perderlos.
-  { id: 'alegre', tag: 'Alegre', text: 'luminoso y optimista' },
-  { id: 'epico', tag: 'Épico', text: 'épico y grandioso' },
+  { id: 'alegre', tag: 'Alegre', text: 'luminoso y optimista, brillante' },
+  { id: 'epico', tag: 'Épico', text: 'épico y grandioso, como un himno' },
   { id: 'oscuro', tag: 'Oscuro', text: 'oscuro y tenso' },
-  { id: 'chill', tag: 'Chill', text: 'relajado y cálido' },
+  { id: 'chill', tag: 'Chill', text: 'chill relajado y cálido' },
 ];
 
 const BPM_PRESETS = [
@@ -90,7 +82,7 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false } }) {
+export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false }, jobs = [] }) {
   const [mode, setMode] = useState(initialMode);
   const [config, setConfig] = useState(null);
   const [prompt, setPrompt] = useState('');
@@ -114,12 +106,48 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [writingLyrics, setWritingLyrics] = useState(false);
   const [lyricsWarning, setLyricsWarning] = useState(null);
   const [showLyricPreview, setShowLyricPreview] = useState(false);
+  const [styleInfo, setStyleInfo] = useState(null); // capas + chips (del backend)
   const aliveRef = useRef(true);
   const durationTouched = useRef(false);
 
   const maxDuration = config?.max_duration_seconds ?? UI.maxDurationFallback;
 
   useEffect(() => () => { aliveRef.current = false; }, []);
+
+  /** Chips sugeridos mientras escribes: el backend decide (catálogo de
+      datos filtrado por género detectado), la UI nunca los inventa.
+      Debounce de 300 ms: escribir no machaca la red en cada tecla. */
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const info = await api.styleOptions(prompt.trim());
+      if (aliveRef.current) setStyleInfo(info);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [prompt]);
+
+  /** Cualquier texto (chip o entrada del glosario) se añade al prompt:
+      un solo cuadro, todo editable. */
+  const addTexto = (text) => {
+    const base = prompt.trim();
+    setPrompt(base ? `${base} ${text}` : text);
+  };
+  const addChip = (chip) => addTexto(chip.clause ?? chip.text);
+
+  /** Al elegir género: añade el término canónico al prompt y propone su BPM típico si no hay uno fijado. */
+  const onSelectGenre = (id) => {
+    setGenre(id || null);
+    if (!id) return;
+    const item = findGenre(id);
+    if (!item) return;
+    const p = prompt.trim();
+    const target = item.genre;
+    if (!p.toLowerCase().includes(target.toLowerCase())) {
+      setPrompt(p ? `${p} ${target}` : target);
+    }
+    if (bpm == null && item.bpm) {
+      setBpm(item.bpm);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -136,15 +164,20 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     return () => { active = false; };
   }, []);
 
-  /** Compone el prompt final: estilo del género + mood + texto libre + voz. */
+  /** Compone el prompt final: género + mood + texto libre + voz. */
   const buildPrompt = () => {
     const parts = [];
-    const g = GENRES.find((x) => x.id === genre);
-    if (g) parts.push(g.style);
     const m = MOODS.find((x) => x.id === mood);
     if (m) parts.push(m.text);
     const free = prompt.trim();
     if (free) parts.push(free);
+    // Si eligió género en el selector pero aún no está en el prompt escrito, añadirlo
+    if (genre) {
+      const g = findGenre(genre);
+      if (g && !free.toLowerCase().includes(g.genre.toLowerCase())) {
+        parts.unshift(g.genre);
+      }
+    }
     // En modo voz, los descriptores elegidos forman parte del prompt (A3).
     if (mode === 'voice') {
       const voiceTags = buildVocalTags(vocal);
@@ -351,9 +384,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       durationTouched.current = true;
       setDuration(Math.min(spec.duration, maxDuration));
     }
-    const g = GENRES.find((x) => x.tag === spec.genre);
+    const g = findGenre(spec.genre);
     if (g) setGenre(g.id);
-    const m = MOODS.find((x) => x.tag === spec.mood);
+    const m = MOODS.find((x) => x.tag === spec.mood || x.id === spec.mood);
     if (m) setMood(m.id);
   };
 
@@ -371,6 +404,28 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     }, 1000);
     return () => clearInterval(t);
   }, [busy]);
+
+  /** Todos los chips que sugiere el backend: son vocabulario real del
+      modelo (los valida backend/test_realism.py), así que AÑADIR se
+      muestra siempre, con prompt vacío y en cualquier modo. Se ofrecen en
+      lista: las cláusulas en inglés son largas y en línea llenaban la fila. */
+  const chipsSugeribles = (styleInfo?.chips ?? []).filter((c) => c.suggested);
+  const chipOptions = chipsSugeribles.map((c) => ({
+    id: c.label,
+    /* En la lista, etiqueta corta en español (lo que el usuario elige);
+       en el tooltip, la cláusula en inglés: eso es lo que se añade viaja. */
+    label: c.label,
+    title: `Se añade: «${c.clause ?? c.text}»`,
+  }));
+  const addChipById = (id) => {
+    const chip = chipsSugeribles.find((c) => c.label === id);
+    if (chip) addChip(chip);
+  };
+
+  /** Género seleccionado o detectado en el texto por el analizador del backend. */
+  const selectedGenre = genre || (
+    styleInfo?.detected_genre ? (findGenre(styleInfo.detected_genre)?.id ?? '') : ''
+  );
 
   return (
     <div className="min-h-full w-full flex flex-col px-6 py-6 gap-6 xl:px-10">
@@ -401,8 +456,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         {/* Una línea de desplegables. Las filas de chips llenaban la ventana. */}
         <div className="flex items-center gap-2 flex-wrap">
           <SelectBox label="GÉNERO" placeholder="AUTO"
-            options={GENRES.map(({ id, tag }) => ({ id, label: tag }))}
-            value={genre ?? ''} onChange={(id) => setGenre(id || null)} />
+            options={GENRES.map(({ id, label }) => ({ id, label }))}
+            value={selectedGenre} onChange={onSelectGenre} />
           <SelectBox label="MOOD" placeholder="AUTO"
             options={MOODS.map(({ id, tag }) => ({ id, label: tag }))}
             value={mood ?? ''} onChange={(id) => setMood(id || null)} />
@@ -429,9 +484,42 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           <textarea
             value={prompt}
             onChange={(e) => { setPrompt(e.target.value); if (enhanceInfo) setEnhanceInfo(null); }}
-            placeholder="…o describe libremente: guitarra española con lluvia de fondo…"
+            placeholder="Describe: estilo + ritmo + detalles. Ej.: «techno oscuro en 4x4, sin melodías». Di qué quieres que haga (doble bombo, percusiones, voz…) — el motor no adivina."
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
+          {/* AÑADIR en lista (igual que en remix), GLOSARIO al lado y
+              VARIANTES debajo: todo en inglés, que es lo que viaja al motor
+              (lo valida test_realism.py), y todo compacto. Si el backend no
+              responde o no hay sugerencias, se dice: nunca un desplegable
+              vacío sin explicación. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {chipOptions.length > 0 ? (
+              <SelectBox label="AÑADIR" placeholder="DETALLE DEL CATÁLOGO" clearable={false}
+                options={chipOptions} value="" onChange={addChipById} />
+            ) : (
+              <span className="label shrink-0">
+                {styleInfo === null ? 'AÑADIR · SIN DATOS DEL MOTOR' : 'AÑADIR · SIN SUGERENCIAS'}
+              </span>
+            )}
+            <Glossary prompt={prompt} setPrompt={setPrompt} />
+          </div>
+          <VariantChips prompt={prompt} setPrompt={setPrompt} />
+          {/* Previsualización de capas: tu frase / estilo detectado /
+              detalles. Solo lectura: el prompt sigue siendo UN texto. */}
+          {styleInfo && (styleInfo.detected_genre || styleInfo.modifiers?.length > 0) && (
+            <div className="flex items-center gap-4 flex-wrap pl-5">
+              {styleInfo.detected_genre && (
+                <span className="mono text-[10.5px] text-[var(--acc)]">
+                  ESTILO: {styleInfo.detected_genre}{styleInfo.suggested_bpm ? ` · ${styleInfo.suggested_bpm} bpm` : ''}
+                </span>
+              )}
+              {styleInfo.modifiers?.length > 0 && (
+                <span className="mono text-[10.5px] text-[var(--muted)]">
+                  DETALLES: {styleInfo.modifiers.join(', ')}
+                </span>
+              )}
+            </div>
+          )}
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
@@ -472,6 +560,22 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">DESCRIPCIÓN</dt>
                       <dd className="text-zinc-200">{finalPrompt || '(vacía)'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">ESTILO</dt>
+                      <dd className="text-[var(--faint)]">al enviar, el servidor añade la descripción en inglés del estilo que pide tu frase (la ves exacta con MEJORAR PROMPT)</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">MODELO</dt>
+                      <dd className="text-zinc-200">{config?.model ?? '(el rápido)'} · rápido = obedece el estilo a grandes rasgos, no los detalles (límite del modelo, no se puede subir)</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">FORMATO</dt>
+                      <dd className="text-zinc-200">{config?.use_format ? 'SÍ · el LM reescribe tu frase al formato de entrenamiento (no la sustituye)' : 'NO'}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">VARIANTES</dt>
+                      <dd className="text-zinc-200">{config?.batch_size ?? 1} por tirada · salen todas en BIBLIOTECA y eliges tú</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">IDIOMA VOZ</dt>
@@ -558,10 +662,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <Layers size={13} /> VARIAR
             </button>
           </div>
+          <span className="mono text-[10px] text-[var(--faint)]">CREAR usa el modelo rápido: acierta el estilo a grandes rasgos, no los detalles. Si pides detalles concretos y no salen, reestílalo en BIBLIOTECA (REESTILAR usa el modelo estricto, que sí obedece).</span>
         </div>
 
-        {/* Cola de trabajos + comparador A/B */}
-        <JobsPanel />
+        {/* Cola de trabajos + comparador A/B (tick compartido desde App) */}
+        <JobsPanel items={jobs} />
 
         {/* Estado del job: línea fina, sin caja */}
         {(busy || error || job?.status === 'failed') && (

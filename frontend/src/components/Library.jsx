@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Shuffle, Sparkles, Pencil, Check, ChevronDown,
+  Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Shuffle, Sparkles, Pencil, Check, ChevronDown, CheckSquare, Square, X,
 } from 'lucide-react';
 import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
@@ -19,7 +19,7 @@ const TASK_LABEL = {
   vocals: 'voz', instrumental: 'base', tempo: 'tempo', loop: 'loop', edit: 'ajuste',
 };
 
-export default function Library() {
+export default function Library({ externalRefresh = 0 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -35,12 +35,58 @@ export default function Library() {
   const [menuName, setMenuName] = useState(null); // item con el menú ACCIONES abierto
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [processing, setProcessing] = useState(false);
+  // Tempo medido por pista (GET /audio/groove, DSP local): se mide a mano,
+  // una pista cada vez, y se guarda en memoria. Nada automático por fila:
+  // medir toda la biblioteca serían N análisis seguidos.
+  const [measured, setMeasured] = useState({}); // name -> {bpm, confidence}
+  const [measuring, setMeasuring] = useState(null);
+
+  // Mide el tempo real de una pista de la biblioteca y, si la ficha trae el
+  // BPM pedido, enseña la diferencia (spec/02 [M3], cableado manual: la
+  // medición automática al generar sigue pendiente).
+  const measureTempo = async (name) => {
+    if (measuring) return;
+    setMeasuring(name);
+    try {
+      const g = await api.groove(name, 'output');
+      if (g?.bpm) setMeasured((prev) => ({ ...prev, [name]: { bpm: g.bpm, confidence: g.confidence ?? null } }));
+    } catch (e) {
+      if (!isTransportBlip(e.message)) setError(e.message);
+    } finally {
+      setMeasuring(null);
+    }
+  };
+  // Modo SELECCIONAR (spec/02 [L2]): marcar varias filas y borrar el bloque.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Versiones finales vs piezas (voz/base separadas): por defecto solo se
+  // ven las finales; las piezas se muestran en una sección aparte abajo,
+  // no desaparecen (spec/02 [L3]).
+  const [showParts, setShowParts] = useState(false);
+  const isPart = (i) => (
+    i.task_type === 'vocals' || i.task_type === 'instrumental'
+    // Fichas antiguas sin task (o marcadas "remix"): el nombre del stem manda.
+    || /-(base|voces)(-v\d+)?\.mp3$/i.test(i.name)
+  );
+  const finals = items.filter((i) => !isPart(i));
+  const parts = items.filter(isPart);
+  const visible = showParts ? [...finals, ...parts] : finals;
 
   const refresh = useCallback(async () => {
     setError(null);
     try {
       const data = await api.library();
-      setItems(data.items ?? []);
+      const list = data.items ?? [];
+      setItems(list);
+      // La recarga (manual o automática) no rompe la selección: solo poda.
+      const alive = new Set(list.map((i) => i.name));
+      setSelected((prev) => {
+        if (prev.size === 0) return prev;
+        const kept = new Set([...prev].filter((n) => alive.has(n)));
+        return kept.size === prev.size ? prev : kept;
+      });
     } catch (e) {
       if (!isTransportBlip(e.message)) setError(e.message);
     } finally {
@@ -49,6 +95,15 @@ export default function Library() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Auto-recarga al terminar un trabajo (spec/02 [L1]): App.jsx avisa con
+  // externalRefresh cuando la cola pasa de activa a vacía. Sin jobs no hay
+  // tráfico extra. Se salta el primer pintado (ya refresca el efecto de arriba).
+  const firstTick = React.useRef(true);
+  useEffect(() => {
+    if (firstTick.current) { firstTick.current = false; return; }
+    void refresh();
+  }, [externalRefresh, refresh]);
 
   const toggle = (name) => setPlaying((cur) => (cur === name ? null : name));
 
@@ -109,6 +164,43 @@ export default function Library() {
     }
   };
 
+  const toggleSelect = (name) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    setConfirmBulk(false);
+  };
+
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+    setConfirmBulk(false);
+  };
+
+  // Borrado en bloque con un solo SÍ/NO (spec/02 [L2]).
+  const removeMany = async () => {
+    const names = [...selected];
+    if (names.length === 0) return;
+    setBulkBusy(true);
+    setError(null);
+    try {
+      const res = await api.deleteMany(names);
+      if (playing && names.includes(playing)) setPlaying(null);
+      if (res.not_found?.length > 0) setError(`No estaban: ${res.not_found.join(', ')}`);
+      setSelected(new Set());
+      setConfirmBulk(false);
+      setSelectMode(false);
+      await refresh();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const applyProcess = async () => {
     if (!editName) return;
     setProcessing(true);
@@ -145,9 +237,41 @@ export default function Library() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-[1300px] mx-auto w-full px-6 py-8 xl:px-10 flex flex-col gap-6">
         {/* Cabecera */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <h2 className="h-title text-[20px]">BIBLIOTECA</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">{items.length} archivos · backend/outputs/</span>          <button onClick={refresh} className="btn btn-ghost h-8 px-3 ml-auto"><RefreshCw size={12} /> ACTUALIZAR</button>
+          <span className="mono text-[12px] text-[var(--faint)]">
+            {finals.length} versiones finales{parts.length > 0 ? ` · ${parts.length} base/voz aparte` : ''}
+          </span>
+          {selectMode ? (
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <span className="mono text-[11px] text-[var(--acc)]">{selected.size} SELECCIONADAS</span>
+              <button onClick={() => { setSelected(new Set(visible.map((i) => i.name))); setConfirmBulk(false); }}
+                className="btn btn-ghost h-8 px-3">TODAS</button>
+              <button onClick={() => { setSelected(new Set()); setConfirmBulk(false); }}
+                className="btn btn-ghost h-8 px-3">NINGUNA</button>
+              {confirmBulk ? (
+                <>
+                  <button onClick={() => void removeMany()} disabled={bulkBusy || selected.size === 0}
+                    className="btn btn-ghost h-8 px-3 !border-[rgba(255,92,92,0.5)] !text-red-300">
+                    {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : null} SÍ, BORRAR {selected.size}
+                  </button>
+                  <button onClick={() => setConfirmBulk(false)} className="btn btn-ghost h-8 px-3">NO</button>
+                </>
+              ) : (
+                <button onClick={() => setConfirmBulk(true)} disabled={selected.size === 0}
+                  className="btn btn-ghost h-8 px-3 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300">
+                  <Trash2 size={12} /> BORRAR
+                </button>
+              )}
+              <button onClick={exitSelect} className="btn btn-ghost h-8 px-3"><X size={12} /> SALIR</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 ml-auto">
+              <button onClick={() => { setSelectMode(true); setMenuName(null); setConfirmDelete(null); }}
+                className="btn btn-ghost h-8 px-3">SELECCIONAR</button>
+              <button onClick={refresh} className="btn btn-ghost h-8 px-3"><RefreshCw size={12} /> ACTUALIZAR</button>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -164,12 +288,29 @@ export default function Library() {
           </p>
         )}
 
-        {/* Lista */}
+        {/* Lista: primero las versiones finales; las piezas (voz/base) se
+            añaden al final SOLO si el usuario las pide abajo. */}
         <div className="flex flex-col">
-          {items.map((item) => (
-            <div key={item.name} className="border-b border-[var(--line)]">
+          {visible.map((item) => (
+            <div key={item.name} className={`border-b border-[var(--line)] ${isPart(item) ? 'opacity-60' : ''}`}>
               <div className={`flex flex-col gap-2 py-3 px-2 ${playing === item.name ? 'bg-[var(--acc-dim)]' : ''}`}>
-                <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className={`flex items-center gap-3 min-w-0 ${selectMode ? 'cursor-pointer' : ''}`}
+                  onClick={selectMode ? (e) => {
+                    // En modo SELECCIONAR el clic en la fila marca; los
+                    // controles siguen siendo clicables sin marcar.
+                    if (e.target.closest('button,a,input,audio')) return;
+                    toggleSelect(item.name);
+                  } : undefined}
+                >
+                  {selectMode && (
+                    <button onClick={() => toggleSelect(item.name)} title="seleccionar"
+                      className="shrink-0 text-[var(--muted)] hover:text-[var(--acc)]">
+                      {selected.has(item.name)
+                        ? <CheckSquare size={17} className="text-[var(--acc)]" />
+                        : <Square size={17} />}
+                    </button>
+                  )}
                   <button onClick={() => toggle(item.name)}
                     className={`w-11 h-11 rounded-[4px] flex items-center justify-center shrink-0 border ${playing === item.name ? 'bg-[var(--acc)] border-[var(--acc)]' : 'border-[var(--line-strong)] hover:border-[var(--faint)]'}`}>
                     {playing === item.name ? <Pause size={15} className="text-[#0c0f04]" fill="currentColor" />
@@ -238,6 +379,24 @@ export default function Library() {
                     <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-8 px-2.5 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300">
                       <Trash2 size={12} /> BORRAR
                     </button>
+                    <button onClick={() => void measureTempo(item.name)} disabled={measuring === item.name}
+                      className="btn btn-ghost h-8 px-2.5" title="Mide el tempo real de esta pista (DSP local)">
+                      {measuring === item.name ? <Loader2 size={12} className="animate-spin" /> : null} TEMPO
+                    </button>
+                  </div>
+                )}
+                {measured[item.name] && menuName === item.name && (
+                  <div className="flex flex-wrap gap-2 pl-14 pt-1">
+                    <span className="mono text-[10.5px] text-[var(--acc)]">
+                      MEDIDO ≈{Math.round(measured[item.name].bpm)} BPM
+                      {measured[item.name].confidence != null
+                        ? ` · SEGURIDAD ${Math.round(measured[item.name].confidence * 100)}%` : ''}
+                    </span>
+                    {item.bpm && Math.abs(item.bpm - measured[item.name].bpm) >= 3 && (
+                      <span className="mono text-[10.5px] text-[var(--warn)]">
+                        PEDÍA {Math.round(item.bpm)} · SALE {Math.round(measured[item.name].bpm)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -319,6 +478,20 @@ export default function Library() {
             </div>
           ))}
         </div>
+
+        {/* Piezas aparte (spec/02 [L3]): existen, pero no marean. */}
+        {!loading && finals.length === 0 && parts.length > 0 && !showParts && (
+          <p className="mono text-[11px] text-[var(--faint)] py-4 text-center">
+            SIN VERSIONES FINALES TODAVÍA · LAS PIEZAS ESTÁN DETRÁS DE ESTE BOTÓN
+          </p>
+        )}
+        {parts.length > 0 && !loading && (
+          <button type="button" onClick={() => setShowParts((v) => !v)}
+            className="btn btn-ghost h-7 px-3 self-start text-[10px]">
+            <ChevronDown size={11} className={showParts ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            {showParts ? 'OCULTAR' : 'VER'} BASE Y VOZ SEPARADAS · {parts.length}
+          </button>
+        )}
       </div>
     </div>
   );

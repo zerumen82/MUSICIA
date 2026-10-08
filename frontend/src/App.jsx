@@ -20,9 +20,17 @@ const POLL_HEALTH_MS = 10000;
 function App() {
   const [tab, setTab] = useState('composer');
   const [engine, setEngine] = useState({ checked: false, ok: false });
-  const [modelName, setModelName] = useState('');
+  const [models, setModels] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
   const activeJobRef = useRef(null);
+  // La cola la sondea App UNA vez cada 3 s y la reparte: la barra, el
+  // auto-refresh de BIBLIOTECA/MEZCLA y JobsPanel beben del mismo tick.
+  const [jobsFeed, setJobsFeed] = useState([]);
+  // Cada vez que cambia lo que hay en outputs/, BIBLIOTECA se recarga sola
+  // (huella del servidor, spec/02 [R1]: cubre trabajos encadenados, mezclas
+  // DSP síncronas y borrados, que no pasan por la cola de jobs).
+  const [libraryTick, setLibraryTick] = useState(0);
+  const libraryVersionRef = useRef(null);
 
   useEffect(() => {
     activeJobRef.current = activeJob;
@@ -41,13 +49,20 @@ function App() {
       if (health?.engine?.unknown || health?.engine?.busy || activeJobRef.current) return;
       setEngine({ checked: true, ok: false });
     };
+    // Modelo y VRAM se refrescan con el mismo ritmo que la salud: un VRAM
+    // congelado en el arranque mentiría durante una generación.
+    const loadModels = () => {
+      api.musicModels().then((info) => {
+        if (!alive || !info) return;
+        setModels(info);
+      }).catch(() => {});
+    };
     check();
-    api.musicModels().then((info) => {
-      if (!alive || !info) return;
-      const name = [info.loaded || info.configured, info.loaded_lm].filter(Boolean).join(' · ');
-      setModelName(name);
-    }).catch(() => {});
-    const t = setInterval(check, POLL_HEALTH_MS);
+    loadModels();
+    const t = setInterval(() => {
+      check();
+      loadModels();
+    }, POLL_HEALTH_MS);
     return () => { alive = false; clearInterval(t); };
   }, []);
 
@@ -56,8 +71,16 @@ function App() {
     const tick = async () => {
       try {
         const data = await api.musicJobs();
-        const active = (data.items ?? []).find((job) => job.status === 'queued' || job.status === 'running');
-        if (alive) setActiveJob(active ?? null);
+        const feed = data.items ?? [];
+        const active = feed.find((job) => job.status === 'queued' || job.status === 'running');
+        if (!alive) return;
+        // Un MP3 nuevo o borrado cambia la huella: avisar a BIBLIOTECA.
+        const version = data.library_version ?? null;
+        const prevVersion = libraryVersionRef.current;
+        libraryVersionRef.current = version;
+        setJobsFeed(feed);
+        setActiveJob(active ?? null);
+        if (prevVersion !== null && version !== prevVersion) setLibraryTick((t) => t + 1);
       } catch {
         // Un fallo de red no borra la fase que ya se estaba viendo.
       }
@@ -125,7 +148,19 @@ function App() {
               <span className="block">
                 {!engine.checked ? 'MOTOR' : engine.ok ? 'MOTOR ACTIVO' : 'MOTOR APAGADO'}
               </span>
-              {modelName ? <span className="block normal-case tracking-normal text-[var(--faint)]">{modelName}</span> : null}
+              {models ? (
+                <span className="block normal-case tracking-normal text-[var(--faint)]">
+                  {[models.loaded || models.configured, models.loaded_lm]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  {Number.isFinite(models.vram_free_mb) && models.vram_free_mb > 0
+                    ? ` · VRAM ${models.vram_free_mb} MB`
+                    : ''}
+                  {models.remix_model && models.remix_model !== models.loaded
+                    ? <span className="block">remix: {models.remix_model}</span>
+                    : null}
+                </span>
+              ) : null}
             </span>
           </div>
         </div>
@@ -163,10 +198,10 @@ function App() {
 
         <main className="flex-1 min-h-0 overflow-hidden">
           {/* Montadas siempre: cambiar de pestaña no borra la letra ni el sondeo. */}
-          <div className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} /></div>
+          <div className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} jobs={jobsFeed} /></div>
           <div className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads /></div>
-          <div className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab /></div>
-          <div className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library /></div>
+          <div className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab externalRefresh={libraryTick} /></div>
+          <div className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library externalRefresh={libraryTick} /></div>
         </main>
       </div>
     </div>
