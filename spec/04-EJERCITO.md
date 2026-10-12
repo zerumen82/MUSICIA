@@ -86,6 +86,10 @@ Motor: ACE-Step 1.5 (Apache 2.0). MusicGen / audiocraft quedan fuera (CC-BY-NC).
 
 En Codebuff se invocan por id (`sd-coordinator`, `music-orchestrator`, …). En un CLI sin ese spawn, el mismo prompt se usa como encargo del rol. El veredicto del tester y del reviewer se escribe igual en `memory.md`.
 
+Los modelos de las tablas identifican la configuración histórica de esas definiciones; no sustituyen las capacidades disponibles en la sesión ni ordenan instalar modelos. Los roles reviewer y tester se ejercitan siempre como pasos explícitos y separados. Su revisión cubre archivos completos y criterios verificables; un APPROVE de un plan o informe y un PASS parcial no equivalen a aprobar/cerrar el producto.
+
+La autorización del usuario persiste: las correcciones R9/R10 de `memory.md` CII continúan dentro de ese alcance. Se pregunta ante decisiones nuevas no triviales, sin volver a solicitar autorización para lo ya aprobado. Para cerrar se registran los nuevos **APPROVE del reviewer + PASS del tester**, con pruebas reales y límites declarados.
+
 ## Especificación (spec/, dentro de cada proyecto)
 
 | Archivo | Contenido |

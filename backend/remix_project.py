@@ -20,6 +20,7 @@ from loguru import logger
 
 from mixer_service import MixerService
 from music_service import GenerationRequest, MusicEngineError
+from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from separator_service import SeparatorService
 from source_understanding import category_catalog
 
@@ -118,6 +119,32 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
             raise ValueError("Conservar la voz y eliminarla mediante instrumental son instrucciones incompatibles")
     elif request.groups is not None or request.gains_db:
         raise ValueError("Los grupos y sus volúmenes solo se aplican al ámbito Por pistas")
+    voice_control = request.instrumental
+    if request.scope == "groups":
+        voice_action = request.groups.get("vocals")
+        if voice_action in {"keep", "remove"}:
+            voice_control = voice_action == "remove"
+    validate_explicit_constraints(request.prompt, bpm=request.bpm, instrumental=voice_control,
+                                  lyrics=request.lyrics, marker=settings.generation.instrumental_marker)
+
+
+def project_generation(request, source, reference, settings) -> GenerationRequest:
+    """Contrato único para el preview y el envío tras preparar el material."""
+    config = settings.remix
+    return GenerationRequest(
+        prompt=request.prompt, lyrics=request.lyrics, instrumental=request.instrumental,
+        task_type="repaint" if request.scope == "region" else "cover", source_path=str(source),
+        reference_path=str(reference) if reference else None,
+        duration_seconds=None, bpm=request.bpm, seed=request.seed,
+        model=settings.generation.remix_model, audio_format=config.intermediate_format,
+        cover_strength=(settings.generation.remix_cover_strength if request.cover_strength is None else request.cover_strength),
+        cover_noise_strength=config.cover_noise_strength if request.cover_noise_strength is None else request.cover_noise_strength,
+        repaint_start=request.region_start, repaint_end=request.region_end,
+        repaint_mode=request.repaint_mode or config.repaint_mode,
+        repaint_strength=config.repaint_strength if request.repaint_strength is None else request.repaint_strength,
+        repaint_wav_crossfade_sec=config.repaint_wav_crossfade_sec if request.repaint_wav_crossfade_sec is None else request.repaint_wav_crossfade_sec,
+        repaint_latent_crossfade_frames=config.repaint_latent_crossfade_frames if request.repaint_latent_crossfade_frames is None else request.repaint_latent_crossfade_frames,
+    )
 
 
 class RemixProjectRuntime:
@@ -132,6 +159,7 @@ class RemixProjectRuntime:
         self.carry_ficha, self.measure_bpm, self.now, self.cancelled = carry_ficha, measure_bpm, now, cancelled
         app.add_api_route("/music/remix/capabilities", self.capabilities, methods=["GET"])
         app.add_api_route("/music/remix/project", self.create, methods=["POST"])
+        app.add_api_route("/music/remix/preview", self.preview, methods=["POST"])
         app.add_api_route("/music/remix/separate", self.separate, methods=["POST"])
 
     async def capabilities(self) -> dict:
@@ -150,6 +178,13 @@ class RemixProjectRuntime:
                 "repaint_latent_crossfade_frames": remix.repaint_latent_crossfade_frames,
                 "batch_size": generation.batch_size,
             },
+            "repaint_controls": {
+                "strength_modes": ["balanced"],
+                "crossfade_editable": False,
+                "crossfade_origin": "engine_mode_strength_contract",
+                "max_latent_frames": remix.repaint_resolution_max_frames,
+                "max_wav_seconds": remix.repaint_resolution_max_wav_seconds,
+            },
             "intermediate_format": remix.intermediate_format,
             "limitations": {
                 "other": "Puede contener guitarra, piano, sintetizadores, pads y efectos juntos.",
@@ -160,6 +195,7 @@ class RemixProjectRuntime:
                                           "modos conservador y equilibrado la onda fuera del tramo se "
                                           "conserva con su forma, pero el resultado puede llevar un cambio "
                                           "global de nivel. La exportación final aplica el master configurado."),
+                "repaint_controls": "La fuerza actúa solo en equilibrado. El motor deriva las transiciones WAV/latentes del modo y la fuerza; los controles crossfade independientes no tienen efecto.",
             },
         }
 
@@ -168,16 +204,81 @@ class RemixProjectRuntime:
                 "source": source.name, "prompt": prompt, "error": None, "events": [],
                 "started": time.monotonic(), "created_at": self.now()}
 
+    def prepare(self, request, source, reference, duration) -> dict:
+        validate_project(request, duration, self.settings)
+        config = self.settings.remix
+        transform = request.scope != "groups" or "transform" in request.groups.values()
+        if transform:
+            result = self.music.preview(project_generation(request, source, reference, self.settings))
+            for key, field_name in {
+                "audio_cover_strength": "cover_strength", "cover_noise_strength": "cover_noise_strength",
+                "repaint_mode": "repaint_mode", "repaint_strength": "repaint_strength",
+                "repaint_wav_crossfade_sec": "repaint_wav_crossfade_sec",
+                "repaint_latent_crossfade_frames": "repaint_latent_crossfade_frames",
+            }.items():
+                if key in result["provenance"]:
+                    result["provenance"][key] = "request" if getattr(request, field_name) is not None else "configuration"
+            for key in ("task_type", "audio_format"):
+                result["provenance"][key] = "operation_contract"
+            result["provenance"]["model"] = "configuration"
+            if request.scope == "region":
+                for key in ("repaint_wav_crossfade_sec", "repaint_latent_crossfade_frames"):
+                    result["provenance"][key] = "engine_mode_strength_contract"
+                if (request.repaint_mode or config.repaint_mode) != "balanced":
+                    result["provenance"]["repaint_strength"] = "ignored_by_engine_mode"
+            if request.scope == "groups":
+                # No hay aún un WAV recombinado. No inventar una ruta existente.
+                result["effective_parameters"]["src_audio_path"] = None
+                result["provenance"]["src_audio_path"] = "pending_derived_material"
+        else:
+            result = {"effective_parameters": {}, "provenance": {},
+                      "warnings": [constraint_rules()["limitation"],
+                                   "Operación determinista: no usa motor, batch ni semilla."]}
+        result["operations"] = {
+            "scope": request.scope, "source": source.name,
+            "source_kind": request.source_kind,
+            "source_duration_seconds": duration, "groups": request.groups,
+            "gains_db": {group: request.gains_db.get(group, 0.0)
+                         for group, action in (request.groups or {}).items() if action != "remove"},
+            "separation_required": request.scope == "groups",
+            "engine_required": transform,
+            "export": {"format": "mp3", "bitrate": config.export_bitrate,
+                       "sample_rate": config.sample_rate, "peak_limit_dbfs": config.peak_limit_dbfs},
+        }
+        result["pending_material"] = ([{
+            "parameter": "src_audio_path", "path": None,
+            "source": source.name,
+            "groups": [group for group, action in request.groups.items() if action == "transform"],
+            "operation": "Separación del original y mezcla PCM de los grupos a transformar",
+        }] if transform and request.scope == "groups" else [])
+        if request.scope == "region":
+            result["warnings"].append("El motor normaliza el nivel global antes de repintar; el master final puede cambiar el nivel fuera del intervalo.")
+            if (request.repaint_mode or config.repaint_mode) == "aggressive":
+                result["warnings"].append("El modo agresivo no garantiza conservar el audio fuera del intervalo.")
+        if request.scope == "groups":
+            result["warnings"].append("La separación es estimada: acompañamiento agrupa instrumentos; la mezcla transformada depende de material aún por preparar.")
+        return result
+
+    async def _prepare(self, request):
+        source = self.find_audio(request.source_name, request.source_kind)
+        reference = self.find_audio(request.reference_name, request.reference_kind) if request.reference_name else None
+        def duration_seconds():
+            with source.open("rb") as stream:
+                return len(AudioSegment.from_file(stream, format=source.suffix.lstrip("."))) / 1000
+        duration = await asyncio.to_thread(duration_seconds)
+        try:
+            prepared = self.prepare(request, source, reference, duration)
+        except (ValueError, MusicEngineError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return source, reference, duration, prepared
+
+    async def preview(self, request: RemixProjectRequest) -> dict:
+        return (await self._prepare(request))[3]
+
     async def create(self, request: RemixProjectRequest, background_tasks: BackgroundTasks) -> dict:
         from source_understanding import completed_analysis_for
 
-        source = self.find_audio(request.source_name, request.source_kind)
-        reference = self.find_audio(request.reference_name, request.reference_kind) if request.reference_name else None
-        duration = await asyncio.to_thread(lambda: len(AudioSegment.from_file(source)) / 1000)
-        try:
-            validate_project(request, duration, self.settings)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        source, reference, duration, prepared = await self._prepare(request)
         # Se comprueba tras el único await de admisión, antes de registrar el job.
         if reason := self.busy():
             raise HTTPException(status_code=409, detail=reason)
@@ -185,6 +286,9 @@ class RemixProjectRuntime:
         job["project"] = request.model_dump()
         job["source_analysis"] = completed_analysis_for(source)
         job["duration_seconds"] = duration
+        job.update(effective_parameters=prepared["effective_parameters"],
+                   provenance=prepared["provenance"], warnings=prepared["warnings"],
+                   operations=prepared["operations"], pending_material=prepared["pending_material"])
         self.remember(self.remix_jobs, job["job_id"], job)
         self.save()
         background_tasks.add_task(self.run, job, source, reference, request, duration)
@@ -202,6 +306,7 @@ class RemixProjectRuntime:
         return {"job_id": job["job_id"], "status": "queued"}
 
     async def run_separate(self, job: dict, source: Path) -> None:
+        job["compute_active"] = True
         try:
             async with COMPUTE_LOCK:
                 self.cancelled(job)
@@ -216,6 +321,7 @@ class RemixProjectRuntime:
         except Exception as exc:
             self._fail(job, exc)
         finally:
+            job["compute_active"] = False
             self.save()
 
     async def _groups(self, source, job, out_dir, stem):
@@ -236,6 +342,7 @@ class RemixProjectRuntime:
         work.mkdir(parents=True, exist_ok=True)
         originals = {}
         targets = []
+        job["compute_active"] = True
         try:
             async with COMPUTE_LOCK:
                 self.cancelled(job)
@@ -268,26 +375,11 @@ class RemixProjectRuntime:
                 if request.scope != "groups" or targets:
                     task = "repaint" if request.scope == "region" else "cover"
                     self.event(job, f"Transformando el audio original con {task}")
-                    generation = GenerationRequest(
-                        prompt=request.prompt, lyrics=request.lyrics, instrumental=request.instrumental,
-                        task_type=task, source_path=str(engine_source),
-                        reference_path=str(reference) if reference else None,
-                        duration_seconds=None, bpm=request.bpm, seed=request.seed,
-                        model=self.settings.generation.remix_model,
-                        audio_format=config.intermediate_format,
-                        cover_strength=(self.settings.generation.remix_cover_strength
-                                        if request.cover_strength is None else request.cover_strength),
-                        cover_noise_strength=(config.cover_noise_strength if request.cover_noise_strength is None
-                                              else request.cover_noise_strength),
-                        repaint_start=request.region_start, repaint_end=request.region_end,
-                        repaint_mode=request.repaint_mode or config.repaint_mode,
-                        repaint_strength=config.repaint_strength if request.repaint_strength is None else request.repaint_strength,
-                        repaint_wav_crossfade_sec=(config.repaint_wav_crossfade_sec if request.repaint_wav_crossfade_sec is None
-                                                  else request.repaint_wav_crossfade_sec),
-                        repaint_latent_crossfade_frames=(config.repaint_latent_crossfade_frames if request.repaint_latent_crossfade_frames is None
-                                                        else request.repaint_latent_crossfade_frames),
-                    )
+                    generation = project_generation(request, engine_source, reference, self.settings)
                     job["effective_parameters"] = self.music.build_payload(generation)
+                    if request.scope == "groups":
+                        job["provenance"]["src_audio_path"] = "derived_material"
+                    job["pending_material"] = []
 
                     def update(status):
                         self.cancelled(job)
@@ -341,13 +433,16 @@ class RemixProjectRuntime:
                     await self.music.verify_audio(output)
                     measured = await asyncio.to_thread(self.measure_bpm, output)
                     variant = {"file_name": output.name, "intermediate_path": str(timeline),
-                               "seed": track.metas.get("seed") if track else None,
+                               "seed": track.seed if track else None,
+                               "seed_origin": track.seed_origin if track else "not_applicable",
                                "engine_metas": track.metas if track else {}, **mastering}
                     self.carry_ficha(source, output, "remix-project", prompt=request.prompt,
                                      project=request.model_dump(), effective_parameters=job.get("effective_parameters"),
                                      source_analysis=job.get("source_analysis"),
                                      source_digest=digest, mastering=mastering,
-                                     seed=variant["seed"], **(measured or {}))
+                                     seed=variant["seed"], seed_origin=variant["seed_origin"],
+                                     seed_requested=request.seed if track else None,
+                                     provenance=job.get("provenance"), **(measured or {}))
                     exported.append(output.name)
                     metadata.append(variant)
                 self.cancelled(job)
@@ -364,4 +459,5 @@ class RemixProjectRuntime:
         except Exception as exc:
             self._fail(job, exc)
         finally:
+            job["compute_active"] = False
             self.save()

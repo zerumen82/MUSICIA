@@ -30,6 +30,7 @@ from loguru import logger
 from pydub import AudioSegment
 
 from config import AppSettings, GenerationDefaults, get_settings
+from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 
 # Códigos de estado que devuelve /query_result (STATUS_MAP del motor).
 STATUS_PENDING = 0
@@ -99,6 +100,7 @@ class GenerationRequest:
     repaint_strength: float | None = None
     repaint_wav_crossfade_sec: float | None = None
     repaint_latent_crossfade_frames: int | None = None
+    external_voice: bool = False
 
 
 @dataclass
@@ -109,6 +111,8 @@ class GeneratedTrack:
     prompt: str = ""
     lyrics: str = ""
     metas: dict[str, Any] = field(default_factory=dict)
+    seed: int | None = None
+    seed_origin: str = "unknown"
 
 
 @dataclass
@@ -298,6 +302,16 @@ class MusicService:
             defaults.instrumental if task == "text2music" and request.instrumental is None
             else request.instrumental is True
         )
+        try:
+            validate_explicit_constraints(
+                request.prompt, bpm=defaults.bpm if request.bpm is None else request.bpm,
+                time_signature=defaults.time_signature if request.time_signature is None else request.time_signature,
+                instrumental=(False if request.external_voice else instrumental if task == "text2music" else request.instrumental),
+                lyrics=request.lyrics, marker=defaults.instrumental_marker,
+                external_voice=request.external_voice,
+            )
+        except ValueError as exc:
+            raise MusicEngineError(str(exc)) from exc
         duration = defaults.duration_seconds if request.duration_seconds is None else request.duration_seconds
         if duration <= 0 or duration > defaults.max_duration_seconds:
             raise MusicEngineError(
@@ -414,12 +428,60 @@ class MusicService:
             "repaint_wav_crossfade_sec", "repaint_latent_crossfade_frames",
         ):
             value = getattr(request, name)
-            if value is not None:
+            if value is not None and (not name.startswith("repaint_") or task == "repaint"):
                 payload[name] = value
+        if task == "repaint":
+            config = self.settings.remix
+            mode = request.repaint_mode or config.repaint_mode
+            strength = config.repaint_strength if request.repaint_strength is None else request.repaint_strength
+            if mode not in config.repaint_modes or not 0.0 <= strength <= 1.0:
+                raise MusicEngineError("Modo o fuerza de repaint fuera del contrato del motor")
+            # ACE-Step deriva estas transiciones del modo/fuerza; ignora
+            # los dos campos crossfade enviados. Registrar el valor real.
+            preservation = 0.0 if mode == "aggressive" else 1.0 if mode == "conservative" else 1.0 - strength
+            payload["repaint_mode"] = mode
+            payload["repaint_strength"] = strength
+            payload["repaint_latent_crossfade_frames"] = round(config.repaint_resolution_max_frames * preservation)
+            payload["repaint_wav_crossfade_sec"] = config.repaint_resolution_max_wav_seconds * preservation
         if task in {"cover", "repaint"} and request.duration_seconds is None:
             # Cero o negativo: el motor toma la duración del audio de origen.
             payload["audio_duration"] = -1
         return payload
+
+    def preview(self, request: GenerationRequest) -> dict[str, Any]:
+        """La misma preparación que submit, sin HTTP, copias ni generación."""
+        payload = self.build_payload(request)
+        aliases = {
+            "audio_duration": "duration_seconds", "vocal_language": "language",
+            "audio_cover_strength": "cover_strength", "src_audio_path": "source_path",
+            "reference_audio_path": "reference_path", "repainting_start": "repaint_start",
+            "repainting_end": "repaint_end",
+        }
+        provenance = {}
+        for key in payload:
+            field_name = aliases.get(key, key)
+            value = getattr(request, field_name, None)
+            provenance[key] = "request" if value is not None else "configuration"
+        for key in ("thinking", "use_cot_caption", "use_cot_language", "use_cot_metas", "chunk_mask_mode"):
+            if key in payload:
+                provenance[key] = "operation_contract"
+        if payload.get("lyrics") == self.defaults.instrumental_marker:
+            provenance["lyrics"] = "instrumental_control"
+        if payload.get("audio_duration") == -1:
+            provenance["audio_duration"] = "source_duration"
+        warnings = [constraint_rules()["limitation"]]
+        if any(payload.get(key) for key in ("src_audio_path", "reference_audio_path")):
+            warnings.append("Al enviar, el mismo archivo se copia a una ruta temporal admitida por el motor; esa ruta de transporte no cambia el material ni los parámetros.")
+        if request.external_voice:
+            warnings.append("El motor genera solo la base instrumental; la voz procede del audio original y se mezcla después.")
+        if payload["task_type"] == "repaint":
+            for key in ("repaint_latent_crossfade_frames", "repaint_wav_crossfade_sec"):
+                provenance[key] = "engine_mode_strength_contract"
+            warnings.append("Las transiciones WAV y latentes se derivan del modo y la fuerza por el motor instalado; los valores crossfade directos del request no tienen efecto independiente.")
+            if payload["repaint_mode"] != "balanced":
+                provenance["repaint_strength"] = "ignored_by_engine_mode"
+                warnings.append("La fuerza de repaint solo tiene efecto en modo equilibrado.")
+        return {"effective_parameters": payload, "provenance": provenance, "warnings": warnings}
 
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""
@@ -509,15 +571,36 @@ class MusicService:
         if not isinstance(raw_result, list):
             return []
         tracks = []
-        for entry in raw_result:
+        for index, entry in enumerate(raw_result):
             if not isinstance(entry, dict):
                 continue
+            # La API real devuelve seed_value (lista ordenada) fuera de metas.
+            # No derivar seed+n ni usar la semilla solicitada como si fuera real.
+            raw_seed = entry.get("seed")
+            seed_origin = "engine.seed"
+            if raw_seed is None and isinstance(entry.get("metas"), dict):
+                raw_seed = entry["metas"].get("seed")
+                seed_origin = "engine.metas.seed"
+            if raw_seed is None:
+                raw_values = str(entry.get("seed_value") or "").split(",")
+                if len(raw_values) == len(raw_result):
+                    raw_seed = raw_values[index].strip()
+                    seed_origin = "engine.seed_value"
+            try:
+                real_seed = int(raw_seed) if raw_seed is not None else None
+                if real_seed is not None and real_seed < 0:
+                    real_seed = None
+            except (TypeError, ValueError):
+                real_seed = None
             tracks.append(
                 {
                     "file": str(entry.get("file") or ""),
                     "prompt": str(entry.get("prompt") or ""),
                     "lyrics": str(entry.get("lyrics") or ""),
                     "metas": entry.get("metas") or {},
+                    "seed": real_seed,
+                    "seed_origin": seed_origin if real_seed is not None else "unknown",
+                    "error": entry.get("error"),
                     "progress": entry.get("progress"),
                     "stage": entry.get("stage"),
                 }

@@ -127,6 +127,46 @@ def pick_device() -> str:
     return "cuda" if free >= GPU_MIN_FREE_MB else "cpu"
 
 
+def run_cancellable_process(cmd, settings, cancelled=None):
+    """No libera el trabajo hasta que el proceso local ha terminado de verdad."""
+    if cancelled and cancelled():
+        raise RuntimeError("Cancelado por el usuario")
+    started = time.monotonic()
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, errors="replace") as proc:
+        try:
+            while True:
+                if cancelled and cancelled():
+                    raise RuntimeError("Cancelado por el usuario")
+                if time.monotonic() - started > settings.subprocess_timeout_seconds:
+                    raise RuntimeError("El proceso de separación agotó el tiempo máximo configurado")
+                try:
+                    stdout, stderr = proc.communicate(timeout=settings.subprocess_poll_seconds)
+                    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            if proc.poll() is None:
+                if os.name == "nt":
+                    # El python.exe del venv puede ser un launcher con otro
+                    # Python hijo. Matar el PID padre dejaría Demucs/GPU vivo.
+                    # /T se limita al árbol del proceso que acabamos de crear.
+                    stopped = subprocess.run(
+                        ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                        capture_output=True, text=True, errors="replace",
+                        timeout=settings.subprocess_termination_seconds,
+                    )
+                    if stopped.returncode and proc.poll() is None:
+                        raise RuntimeError(f"No se pudo terminar el árbol del separador {proc.pid}: {stopped.stderr or stopped.stdout}")
+                else:
+                    proc.terminate()
+                try:
+                    proc.communicate(timeout=settings.subprocess_termination_seconds)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.communicate()
+
+
 class SeparatorService:
     """Extrae la voz (y la base) de una pista real."""
 
@@ -153,27 +193,10 @@ class SeparatorService:
                 "--clip-mode", "none", "--shifts", str(settings.demucs_shifts),
                 "--overlap", str(settings.demucs_overlap), "-o", work, str(source),
             ]
-            started = time.monotonic()
-            with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  text=True, errors="replace") as proc:
-                try:
-                    while True:
-                        if cancelled and cancelled():
-                            raise RuntimeError("Cancelado por el usuario")
-                        if time.monotonic() - started > settings.subprocess_timeout_seconds:
-                            raise RuntimeError("Demucs agotó el tiempo máximo configurado")
-                        try:
-                            stdout, stderr = proc.communicate(timeout=settings.subprocess_poll_seconds)
-                            break
-                        except subprocess.TimeoutExpired:
-                            continue
-                finally:
-                    if proc.poll() is None:
-                        proc.terminate()
-                        proc.communicate()
-                if proc.returncode:
-                    tail = (stderr or stdout or "").strip().splitlines()[-8:]
-                    raise RuntimeError(f"Demucs falló en {device}: {' | '.join(tail)}")
+            proc = run_cancellable_process(cmd, settings, cancelled)
+            if proc.returncode:
+                tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
+                raise RuntimeError(f"Demucs falló en {device}: {' | '.join(tail)}")
             produced = Path(work) / settings.demucs_model / source.stem
             groups = []
             for group in settings.groups:
@@ -194,7 +217,8 @@ class SeparatorService:
         return {"device": device, "groups": groups}
 
     @staticmethod
-    def separate(source: Path, out_dir: Path, stem_name: str) -> dict:
+    def separate(source: Path, out_dir: Path, stem_name: str,
+                 cancelled: Callable[[], bool] | None = None, settings=None) -> dict:
         """Separa `source` en voz y base usando demucs.
 
         Escribe `{stem_name}-voces.mp3` y `{stem_name}-base.mp3` en `out_dir`.
@@ -211,41 +235,44 @@ class SeparatorService:
         if not source.exists():
             raise FileNotFoundError(f"No existe la pista: {source.name}")
 
-        device = pick_device()
+        if settings is None:
+            from config import get_settings
+            settings = get_settings().remix
+        if cancelled and cancelled():
+            raise RuntimeError("Cancelado por el usuario")
+        device = pick_device() if settings.demucs_device == "auto" else settings.demucs_device
         logger.info(f"Separando {source.name} en {device} (VRAM libre: {free_vram_mb()} MB)")
 
-        work = out_dir / "_separacion"
-        work.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            str(DEMUCS_PYTHON), str(Path(__file__).with_name("demucs_local.py")),
-            "--two-stems=vocals",
-            "-d", device,
-            "-n", "htdemucs",
-            "-o", str(work),
-            str(source),
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-4:]
-            raise RuntimeError(f"demucs falló en {device}: {' | '.join(tail)}")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="musicia-voice-", dir=out_dir) as work:
+            cmd = [
+                str(DEMUCS_PYTHON), str(Path(__file__).with_name("demucs_local.py")),
+                "--two-stems=vocals", "-d", device, "-n", settings.demucs_model,
+                "--shifts", str(settings.demucs_shifts), "--overlap", str(settings.demucs_overlap),
+                "-o", work, str(source),
+            ]
+            proc = run_cancellable_process(cmd, settings, cancelled)
+            if proc.returncode != 0:
+                tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-4:]
+                raise RuntimeError(f"demucs falló en {device}: {' | '.join(tail)}")
 
-        # demucs escribe <model>/<canción>/{vocals,no_vocals}.<ext>
-        produced = sorted(work.rglob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-        vocals = next((p for p in produced if p.is_file() and p.stem == "vocals"), None)
-        base = next((p for p in produced if p.is_file() and p.stem == "no_vocals"), None)
-        if not vocals or not base:
-            raise RuntimeError("demucs terminó pero no produjo los stems esperados")
+            # Ruta propia exacta: no reutilizar stems de otro trabajo.
+            produced = Path(work) / settings.demucs_model / source.stem
+            vocals, base = produced / "vocals.wav", produced / "no_vocals.wav"
+            if not vocals.is_file() or not base.is_file():
+                raise RuntimeError("demucs terminó pero no produjo los stems esperados")
 
-        results = {}
-        for label, src in (("voces", vocals), ("base", base)):
-            target = out_dir / f"{stem_name}-{label}.mp3"
-            subprocess.run(
-                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
-                 "-c:a", "libmp3lame", "-b:a", "192k", str(target)],
-                capture_output=True, text=True, errors="replace", check=True,
-            )
-            results[label] = target.name
-        shutil.rmtree(work, ignore_errors=True)
+            results = {}
+            for label, src in (("voces", vocals), ("base", base)):
+                target = out_dir / f"{stem_name}-{label}.mp3"
+                proc = run_cancellable_process(
+                    ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                     "-c:a", "libmp3lame", "-b:a", settings.export_bitrate, str(target)],
+                    settings, cancelled,
+                )
+                if proc.returncode:
+                    raise RuntimeError(f"ffmpeg falló al exportar {label}: {proc.stderr or proc.stdout}")
+                results[label] = target.name
         logger.info(f"Separación lista: {results} en {device}")
         return {
             "device": device,

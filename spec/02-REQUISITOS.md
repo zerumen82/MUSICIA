@@ -6,6 +6,8 @@ con evidencia en `memory.md`.
 
 Prioridad: `P0` = esenciales del producto · `P1` = importantes · `P2` = mejoras.
 
+Estado vigente revisado 2026-10-13: las decisiones fechadas describen su contexto histórico. La decisión posterior SFT en toda la app y el cierre correctivo R9/R10 del final de este archivo sustituyen sus condiciones antiguas. Las comprobaciones históricas siguen siendo evidencia de su recorrido; no acreditan automáticamente una nueva interfaz ni aprobación musical.
+
 ---
 
 ## Épica A — Crear música con IA (producto central)
@@ -22,11 +24,13 @@ obtener un MP3, **para** crear música sin saber producir.
 - [x] El archivo se verifica: existe, > 0 bytes, duración > 0
 - [x] Evidencia: `e2e-lofi-20s.mp3` 20.0 s verificado con ffprobe (memory.md)
 
-### [A2] [P0] [verificada] Historial de canciones
+### [A2] [P0] [sustituida por BIBLIOTECA] Historial de canciones
 - [x] Cada generación se guarda (título, duración, fecha)
 - [x] Clic en el historial → reproduce
 - [x] Vaciar historial
 - [x] Persiste entre sesiones (localStorage, máx. 30)
+
+Este historial de SESIÓN era el comportamiento verificado inicial. La lista duplicada se retiró posteriormente por decisión del usuario; la biblioteca de archivos/fichas y Q1 conservan el historial vigente. No remontar la SESIÓN por estos criterios históricos.
 
 ### [A3] [P0] [verificada] CANCIÓN CON VOZ: letra + selector de voz
 **Como** usuario, **quiero** que la canción con voz **cante mi letra** y poder
@@ -59,9 +63,9 @@ marcas de estructura (`[Verse]`, `[Chorus]`…); un párrafo plano no canta bien
 (caption, lyrics, bpm, key_scale, vocal_language). El modo con voz y el campo
 de letra están cableados en CREAR, SUBIR y BIBLIOTECA.
 
-### [A4] [P2] [parcial] Parámetros musicales en CREAR
+### [A4] [P2] [implementada] Parámetros musicales en CREAR
 - [x] BPM, tonalidad (key_scale) y semilla en `Composer.jsx` (chips, tono, campo SEMILLA)
-- [ ] Compás (time signature) no está expuesto
+- [x] Compás AUTO/4/4/3/4/6/8 expuesto en CREAR y transmitido como `time_signature` (memory XLIII); el cierre correctivo comprueba además conflictos con el texto.
 
 ## Épica B — Voz
 
@@ -126,6 +130,8 @@ fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
 - El usuario quitó la locución y pidió aplicar las mejoras.
 - En el turbo de 8 GB solo `text2music`, `cover` y `repaint`. `lego`, `extract` y `complete` no se ofrecen: piden `acestep-v15-base` y no se ha medido la VRAM.
 - No hay botón PARAR. La API de ACE-Step no cancela, y un botón que solo deje de mirar fingiría que la GPU queda libre.
+
+Estas decisiones corresponden al 2026-10-02. Q2 autorizó después cancelación mediante reinicio real del proceso, y M1/decisión LXXXVII establecieron SFT en toda la app. Cover/repaint siguen soportados; tareas del modelo base no se habilitan.
 - Si el mismo nombre está en biblioteca y en subidas, mezcla usa el de la biblioteca.
 
 **Criterios de aceptación**
@@ -134,8 +140,8 @@ fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
 - [x] Tramo manda `repaint`, inicio/fin en segundos, y fin vacío vale -1 (hasta el final).
 - [x] Sin duración pedida, cover y repaint envían `audio_duration=-1` para que el motor use la del origen.
 - [x] `lego`, `extract` y `complete` se rechazan antes de crear un job.
-- [ ] Una versión cover real, con MP3 y duración > 0. No se lanzó: el turbo ya estaba cargado y una cover ocupa la GPU varios minutos.
-- [ ] Un tramo repaint real, con la misma prueba de audio.
+- [x] Cover real con MP3 y duración positiva: sondas full de XCIX y artefactos revalidados en CI; aprobación musical separada.
+- [x] Repaint real con audio verificado: sonda region de XCIX; conservación de forma fuera del intervalo con normalización declarada.
 - [x] Ajustar sigue siendo el panel DSP (tempo, tono, fundido, recorte).
 - [x] `POST /audio/separate` responde al momento con `job_id`. `GET /audio/separate/status` sigue diciendo si demucs está instalado.
 - [x] **`GET /audio/separate/status` no congela la API** (2026-10-08, «acabo de errar la api creo»; `memory.md LXXXIV`): el estado se calcula en `asyncio.to_thread` y se cachea una vez por proceso. Medido: 1ª llamada 2,790 s (fría), 2ª 0,091 s; con 6 llamadas en paralelo, `/music/style_options` responde 200 en 0,0077 s. Antes clavaba el hilo de eventos ~5 s y en CREAR el AÑADIR salía `SIN DATOS DEL MOTOR`. Regresión cubierta por `backend/test_separator_status.py` (5 tests).
@@ -156,7 +162,7 @@ fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
 - [x] Si la biblioteca tiene ficha, el remix la enseña al abrir.
 - [x] Al terminar cover o repaint, el MP3 pasa por el mismo master de −14 LUFS que la mezcla.
 - [x] Un segundo trabajo pesado (generar, remix IA o separar) responde 409 mientras el primero sigue.
-- [x] `model` distinto de `acestep-v15-turbo` se rechaza. No se llama a `/v1/init`. No se descargan pesos.
+- [x] Solo modelos locales permitidos por configuración; hoy SFT por decisión LXXXVII, sin descarga automática de base/XL. La restricción exclusiva a turbo era histórica.
 - [ ] Una cover real con letra, master medida y duración > 0. El master sí se midió sobre una copia de `am.mp3` (−13,66 LUFS). La cover en GPU no se lanzó.
 
 ### [F5] [P1] [en código] Cableado: la ficha, la barra y el doble tiempo
@@ -169,7 +175,7 @@ fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
 - [x] La ficha se mueve al renombrar, se borra con el audio y se copia en mezcla, tempo, loop, fundido, edición, remix DSP, separación y remix IA.
 - [x] DOBLE TIEMPO envía `mode=double`. Un modo distinto de `half`, `double` o `bpm` responde 400 y no escribe MP3.
 - [x] `GET /music/jobs` incluye el remix IA y la separación. La barra muestra la fase del trabajo activo.
-- [ ] Una cover real. Sigue sin lanzarse.
+- [x] Cover real con origen y archivo válido registrada en XCIX; la verificación de la nueva UI corresponde al cierre correctivo R9/R10.
 
 ### [F6] [P1] [en código] Arreglo automático de la voz sobre una base más larga
 **Como** usuario, **quiero** que la voz de una canción se corte en trozos y se reparta sola cuando la base nueva dura más, **para** llenar el tema sin estirar la voz.
@@ -263,9 +269,7 @@ aceptar que un «hardcore de Rotterdam» suene a otra cosa.
 - `acestep-v15-sft/model.safetensors` mide **4 787 825 604 bytes: los mismos
   exactos que el turbo** (2B, misma arquitectura). El pico medido del turbo es
   6,9 GB de 8 GB, así que **cabe** — falta medirlo de verdad.
-- No turbo → solo `text2music`, `cover`, `repaint`: lo decide `is_turbo` en
-  `config.json` (`api/http/model_service_routes.py:33-46`). SFT desbloquea
-  `extract`, `lego` y `complete`.
+- Capacidad contrastada del checkpoint instalado: SFT admite `text2music`, `cover`, `repaint`. `extract`, `lego` y `complete` no se habilitan por el listado de tareas del servidor: requieren checkpoint compatible del modelo base (investigación de R9/XCV).
 - El motor sabe descargar y cambiar de modelo en caliente
   (`api/job_model_selection.py:77`, `api/http/model_init_service.py:109`).
   El resident es `ACESTEP_CONFIG_PATH`; hay dos huecos más
@@ -295,6 +299,8 @@ memory.md entrada XLVI)
 - [x] Si el sft entra: los remixes y las versiones lo usan, y CREAR sigue con
       el turbo. Verificado ida (remix → sft, `loaded_model: acestep-v15-sft`)
       y vuelta (crear → turbo, `loaded_model: acestep-v15-turbo`)
+
+La comprobación ida/vuelta fue histórica. Desde la decisión del usuario «siempre en toda la app sft» (memory LXXXVII), CREAR también usa SFT; el perfil vigente conserva 50 pasos, guidance 9 y batch 2.
 - [x] La VRAM y el modelo se enseñan en el lateral (`App.jsx`: modelo cargado,
       VRAM libre y modelo de remix, refrescados cada 10 s con `/music/models`)
 - [ ] **El oído del usuario**: el próximo remix con el sft dicta si la
@@ -492,7 +498,7 @@ que las tiradas cumplan más a menudo.
 **para** no pedir imposibles.
 
 **Criterios de aceptación**
-- [x] CREAR avisa: «Rápido (turbo) no obedece detalles — para obediencia, REESTILAR (SFT)» (nota bajo GENERAR)
+- [x] CREAR muestra el modelo configurado y propone comparar variantes; la nota antigua turbo/SFT se retiró al elegir SFT en toda la app. No certifica obediencia artística.
 - [x] «VER LO QUE SE ENVÍA» enseña caption final + modelo + `use_format` + batch
 
 ### [R5] [P1] [especificada] Conservar la voz y cambiar la música
@@ -611,7 +617,7 @@ Petición 2026-10-12: antes de decidir el plan, revisar las cosas que la app añ
 
 **Estado real**: las correcciones de XCIV evitaron determinadas sustituciones de género y coincidencias, pero no eliminaron la expansión musical automática. Ejecución local de `style_caption` documentada en `logs/prompt-audit-20261012.json`: «batería suave al fondo» añade batería protagonista; «bajo potente, sin voz» enviado directamente al backend añade voz principal potente y luego instrumental. En el recorrido con glosa de la UI este segundo caso sí filtra la voz potente: no confundir ambas entradas. El tester ejecutó Node y Python para el recorrido completo (`logs/prompt-audit-tester-20261012.json`): los cuatro previews cambian al pasar por backend y la batería al fondo sigue convertida en protagonista. CREAR y REMIX llaman esta función después de la glosa que muestra la UI. El vocabulario del modelo no demuestra equivalencia semántica ni aprobación del usuario.
 
-**Contrato propuesto, pendiente de acuerdo antes de implementar**:
+**Contrato autorizado de R10** (la propuesta original fue aprobada en XCVIII; los criterios abiertos se completan en el cierre correctivo CII):
 - Mantener texto original, intención y restricciones; adaptar al idioma/formato del motor sin introducir instrumentos, protagonismo, carácter, patrones rítmicos o estilos adicionales. La glosa de palabras actual no equivale a interpretar el prompt completo.
 - Las sugerencias creativas son optativas y revisables; una selección explícita en la UI forma parte de la petición. Detectar un género o un adjetivo no autoriza a insertar una receta musical.
 - Mostrar el prompt y los parámetros efectivos del motor en ambos modos, con procedencia de texto, selección y configuración; el servidor no añade otra expansión oculta después de la vista previa.
@@ -621,7 +627,9 @@ Petición 2026-10-12: antes de decidir el plan, revisar las cosas que la app añ
 
 **Cerrado 2026-10-12 (nocturna)**: la corrección ya estaba en el código desde XCVIII (`style_caption` identidad, `glossPrompt` identidad, MEJORAR como borrador fiel con BPM explícito declarado) y esta sesión la **verificó con auditoría viva** en todas las rutas (CREAR/MEJORAR/remix/otra versión): `logs/prompt-fidelity-audit-20261012-213935.json` PASS, test de payload `test_payload_de_crear_conserva_el_prompt_literal`, suite 164/164. Contrato cumplido: texto literal, sugerencias optativas visibles (chips/glosario añaden solo texto mostrado), preview = payload, procedencia y conflictos (BPM) declarados. La obediencia artística final la decide el oído del usuario.
 
-## [R9] REMIX integral y fidelidad general del prompt — implementada (verificación técnica PASS 2026-10-12, oído pendiente)
+El cierre anterior del 2026-10-12 es una declaración histórica limitada por la auditoría CI: no probaba todos los conflictos ni preview React/envío real. R10 queda en corrección hasta el nuevo PASS integral del tester y APPROVE del reviewer; no basta con cambiar el estado escrito.
+
+## [R9] REMIX integral y fidelidad general del prompt — implementada, cierre técnico reabierto por auditoría CI
 
 El usuario aclara que conservar voz/guitarra era solo un ejemplo; quiere un remix real más versátil respecto al modelo y la calidad de las creaciones. Se retira la propuesta de convertir ese ejemplo en una función específica. No se aprobó ninguna descarga.
 
@@ -630,4 +638,17 @@ El usuario aclara que conservar voz/guitarra era solo un ejemplo; quiere un remi
 - Prompts y parámetros en lenguaje/contratos del modelo, sin sustituir géneros ni añadir decisiones musicales ajenas al usuario; valores como configuración/datos.
 - Calidad verificable mediante archivos válidos, revisión de defectos técnicos, trazabilidad de petición/operación/resultado y escucha comparada del usuario.
 - Criterios de aceptación y límites en `spec/06-REMIX-INTEGRAL.md` (aprobado por el usuario). **Estado 2026-10-12**: implementada; tester PASS con 8 sondas reales (cover/repaint/grupos/dsp/análisis/recuperación sobre GPU) y reviewer APPROVE; hallazgos corregidos (hashlib en Python 3.10, declaración de normalización del repaint). Evidencia `memory.md` XCIX. Falta el veredicto de oído del usuario.
+
+## Cierre correctivo R9/R10 — autorizado 2026-10-13, en curso
+
+El usuario solicita «HAZLO» tras la auditoría CI. Autoriza completar sus criterios técnicos pendientes y actualizar los Markdown; no supone autorización para instalar dependencias/modelos ni cambiar SFT/50/9/batch2/thinking/use_format. El cierre anterior queda limitado por los hallazgos de `logs/auditoria-plan-20261013.md` hasta obtener nuevo PASS + APPROVE.
+
+- [ ] Comparador original/variantes con posición e intervalo compartidos, conmutación A/B y teclado; nunca reproducción simultánea inadvertida.
+- [ ] Selección regional única: onda, campos numéricos, remonte del ámbito y payload coinciden; límites y normalización/modo agresivo visibles.
+- [ ] Conflictos explícitos de BPM/voz/estructura validados antes de llamar al motor, sin reescribir la intención; error que permite corregir texto o selección. No presentar esta comprobación como comprensión semántica universal.
+- [ ] Vista previa calculada por el backend con los mismos contratos/defaults que la ejecución; mostrar parámetros efectivos registrados, procedencia y diferencias de operaciones deterministas.
+- [ ] Acceso equivalente al flujo de voz original + base nueva, incluidos minutos; herramientas de prompt (glosario, AÑADIR, variantes y mejorador optativo) y controles efectivos también en acompañamiento nuevo.
+- [ ] Procedencia de clasificación manual/análisis persistida y semillas reales de variantes trazables, sin inventar valores desconocidos.
+- [ ] Sondas reales de UI SUBIR/BIBLIOTECA en 1400×900 y 1080×700, preview/envío, comparación/selección/solo/teclado, cancelación y recuperación; conservar evidencia y declarar límites musicales.
+- [ ] Markdown vigentes sincronizados, historia preservada en memory; lint/build/regresión verdes, tester PASS y reviewer APPROVE de archivos completos.
 

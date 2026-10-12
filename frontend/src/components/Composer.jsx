@@ -9,6 +9,7 @@ import JobsPanel from './JobsPanel';
 import SelectBox from './SelectBox';
 import Glossary from './Glossary';
 import VariantChips from './VariantChips';
+import EffectivePreview from './EffectivePreview';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
@@ -269,15 +270,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     return null;
   }, []);
 
-  const launchGeneration = async (finalPrompt, seedValue, nameOverride = undefined) => {
-    const meta = { prompt: finalPrompt, title: finalPrompt, duration: Number(duration) };
+  const generationRequest = (caption, seedValue, nameOverride = undefined) => {
     const conVoz = mode === 'voice';
-    const created = await api.generateMusic({
-      prompt: finalPrompt,
+    return {
+      prompt: caption,
       instrumental: !conVoz,
       // La estructura se añade solo con la acción explícita ESTRUCTURAR LETRA.
       lyrics: conVoz ? lyrics.trim() : null,
-      duration_seconds: meta.duration,
+      duration_seconds: Number(duration),
       bpm: bpm ?? null,
       key_scale: key || null,
       time_signature: timeSig || null,
@@ -286,7 +286,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       seed: seedValue,
       // Nombre elegido por el usuario; vacío = "pista-sin-nombre" numerado.
       output_name: (nameOverride ?? songName).trim() ? (nameOverride ?? songName).trim() : null,
-    });
+    };
+  };
+
+  const launchGeneration = async (caption, seedValue, nameOverride = undefined) => {
+    const request = generationRequest(caption, seedValue, nameOverride);
+    // Rechaza conflictos antes de crear el trabajo o ocupar la GPU.
+    await api.generationPreview(request);
+    const created = await api.generateMusic(request);
     return { created };
   };
 
@@ -479,6 +486,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             </div>
           )}
           <textarea
+            aria-label="Prompt de crear"
             value={prompt}
             onChange={(e) => { setPrompt(e.target.value); setGenre(null); if (enhanceInfo) setEnhanceInfo(null); }}
             placeholder="Describe: estilo + ritmo + detalles. Ej.: «techno oscuro en 4x4, sin melodías». Di qué quieres que haga (doble bombo, percusiones, voz…) — el motor no adivina."
@@ -517,24 +525,10 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               )}
             </div>
           )}
-          <details className="border border-[var(--line)] px-4 py-3">
-            <summary className="label cursor-pointer">VER LO QUE SE ENVÍA</summary>
-            <p className="mono text-[11px] text-zinc-200 whitespace-pre-wrap mt-3">{finalPrompt || '(descripción vacía)'}</p>
-            <p className="mono text-[10px] text-[var(--muted)] mt-2">
-              {mode === 'voice' ? 'Con voz · selección de modo' : 'Instrumental · selección de modo'}
-              {' · '}BPM: {bpm ?? 'AUTO'}{' · '}Tono: {key || 'AUTO'}{' · '}Compás: {timeSig || 'AUTO'}
-              {' · '}Duración: {duration} s{' · '}Semilla: {seed || 'aleatoria'}
-            </p>
-            <p className="mono text-[10px] text-[var(--muted)] mt-1">
-              Configuración: {config?.model ?? '…'}{' · '}Pasos: {config?.steps_by_model?.[config?.model] ?? config?.inference_steps ?? '…'}
-              {' · '}Guidance: {config?.guidance_by_model?.[config?.model] ?? config?.guidance_scale ?? '…'}{' · '}Variantes: {config?.batch_size ?? '…'}
-              {' · '}Formato LM: {config?.use_format ? 'activo' : 'desactivado'}
-            </p>
-            <p className="mono text-[10px] text-[var(--faint)] mt-1">
-              El texto libre se conserva. El género, carácter y voz elegidos aparecen arriba.
-              Inglés puede facilitar la descripción al motor; no se añaden traducciones parciales.
-            </p>
-          </details>
+          <div className="border border-[var(--line)] px-4 py-3">
+            <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />
+            <p className="mono text-[10px] text-[var(--faint)] mt-1">El texto libre y las selecciones explícitas componen la petición. Si se contradicen, corrige el texto o el control antes de generar.</p>
+          </div>
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
@@ -570,7 +564,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
               {showLyricPreview && (
                 <div className="flex flex-col gap-1.5 bg-[var(--surface-2)] border border-[var(--line)] p-4">
-                  <span className="label">ESTO ES EXACTAMENTE LO QUE RECIBE EL MOTOR</span>
+                  <span className="label">TEXTO Y CONTROLES ELEGIDOS</span>
+                  <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} />
                   <dl className="mono text-[10.5px] text-[var(--muted)] flex flex-col gap-1">
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">DESCRIPCIÓN</dt>

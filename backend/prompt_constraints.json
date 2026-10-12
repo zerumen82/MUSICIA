@@ -1,0 +1,8 @@
+{
+  "bpm_patterns": ["\\b(\\d{2,3})\\s*bpm\\b", "\\bbpm\\s*[:=]?\\s*(\\d{2,3})\\b"],
+  "meter_patterns": ["\\b([2-9]|1[0-2])\\s*[/x]\\s*([248]|16)\\b"],
+  "instrumental_patterns": ["\\bsin\\s+(?:voz|voces|vocales)(?=$|\\s*[,.;!?\\n]|\\s+(?:y|pero)\\b)", "\\b(?:no|without)\\s+vocals?(?=$|\\s*[,.;!?\\n]|\\s+(?:and|but)\\b)", "\\binstrumental(?=$|\\s*[,.;!?\\n]|\\s+(?:y|and)\\b)"],
+  "ignored_patterns": ["\\b(?:no|not|non)\\s+instrumental\\b", "\\b(?:no|not)\\s+(?:a\\s+)?\\d{2,3}\\s*bpm\\b"],
+  "vocal_patterns": ["\\bcon\\s+(?:voz|voces)\\b", "\\bwith\\s+vocals?\\b", "\\b(?:mant[eé]n|conserva|preserva)\\s+(?:la\\s+)?voz\\b", "\\b(?:keep|preserve)\\s+(?:the\\s+)?vocals?\\b"],
+  "limitation": "Se comprueban menciones explícitas de BPM, compás y voz; esta validación no interpreta toda la intención musical."
+}

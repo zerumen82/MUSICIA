@@ -178,6 +178,7 @@ class AiRemixRequest(BaseModel):
     file_name: str
     prompt: str = Field(min_length=3, description="Estilo nuevo del reestilo")
     bpm: float | None = None
+    seed: int | None = Field(default=None, ge=0)
     output_name: str | None = None
     duration_seconds: float | None = Field(default=None, description="Duración elegida; vacía = la del tema")
     lyrics: str | None = Field(default=None, description="Letra nueva opcional; vacía no ordena eliminar la voz")
@@ -409,6 +410,10 @@ def _write_ficha(audio_path: Path, job: dict[str, Any], measured: dict[str, Any]
         "task_type": job.get("task_type") or "text2music",
         "source_name": job.get("source_name"),
         "seed": job.get("seed"),
+        "seed_requested": job.get("seed_requested", job.get("seed")),
+        "seed_origin": job.get("seed_origin", "unknown"),
+        "effective_parameters": job.get("effective_parameters"),
+        "provenance": job.get("provenance"),
         "key_scale": job.get("key_scale"),
         "time_signature": job.get("time_signature"),
         "model": job.get("model"),
@@ -454,6 +459,15 @@ def _carry_ficha(source: Path, target: Path, task_type: str, **overrides: Any) -
     data["name"] = target.name
     data["task_type"] = task_type
     data["source_name"] = source.name
+    generation_keys = ("seed", "seed_requested", "seed_origin", "effective_parameters", "provenance")
+    source_generation = {key: data[key] for key in generation_keys if key in data}
+    if source_generation:
+        data["source_generation"] = source_generation
+    # La semilla/payload del origen no son los de un derivado DSP ni los de
+    # otra generación. Un None explícito conserva la incertidumbre real.
+    for key in generation_keys:
+        data.pop(key, None)
+    data.update(seed=None, seed_origin="not_applicable")
     # El BPM medido en el origen NO describe al fichero nuevo (un remix o un
     # ajuste pueden cambiarlo): se quita salvo que esta llamada traiga una
     # medición fresca ([M3], nada maquillado).
@@ -461,7 +475,7 @@ def _carry_ficha(source: Path, target: Path, task_type: str, **overrides: Any) -
         data.pop("bpm_measured", None)
         data.pop("bpm_confidence", None)
     for key, value in overrides.items():
-        if value is not None:
+        if value is not None or key in generation_keys:
             data[key] = value
     _ficha_path(target).write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -534,7 +548,10 @@ async def _finalize_generation(job_id: str) -> None:
     job = jobs[job_id]
     if job.get("cancelled"):
         logger.info(f"Generación {job_id[:8]} ya cancelada antes de arrancar: no se envía nada")
+        job.update(compute_active=False, engine_active=False)
+        _save_history()
         return
+    job["compute_active"] = True
     started = time.monotonic()
     # No se vacían los eventos: el alta ya dejó los suyos (p. ej. el aviso
     # de «Caption compuesto»). log_event recorta a 30, no crece sin límite.
@@ -567,7 +584,11 @@ async def _finalize_generation(job_id: str) -> None:
             log_event(status.progress_text)
 
     try:
-        final = await music.wait(job["engine_task_id"], on_update=on_update)
+        job["engine_active"] = True
+        try:
+            final = await music.wait(job["engine_task_id"], on_update=on_update)
+        finally:
+            job["engine_active"] = False
         _throw_if_cancelled(job)
         if not final.succeeded:
             raise MusicEngineError(final.error or "El motor terminó la tarea con error")
@@ -586,16 +607,19 @@ async def _finalize_generation(job_id: str) -> None:
         first_metas = None
         first_caption = None
         for index, track in enumerate(tracks):
+            _throw_if_cancelled(job)
             if index == 0:
                 output_path = _resolve_output(job["output_name"])
             else:
                 variant_stem = f"{Path(job['output_name']).stem}-v{index + 1}"
                 output_path = _unique_output_path(_safe_name(variant_stem, DEFAULT_STEM), ".mp3")
             await music.download(track.file, output_path)
+            _throw_if_cancelled(job)
             if index == 0:
                 log_event("Audio descargado; verificando duración…")
                 job["phase"] = "Verificando el audio generado"
             duration_ms = await music.verify_audio(output_path)
+            _throw_if_cancelled(job)
             if job.get("task_type") in {"cover", "repaint"}:
                 if index == 0:
                     log_event(f"Igualando el volumen al master ({TARGET_LUFS:g} LUFS)")
@@ -603,16 +627,19 @@ async def _finalize_generation(job_id: str) -> None:
                 mastered = output_path.with_name(f"{output_path.stem}-master.mp3")
                 try:
                     job["loudness"] = await asyncio.to_thread(normalize_track, output_path, mastered)
+                    _throw_if_cancelled(job)
                     mastered.replace(output_path)
                 finally:
                     mastered.unlink(missing_ok=True)
                 duration_ms = await music.verify_audio(output_path)
+                _throw_if_cancelled(job)
             if index == 0:
                 first_duration_ms, first_metas, first_caption = duration_ms, track.metas, track.prompt
             saved.append(output_path.name)
             # [M3] Tempo real del MP3 terminado, en su ficha. La medición es
             # opcional: si falla, la ficha se queda sin campos (no se inventa).
             measured = await asyncio.to_thread(_measure_bpm, output_path)
+            _throw_if_cancelled(job)
             if index == 0:
                 if measured:
                     log_event(
@@ -621,8 +648,10 @@ async def _finalize_generation(job_id: str) -> None:
                     )
                 else:
                     log_event("Tempo: sin medición fiable (la ficha no lleva BPM medido)")
-            _write_ficha(output_path, job, measured)
+            _write_ficha(output_path, {**job, "seed_requested": job.get("seed"),
+                                     "seed": track.seed, "seed_origin": track.seed_origin}, measured)
 
+        _throw_if_cancelled(job)
         job.update(
             status="succeeded",
             phase="Lista",
@@ -630,6 +659,8 @@ async def _finalize_generation(job_id: str) -> None:
             metas=first_metas,
             engine_caption=first_caption,
             variants=saved,
+            variant_metadata=[{"file_name": name, "seed": track.seed, "seed_origin": track.seed_origin}
+                              for name, track in zip(saved, tracks)],
             elapsed_seconds=round(time.monotonic() - started, 1),
             completed_at=_now(),
         )
@@ -639,12 +670,14 @@ async def _finalize_generation(job_id: str) -> None:
         if job.get("cancelled"):
             job.update(status="failed", phase="Cancelado", error=CANCELLED_MESSAGE,
                        completed_at=_now())
-            log_event("Cancelado por el usuario: no se descarga nada")
+            log_event("Cancelado por el usuario; no se publica un resultado completado")
         else:
             job.update(status="failed", error=str(exc), phase="Error", completed_at=_now())
             log_event(f"Fallo: {exc}")
             logger.error(f"Generación {job_id} falló: {exc}")
-    _save_history()
+    finally:
+        job.update(compute_active=False, engine_active=False)
+        _save_history()
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1032,65 @@ async def audio_crossfade(request: CrossfadeRequest) -> dict[str, Any]:
 remix_jobs: dict[str, dict[str, Any]] = {}
 
 
+def _prepare_ai_generation(request: AiRemixRequest, source: Path, groove: dict) -> GenerationRequest:
+    """Preparación compartida por preview, admisión y ejecución legacy."""
+    if request.seed is not None:
+        limits = settings.remix.parameters["seed"]
+        if not limits["min"] <= request.seed <= limits["max"]:
+            raise MusicEngineError(f"seed debe estar entre {limits['min']} y {limits['max']}")
+    if request.mode == "voz":
+        measured_bpm = float(groove.get("bpm") or 0)
+        base_bpm = int(round(request.bpm)) if request.bpm else (int(round(measured_bpm)) or None)
+        source_s = float(groove.get("duration_seconds") or 0)
+        duration = request.duration_seconds if request.duration_seconds is not None else min(
+            source_s or settings.generation.duration_seconds, settings.generation.max_duration_seconds)
+        return GenerationRequest(prompt=style_caption(request.prompt), instrumental=True,
+                                 duration_seconds=duration, bpm=base_bpm,
+                                 model=settings.generation.remix_model, external_voice=True, seed=request.seed)
+    return GenerationRequest(prompt=style_caption(request.prompt), lyrics=request.lyrics,
+                             instrumental=request.instrumental, duration_seconds=request.duration_seconds,
+                             bpm=int(round(request.bpm)) if request.bpm else None,
+                             seed=request.seed,
+                             model=settings.generation.remix_model, task_type="cover",
+                             source_path=str(source), cover_strength=(settings.generation.remix_cover_strength
+                             if request.cover_strength is None else request.cover_strength))
+
+
+async def _prepare_ai_preview(request: AiRemixRequest):
+    source = _find_audio(request.file_name, request.source_kind)
+    try:
+        groove = await asyncio.to_thread(detect_groove, source)
+        generation = _prepare_ai_generation(request, source, groove)
+        prepared = music.preview(generation)
+    except (ValueError, FileNotFoundError, MusicEngineError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    prepared["operations"] = {"mode": request.mode, "source": source.name,
+                              "source_kind": request.source_kind,
+                              "source_duration_seconds": groove.get("duration_seconds"),
+                              "source_bpm_measured": groove.get("bpm"),
+                              "source_bpm_confidence": groove.get("confidence"),
+                              "separation_required": request.mode == "voz",
+                              "voice": "source_recording" if request.mode == "voz" else "resynthesized"}
+    prepared["provenance"]["model"] = "configuration"
+    if "audio_cover_strength" in prepared["provenance"]:
+        prepared["provenance"]["audio_cover_strength"] = "request" if request.cover_strength is not None else "configuration"
+    if request.mode == "voz":
+        prepared["provenance"]["bpm"] = "request" if request.bpm else "source_analysis"
+        prepared["provenance"]["audio_duration"] = "request" if request.duration_seconds is not None else "source_duration"
+        prepared["provenance"]["lyrics"] = "instrumental_base_contract"
+        prepared["warnings"].append("La separación de voz es estimada. Su arreglo y alineación sobre la base dependen del audio generado y se registran después.")
+        if request.lyrics:
+            prepared["warnings"].append("La letra nueva no se usa al conservar la grabación original de voz.")
+        if request.cover_strength is not None:
+            prepared["warnings"].append("La fuerza de cover no se usa al generar una base nueva.")
+    return source, groove, prepared
+
+
+@app.post("/audio/remix/ai/preview")
+async def audio_remix_ai_preview(request: AiRemixRequest) -> dict[str, Any]:
+    return (await _prepare_ai_preview(request))[2]
+
+
 @app.post("/audio/remix/ai")
 async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
     """Remix con IA en pasos visibles: separa la voz, crea la base y mezcla.
@@ -1007,7 +1099,7 @@ async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTa
     prompt. Cada paso se refleja en `phase`/`events` para que la UI nunca
     parezca colgada.
     """
-    source = _find_audio(request.file_name, request.source_kind)
+    source, groove, prepared = await _prepare_ai_preview(request)
     if (busy := _gpu_busy()):
         raise HTTPException(status_code=409, detail=busy)
     health = await music.health()
@@ -1016,12 +1108,10 @@ async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTa
             status_code=503,
             detail="El motor de música no está activo. Abre Musicia.exe y vuelve a intentarlo.",
         )
-
-    try:
-        # El análisis abre el archivo. En un hilo: /health tiene que seguir contestando.
-        groove = await asyncio.to_thread(detect_groove, source)
-    except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # health cede el bucle; otra petición puede haber reservado la GPU.
+    # Revalidar y registrar sin ningún await entre ambas acciones.
+    if busy := _gpu_busy():
+        raise HTTPException(status_code=409, detail=busy)
 
     job_id = uuid.uuid4().hex
     stem = _safe_name(request.output_name or Path(request.file_name).stem, DEFAULT_STEM)
@@ -1036,6 +1126,10 @@ async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTa
         "base_bpm": groove["bpm"],
         "started": time.monotonic(),
         "created_at": _now(),
+        "effective_parameters": prepared["effective_parameters"],
+        "provenance": prepared["provenance"], "warnings": prepared["warnings"],
+        "operations": prepared["operations"],
+        "engine_active": False,
     })
     background_tasks.add_task(_run_ai_remix, job_id, source, request, groove, Path(stem).stem)
     return {"status": "accepted", "job_id": job_id, "base_bpm": groove["bpm"]}
@@ -1131,7 +1225,8 @@ async def _modo_conservar_voz(
     # demucs es un proceso largo. Si corre en el bucle de la API,
     # /health no contesta y la pastilla dice APAGADO con el motor vivo.
     stems = await asyncio.to_thread(
-        SeparatorService.separate, source, settings.outputs_dir, f"{stem}-orig"
+        SeparatorService.separate, source, settings.outputs_dir, f"{stem}-orig",
+        lambda: bool(job.get("cancelled")), settings.remix,
     )
     _throw_if_cancelled(job)
     vocals_path = settings.outputs_dir / stems["vocals"]
@@ -1146,20 +1241,18 @@ async def _modo_conservar_voz(
         step(f"La base nueva se pide a {base_bpm} bpm ({'tu tempo' if request.bpm else 'el medido de tu tema'}).")
     else:
         step("Sin tempo fiable: la base sale al aire que le dé el estilo.")
-    source_s = float(groove.get("duration_seconds") or 0)
-    duration = request.duration_seconds or min(source_s or 120.0, settings.generation.max_duration_seconds)
+    generation = _prepare_ai_generation(request, source, groove)
+    duration = generation.duration_seconds
     step(f"Pidiendo la base nueva ({duration:g} s) con tu prompt, modelo estricto…")
-    task_id, _ = await music.submit(
-        GenerationRequest(
-            prompt=caption,
-            lyrics=None,
-            instrumental=True,
-            duration_seconds=duration,
-            bpm=base_bpm,
-            model=settings.generation.remix_model,
-        )
-    )
-    final = await music.wait(task_id, on_update=on_update)
+    job["effective_parameters"] = music.build_payload(generation)
+    job["engine_active"] = True
+    try:
+        task_id, _ = await music.submit(generation)
+        job["engine_task_id"] = task_id
+        _save_history()
+        final = await music.wait(task_id, on_update=on_update)
+    finally:
+        job["engine_active"] = False
     _throw_if_cancelled(job)
     if not final.succeeded:
         raise MusicEngineError(final.error or "El motor terminó con error")
@@ -1167,13 +1260,17 @@ async def _modo_conservar_voz(
     if not tracks:
         raise MusicEngineError("El motor no devolvió audio")
     saved: list[str] = []
+    metadata: list[dict] = []
     for index, track in enumerate(tracks):
         suffix = "" if len(tracks) == 1 else f"-v{index + 1}"
         base_path = _unique_output_path(_safe_name(f"{stem}-base{suffix}", DEFAULT_STEM), ".mp3")
         await music.download(track.file, base_path)
         # La base es pieza intermedia (la final es la mezcla con tu voz):
         # task "instrumental" para que BIBLIOTECA la aparte de las finales.
-        _carry_ficha(source, base_path, "instrumental", prompt=request.prompt)
+        _carry_ficha(source, base_path, "instrumental", prompt=request.prompt,
+                     seed=track.seed, seed_origin=track.seed_origin,
+                     seed_requested=request.seed, effective_parameters=job.get("effective_parameters"),
+                     provenance=job.get("provenance"))
         step(f"Cuadrando tu voz sobre la base {index + 1}/{len(tracks)}…")
         mixed, info = await _mezclar_voz_en_base(
             base_path, vocals_path, base_bpm, groove,
@@ -1182,8 +1279,13 @@ async def _modo_conservar_voz(
         _throw_if_cancelled(job)
         # [M3] Tempo de la mezcla final (voz + base): el que importa al oírla.
         measured = await asyncio.to_thread(_measure_bpm, mixed)
-        _carry_ficha(source, mixed, "remix", prompt=request.prompt, **(measured or {}))
+        _carry_ficha(source, mixed, "remix", prompt=request.prompt, seed=track.seed,
+                     seed_origin=track.seed_origin, effective_parameters=job.get("effective_parameters"),
+                     seed_requested=request.seed, provenance=job.get("provenance"),
+                     **(measured or {}))
         saved.append(mixed.name)
+        metadata.append({"file_name": mixed.name, "seed": track.seed,
+                         "seed_origin": track.seed_origin, "alignment": info})
     job["elapsed_seconds"] = round(time.monotonic() - started, 1)
     loudness = await asyncio.to_thread(measure_loudness, settings.outputs_dir / saved[0])
     step(f"Listo: {len(saved)} mezcla(s) con tu voz en BIBLIOTECA.")
@@ -1196,6 +1298,7 @@ async def _modo_conservar_voz(
             "vocals": vocals_path.name,
             "with_vocals": True,
             "mode": "voz",
+            "metadata": metadata,
         },
         loudness=loudness,
     )
@@ -1220,6 +1323,7 @@ async def _run_ai_remix(
         logger.info(f"Remix {job_id[:8]} ya cancelado antes de arrancar: no se toca nada")
         return
 
+    job["compute_active"] = True
     try:
         gen = settings.generation
         guidance_remix = gen.guidance_by_model.get(gen.remix_model, gen.guidance_scale)
@@ -1278,20 +1382,16 @@ async def _run_ai_remix(
         if request.bpm:
             step(f"Tempo pedido: {float(request.bpm):g} bpm (si no, el del tema).")
         step(f"Reestilando «{source.name}»: el motor oye tu pista, no una base nueva…")
-        task_id, _ = await music.submit(
-            GenerationRequest(
-                prompt=caption_remix,
-                lyrics=letra or None,
-                instrumental=request.instrumental,
-                duration_seconds=request.duration_seconds,
-                bpm=int(round(request.bpm)) if request.bpm else None,
-                model=settings.generation.remix_model,
-                task_type="cover",
-                source_path=str(source),
-                cover_strength=strength,
-            )
-        )
-        final = await music.wait(task_id, on_update=on_update)
+        generation = _prepare_ai_generation(request, source, groove)
+        job["effective_parameters"] = music.build_payload(generation)
+        job["engine_active"] = True
+        try:
+            task_id, _ = await music.submit(generation)
+            job["engine_task_id"] = task_id
+            _save_history()
+            final = await music.wait(task_id, on_update=on_update)
+        finally:
+            job["engine_active"] = False
         _throw_if_cancelled(job)
         if not final.succeeded:
             raise MusicEngineError(final.error or "El motor terminó con error")
@@ -1302,6 +1402,7 @@ async def _run_ai_remix(
             raise MusicEngineError("El motor no devolvió audio")
         step(f"Descargando {len(tracks)} variante(s)…")
         saved: list[str] = []
+        metadata: list[dict] = []
         for index, track in enumerate(tracks):
             name = stem if len(tracks) == 1 else f"{stem}-v{index + 1}"
             out_path = _unique_output_path(_safe_name(name, DEFAULT_STEM), ".mp3")
@@ -1309,8 +1410,12 @@ async def _run_ai_remix(
             # [M3] El tempo del cover se mide en el MP3 nuevo (el del origen
             # no sirve si el reestilo cambió el ritmo).
             measured = await asyncio.to_thread(_measure_bpm, out_path)
-            _carry_ficha(source, out_path, "remix", prompt=request.prompt, **(measured or {}))
+            _carry_ficha(source, out_path, "remix", prompt=request.prompt, seed=track.seed,
+                         seed_origin=track.seed_origin, effective_parameters=job.get("effective_parameters"),
+                         seed_requested=request.seed, provenance=job.get("provenance"),
+                         **(measured or {}))
             saved.append(out_path.name)
+            metadata.append({"file_name": out_path.name, "seed": track.seed, "seed_origin": track.seed_origin})
         loudness = await asyncio.to_thread(measure_loudness, settings.outputs_dir / saved[0])
         step(f"Reestilo listo: {len(saved)} variante(s) en BIBLIOTECA.")
         job.update(
@@ -1322,6 +1427,7 @@ async def _run_ai_remix(
                 "with_vocals": False if request.instrumental is True else True if letra else None,
                 "vocal_intent": "instrumental" if request.instrumental is True else "new_lyrics" if letra else "source",
                 "cover_strength": strength,
+                "metadata": metadata,
             },
             loudness=loudness,
         )
@@ -1336,6 +1442,7 @@ async def _run_ai_remix(
     finally:
         # El modo voz retorna tras mezclar. Su resultado terminal también
         # debe sobrevivir al reinicio, junto con errores y cancelaciones.
+        job["compute_active"] = False
         _save_history()
 
 
@@ -1386,11 +1493,11 @@ def _gpu_busy() -> str | None:
     """En 8 GB solo cabe un trabajo pesado. El segundo espera."""
     if reason := active_analysis():
         return reason
-    if any(job.get("status") in _GPU_ACTIVE for job in jobs.values()):
+    if any(job.get("status") in _GPU_ACTIVE or job.get("compute_active") for job in jobs.values()):
         return "Hay una generación en la GPU. Espera a que termine: en 8 GB no caben dos a la vez."
-    if any(job.get("status") in _GPU_ACTIVE for job in remix_jobs.values()):
+    if any(job.get("status") in _GPU_ACTIVE or job.get("compute_active") for job in remix_jobs.values()):
         return "Hay un remix con IA en curso. Espera a que termine antes de usar la GPU."
-    if any(job.get("status") in _GPU_ACTIVE for job in separate_jobs.values()):
+    if any(job.get("status") in _GPU_ACTIVE or job.get("compute_active") for job in separate_jobs.values()):
         return "Hay una separación en curso. demucs y el motor no caben juntos en 8 GB."
     return None
 
@@ -1402,10 +1509,12 @@ async def _run_separate(job_id: str, source: Path, stem: str) -> None:
         logger.info(f"Separación {job_id[:8]} ya cancelada antes de arrancar: no se toca nada")
         return
     job["status"] = "running"
+    job["compute_active"] = True
     _push_event(job, "Separando la voz")
     try:
         result = await asyncio.to_thread(
-            SeparatorService.separate, source, settings.outputs_dir, stem
+            SeparatorService.separate, source, settings.outputs_dir, stem,
+            lambda: bool(job.get("cancelled")), settings.remix,
         )
         _throw_if_cancelled(job)
         _carry_ficha(source, settings.outputs_dir / result["vocals"], "vocals")
@@ -1425,6 +1534,7 @@ async def _run_separate(job_id: str, source: Path, stem: str) -> None:
         else:
             logger.error(f"Separación {job_id} falló: {exc}")
             job.update(status="failed", phase="Error", error=str(exc))
+    job["compute_active"] = False
     _save_history()
 
 
@@ -1519,11 +1629,37 @@ async def music_models() -> dict[str, Any]:
     }
 
 
+def _prepare_generation(request: MusicGenRequest) -> tuple[GenerationRequest, dict]:
+    """Única preparación antes de reservar un job y antes del envío."""
+    generation = GenerationRequest(
+        prompt=style_caption(request.prompt), lyrics=request.lyrics, instrumental=request.instrumental,
+        duration_seconds=request.duration_seconds, bpm=request.bpm, key_scale=request.key_scale,
+        time_signature=request.time_signature, language=request.language,
+        inference_steps=request.inference_steps, guidance_scale=request.guidance_scale,
+        seed=request.seed, batch_size=request.batch_size, audio_format=request.audio_format,
+        model=request.model, task_type=request.task_type,
+        source_path=str(_find_audio(request.source_name, request.source_kind)) if request.source_name else None,
+        repaint_start=request.repaint_start, repaint_end=request.repaint_end,
+        cover_strength=request.cover_strength, use_format=request.use_format,
+    )
+    try:
+        prepared = music.preview(generation)
+    except MusicEngineError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return generation, prepared
+
+
+@app.post("/music/preview")
+async def generation_preview(request: MusicGenRequest) -> dict[str, Any]:
+    return _prepare_generation(request)[1]
+
+
 @app.post("/music/generate")
 async def generate_music(
     request: MusicGenRequest, background_tasks: BackgroundTasks
 ) -> dict[str, Any]:
     """Envía la generación al motor local y sigue el resultado en segundo plano."""
+    generation, prepared = _prepare_generation(request)
     if (busy := _gpu_busy()):
         raise HTTPException(status_code=409, detail=busy)
     job_id = uuid.uuid4().hex
@@ -1550,6 +1686,9 @@ async def generate_music(
         "progress": "", "progress_ratio": 0.0, "stage": "queued",
         "phase": "Comprobando el motor local", "elapsed_seconds": 0.0,
         "events": [], "duration_seconds": None, "error": None,
+        "effective_parameters": prepared["effective_parameters"],
+        "provenance": prepared["provenance"], "warnings": prepared["warnings"],
+        "compute_active": True, "engine_active": False,
     }
     _remember(jobs, job_id, job)
     _save_history()
@@ -1562,47 +1701,23 @@ async def generate_music(
             )
         _throw_if_cancelled(job)
         # El contrato común conserva el texto completo del usuario.
-        caption = style_caption(request.prompt)
         job.update(status="running", phase="Enviando al motor local")
-        task_id, initial_status = await music.submit(
-            GenerationRequest(
-                prompt=caption,
-                lyrics=request.lyrics,
-                instrumental=request.instrumental,
-                duration_seconds=request.duration_seconds,
-                bpm=request.bpm,
-                key_scale=request.key_scale,
-                time_signature=request.time_signature,
-                language=request.language,
-                inference_steps=request.inference_steps,
-                guidance_scale=request.guidance_scale,
-                seed=request.seed,
-                batch_size=request.batch_size,
-                audio_format=audio_format,
-                model=model,
-                task_type=task,
-                source_path=str(_find_audio(request.source_name, request.source_kind)) if request.source_name else None,
-                repaint_start=request.repaint_start,
-                repaint_end=request.repaint_end,
-                cover_strength=request.cover_strength,
-                use_format=request.use_format,
-            )
-        )
+        job["engine_active"] = True
+        task_id, initial_status = await music.submit(generation)
         _throw_if_cancelled(job)
     except HTTPException as exc:
         job.update(status="failed", phase="Error", error=str(exc.detail), completed_at=_now())
+        job.update(compute_active=False, engine_active=False)
         _save_history()
         raise
     except Exception as exc:
         logger.error(f"No se pudo enviar la generación al motor: {exc}")
         job.update(status="failed", phase="Cancelado" if job.get("cancelled") else "Error",
                    error=CANCELLED_MESSAGE if job.get("cancelled") else str(exc), completed_at=_now())
+        job.update(compute_active=False, engine_active=False)
         _save_history()
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     job.update(engine_task_id=task_id, status="queued", phase="Enviada al motor local")
-    if caption != (request.prompt or ""):
-        jobs[job_id]["events"].append({"t": 0.0, "text": "Caption compuesto con el estilo que pides."})
-        logger.info("Caption compuesto con el estilo que pide el prompt (igual que CREAR).")
     background_tasks.add_task(_finalize_generation, job_id)
 
     return {
@@ -1667,12 +1782,13 @@ _MUSIC_KEPT = (
     "job_id", "status", "phase", "prompt", "instrumental", "output_name",
     "lyrics", "bpm", "key_scale", "time_signature", "model", "task_type",
     "source_name", "seed", "created_at", "completed_at", "elapsed_seconds",
-    "duration_seconds", "error",
+    "duration_seconds", "error", "effective_parameters", "provenance", "warnings", "variants", "variant_metadata",
 )
 _REMIX_KEPT = (
     "job_id", "status", "phase", "source", "source_dir", "prompt", "base_bpm",
     "created_at", "completed_at", "elapsed_seconds", "result", "error", "project",
     "source_digest", "effective_parameters", "engine_task_id", "preserved_groups", "duration_seconds", "source_analysis",
+    "provenance", "warnings", "operations", "pending_material",
 )
 _SEPARATE_KEPT = (
     "job_id", "status", "phase", "source", "prompt", "device", "vocals",
@@ -1839,10 +1955,10 @@ def _job_uses_motor(job: dict[str, Any], store: str) -> bool:
     """¿Merece la pena matar el motor al cancelar? Solo si estaba trabajando:
     una generación en marcha sí; una separación (demucs local) o algo aún en
     cola, no. Un remix separando la voz tampoco: el motor sigue libre."""
+    if store in {"music", "remix"} and "engine_active" in job:
+        return job.get("status") in _GPU_ACTIVE and bool(job.get("engine_active"))
     if job.get("status") != "running":
         return False
-    if store == "remix" and job.get("project") is not None:
-        return bool(job.get("engine_active"))
     if store == "separate":
         return False
     if store == "remix" and str(job.get("phase") or "").startswith("Separando"):

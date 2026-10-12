@@ -23,8 +23,9 @@
 5. ✅ **Sin regressión**: lo que ya funcionaba sigue funcionando.
 6. ✅ **Config, no hardcode**: nuevos parámetros en `config.py`/`config.json`.
 7. ✅ **Bitácora actualizada** en `memory.md` con la evidencia.
+8. ✅ **PASS del tester y APPROVE del reviewer**: pasos explícitos y separados; revisión de archivos completos y verificación real de los criterios, con ambos veredictos en `memory.md`.
 
-> Un agente que declara "listo" sin estos 7 puntos está mintiendo. Cualquier
+> Un agente que declara "listo" sin estos 8 puntos incumple la definición. Cualquier
 > otro agente tiene el deber de rechazar el trabajo y devolverlo.
 
 ## 3. Cadena de especificación (SDD)
@@ -35,7 +36,8 @@ spec/01-ARQUITECTURA.md    ← sistema, módulos, contratos de datos
 spec/02-REQUISITOS.md      ← historias de usuario priorizadas, criterios de aceptación
 spec/03-PENDIENTES.md      ← backlog vivo y deudas técnicas
 spec/04-EJERCITO.md        ← agentes globales (sd-*) y agentes musicales
-spec/05-MEJORAS.md         ← propuesta de mejoras (no aprobada, no implementada)
+spec/05-MEJORAS.md         ← propuestas históricas de octubre; no usar como estado actual
+spec/06-REMIX-INTEGRAL.md  ← plan R9 autorizado, condiciones R10 y límites de verificación
 ```
 
 **Regla de oro SDD**: primero se especifica, luego se implementa. Si el código

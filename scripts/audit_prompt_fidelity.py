@@ -3,11 +3,12 @@
 Comprueba contra la API real desplegada y los módulos reales:
   1. CREAR: style_caption identidad + payload del motor idéntico (text2music/cover/repaint).
   2. MEJORAR: borrador fiel, sin adiciones salvo BPM explícito, con warnings declarados.
-  3. Frontend: glossPrompt identidad y buildPrompt (Composer) = composición literal.
-  4. API viva: /music/enhance_prompt y /music/style_options coinciden con los módulos.
+  3. Módulo frontend: glossPrompt identidad (no sustituye la prueba de React).
+  4. API viva: previews del motor y endpoints de sugerencias coherentes.
 
 Sin mocks: todo se ejecuta de verdad; la evidencia JSON queda en logs/.
-Se ejecuta con el venv del backend (numpy no hace falta aquí; requests sí).
+Se ejecuta con el venv del backend; HTTP usa urllib de la biblioteca estándar.
+La captura UI/envío de generación pertenece a la sonda Electron separada.
 """
 from __future__ import annotations
 
@@ -15,19 +16,19 @@ import json
 import subprocess
 import sys
 import time
+import argparse
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-import requests  # noqa: E402
-
 from music_service import GenerationRequest, MusicService  # noqa: E402
 from config import get_settings  # noqa: E402
 from prompt_enhancer import enhance_prompt  # noqa: E402
-from prompt_style import style_caption  # noqa: E402
+from prompt_style import analyze_prompt, style_caption  # noqa: E402
 
-API = "http://127.0.0.1:8000"
 ADVERSARIAL = [
     "techno oscuro, 130 bpm",
     "batería suave al fondo, sin voz",
@@ -37,8 +38,7 @@ ADVERSARIAL = [
     "cambia solo la batería; conserva el resto",
 ]
 
-# Chequeo del frontend REAL: glossPrompt (prompt_gloss.js) debe ser identidad y
-# la composición estilo Composer (mood + texto) literal, sin traducción oculta.
+# Solo comprueba el módulo importado; no recrea el componente para fingir probarlo.
 NODE_CHECK = """
 import { glossPrompt } from './src/prompt_gloss.js';
 import { readFileSync } from 'node:fs';
@@ -47,21 +47,32 @@ const checks = prompts.map((prompt) => ({
   prompt,
   equal: glossPrompt(prompt) === prompt.trim(),
 }));
-const mood = 'energetic and driving';
-const composed = `${mood}, ${prompts[1]}`;
-checks.push({ prompt: composed, equal: glossPrompt(composed) === composed });
 const status = checks.every((c) => c.equal) ? 'PASS' : 'FAIL';
 process.stdout.write(JSON.stringify({ status, checks }));
 """
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--api')
+    parser.add_argument('--source')
+    args = parser.parse_args()
     evidence = ROOT / "logs" / f"prompt-fidelity-audit-{time.strftime('%Y%m%d-%H%M%S')}.json"
     report: dict = {"checks": [], "status": "RUNNING",
-                    "note": "Technical fidelity only; artistic obedience requires the user's ear"}
+                    "note": "Modules and live previews only; UI/send capture and artistic listening are separate"}
     settings = get_settings()
+    api = args.api or f'http://{settings.host}:{settings.port}'
     service = MusicService(settings)
+    def http(route, body=None):
+        data = None if body is None else json.dumps(body).encode('utf-8')
+        req = urllib.request.Request(api + route, data=data, headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=settings.acestep.request_timeout) as response:
+            return json.load(response)
     try:
+        library = http('/music/library')['items']
+        source = args.source or (library[0]['name'] if library else None)
+        if not source:
+            raise RuntimeError('La auditoría necesita un audio real existente para cover/repaint')
         # 1. CREAR y REMIX: caption y payload del motor, literales.
         for prompt in ADVERSARIAL:
             caption = style_caption(prompt)
@@ -70,9 +81,15 @@ def main() -> None:
             for task in ("text2music", "cover", "repaint"):
                 payload = service.build_payload(GenerationRequest(
                     prompt=caption, task_type=task,
-                    source_path=None if task == "text2music" else "origen.wav"))
+                    source_path=None if task == "text2music" else str(settings.outputs_dir / source)))
                 report["checks"].append({"path": f"payload:{task}", "prompt": prompt,
                                          "equal": payload["prompt"] == prompt})
+                request = {'prompt': caption, 'task_type': task}
+                if task != 'text2music':
+                    request.update(source_name=source, source_kind='output')
+                live_payload = http('/music/preview', request)['effective_parameters']
+                report['checks'].append({'path': f'api:preview:{task}', 'prompt': prompt,
+                                         'equal': live_payload == payload})
         # 2. MEJORAR: fiel, sin recetas; BPM solo si el usuario lo eligió.
         for prompt in ADVERSARIAL[:4]:
             draft = enhance_prompt(prompt, bpm=None)
@@ -89,24 +106,24 @@ def main() -> None:
             "path": "enhance:conflicto_bpm", "prompt": "techno oscuro, 120 bpm",
             "untouched": conflicting["enhanced"] == "techno oscuro, 120 bpm",
             "warned": bool(conflicting["warnings"])})
-        # 3. Frontend real (node): glossPrompt identidad y buildPrompt literal.
+        # 3. Módulo de texto importado mediante Node.
         node = subprocess.run(
             ["node", "--input-type=module", "-e", NODE_CHECK],
             input=json.dumps(ADVERSARIAL), capture_output=True, text=True,
             cwd=ROOT / "frontend", check=True)
         report["frontend"] = json.loads(node.stdout)
         # 4. API viva desplegada: mismo contrato que los módulos.
-        live = requests.get(f"{API}/music/style_options",
-                            params={"prompt": ADVERSARIAL[1]}, timeout=10).json()
-        report["checks"].append({"path": "api:style_options", "equal": True,
+        live = http('/music/style_options?' + urllib.parse.urlencode({'prompt': ADVERSARIAL[1]}))
+        report["checks"].append({"path": "api:style_options", "equal": live == analyze_prompt(ADVERSARIAL[1]),
                                  "detected_genres": live.get("detected_genres")})
-        enhanced = requests.post(f"{API}/music/enhance_prompt",
-                                 json={"prompt": ADVERSARIAL[1]}, timeout=10).json()
+        enhanced = http('/music/enhance_prompt', {'prompt': ADVERSARIAL[1]})
         report["checks"].append({"path": "api:enhance_prompt",
                                  "equal": enhanced["enhanced"] == ADVERSARIAL[1],
                                  "additions": enhanced["additions"]})
         report["status"] = "PASS" if all(
-            c.get("equal") or c.get("untouched") for c in report["checks"]
+            (c.get('equal') is True or c.get('untouched') is True)
+            and c.get('warned', True) is True and c.get('additions_declared', True) is True
+            for c in report['checks']
         ) and report["frontend"]["status"] == "PASS" else "FAIL"
     except BaseException as exc:
         report.update(status="FAIL", error=repr(exc))

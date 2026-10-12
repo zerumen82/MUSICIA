@@ -188,10 +188,10 @@ class SeparateSinDependerDelCache(unittest.TestCase):
                     patch.object(separator_service, "free_vram_mb", return_value=0), \
                     patch.object(separator_service, "is_available",
                                  side_effect=AssertionError("consultó el cache")), \
-                    patch.object(separator_service.subprocess, "run") as run:
-                run.returncode = 1
-                run.stdout = ""
-                run.stderr = "Traceback: torch no carga"
+                    patch.object(separator_service, "run_cancellable_process") as run:
+                run.return_value.returncode = 1
+                run.return_value.stdout = ""
+                run.return_value.stderr = "Traceback: torch no carga"
                 with self.assertRaises(RuntimeError) as ctx:
                     separator_service.SeparatorService.separate(
                         Path(__file__), out_dir, "t"

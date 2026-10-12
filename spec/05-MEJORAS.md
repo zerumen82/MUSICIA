@@ -1,11 +1,15 @@
-# 05 · Mejoras propuestas
+# 05 · Archivo histórico de propuestas (2026-10-02)
 
-> Documento histórico de propuestas iniciado el 2026-10-02. Algunas descripciones de estado están desactualizadas. Para el estado verificado actual, ver `memory.md XCIV`; para la nueva petición de REMIX integral, ver R9 y `spec/06-REMIX-INTEGRAL.md`. No revivir decisiones descartadas tomando esta propuesta como estado del código.
+> **Lectura histórica, no backlog vigente ni autorización de implementación.** Las secciones siguientes describen la revisión y propuestas del 2026-10-02. Sus palabras «hoy», «no hay» y «cuando se apruebe» corresponden a esa fecha. Para el estado vigente, ver [knowledge.md](../knowledge.md), [pendientes](03-PENDIENTES.md), [plan R9](06-REMIX-INTEGRAL.md) y `memory.md` CI/CII y entradas posteriores. No revivir decisiones descartadas desde este archivo.
 
-Estado: el 2026-10-02 el usuario pidió quitar la locución y aplicar las
+**Cambios posteriores relevantes (2026-10-13):** cover/repaint tienen ejecuciones reales; cola en disco y PARAR están implementados, con el e2e completo de cancelación pendiente en CI; SFT es el perfil aprobado de toda la app; compás está disponible; existen suites automatizadas y cuatro grupos de separación. La locución se retiró por decisión del usuario. No base/XL/SFT-stems ni Lego/Extract/Complete; fin `-1` en repaint no significa extender una canción. R9/R10 se corrigieron parcialmente y se reabrieron tras la auditoría; las correcciones están autorizadas y en curso. Las propuestas históricas de voz/TTS, modelos y muestras remotas no se reactivan.
+
+## Estado y propuesta registrados el 2026-10-02
+
+En esa fecha el usuario pidió quitar la locución y aplicar las
 mejoras sustanciales. Esa parte está en código (ver `memory.md`, entrada XVI,
-y [F3] en `spec/02`). No es HECHO: no hay un MP3 de cover ni de repaint.
-No se instaló `acestep-v15-base`. No hay botón PARAR. La tabla de pantalla
+y [F3] en `spec/02`). El diagnóstico de ese día decía que faltaban MP3 de cover/repaint y botón PARAR; esas carencias de implementación se resolvieron después, aunque siguen pendientes criterios de verificación del cierre actual.
+No se instaló `acestep-v15-base`. La tabla de pantalla
 de más abajo (chips de CREAR, ondas de 28 px, un solo anuncio de VRAM) no
 está hecha.
 
@@ -14,9 +18,9 @@ no propone otro programa. La primera parte es lo que cambia el oficio.
 La tabla de más abajo es la capa de pantalla, sobre el mismo CONSOLE.
 
 La ventana real es 1400×900, mínima 1080×700 (`frontend/main.cjs`).
-Todo lo de abajo está medido contra esa ventana y contra el código actual.
+La revisión histórica usó esas dimensiones y el código de aquella fecha; no acredita una prueba de la interfaz actual.
 
-## Mejoras sustanciales
+## Mejoras sustanciales propuestas entonces
 
 Revisión de todas las funciones el 2026-10-02: generación, letra, subida,
 remix DSP, remix IA, separación, mezcla, crossfade, locución, biblioteca
@@ -24,17 +28,17 @@ y el motor ACE-Step 1.5. El hueco grande no es un botón nuevo. Es que el
 motor sabe editar una pista que ya existe y Musicia solo le pide canciones
 desde cero.
 
-### Lo que el motor hace y la app no le pide
+### Capacidades consideradas en la propuesta original
 
 `music_service.build_payload` fija `task_type` en `text2music`
-(`config.py`). ACE-Step 1.5, en el turbo que ya cabe en 8 GB, admite
+(`config.py` de esa revisión). ACE-Step 1.5, en el turbo considerado entonces para 8 GB, admite
 además dos tareas de edición (`vendor/ACE-Step-1.5/docs/en/API.md` y
 `GRADIO_GUIDE.md`):
 
 | Tarea | Qué hace con el audio que ya tienes | ¿Cabe en el turbo de 8 GB? |
 |-------|--------------------------------------|----------------------------|
 | `cover` | Mantiene melodía, ritmo y forma. Cambia el estilo según el prompt. La fuerza (`audio_cover_strength`) acerca o aleja del original. | Sí. No está en la lista «solo modelo base». |
-| `repaint` | Regenera un tramo (inicio y fin en segundos). El resto de la pista se queda. Sirve para arreglar un trozo, cambiar una estrofa o alargar el final. | Sí. Igual que cover. |
+| `repaint` | Regenera un tramo; la conservación del contexto depende del modo y normalización. La idea histórica de «alargar el final» con `-1` no corresponde a extensión real (corregido por la investigación R9). | Sí. Igual que cover. |
 | `extract` | Aísla un instrumento: voz, bajo, batería, guitarra, sintes… | No. Exige `acestep-v15-base`. |
 | `lego` | Añade una pista (un bajo, una batería) sobre el audio existente. | No. Mismo modelo base. |
 | `complete` | Completa un arreglo con varias pistas. | No. Mismo modelo base. |
@@ -44,13 +48,12 @@ El pico del turbo ya es 6,9 GB de 8. `lego` y `extract` son justo «saca la
 voz y pon un bajo», y hoy no se pueden encender. El camino que sí cabe es
 `cover` y `repaint` sobre el turbo, más la separación demucs que ya corre.
 
-### Las cinco funciones que hoy no son lo que dicen
+### Diagnóstico de cinco funciones el 2026-10-02
 
 1. **Re-crear, extender y «crear base» son la misma generación.** En SUBIR,
    `recreate`, `extend` y `backing` abren `RemixIAPanel` y acaban en
    `POST /music/generate` con un prompt sacado del análisis. No entra el
-   audio. «Extender» no alarga la pista: compone otra. El extendido real
-   es `repaint` desde el segundo final hasta `-1`.
+   audio. «Extender» no alargaba la pista: componía otra. La propuesta original sugería `repaint` hasta `-1`; esa interpretación se corrigió en R9: `-1` no amplía la duración del original.
 2. **El remix con voz ya está en el servidor y la pantalla lo dispara vacío.**
    `POST /audio/remix/ai` separa (demucs, solo voz y resto), genera una
    base instrumental y mezcla a −14 LUFS. `RemixActions` lanza la acción
@@ -520,7 +523,7 @@ La allowlist vive en `backend/config.py`, no en la interfaz.
 `generation.language` pasa de `en` a `es` para que una llamada sin
 idioma deje de forzar inglés. La UI ya manda el idioma cuando hay letra.
 
-## Orden de implementación, cuando se apruebe
+## Orden de implementación propuesto entonces (no usar como plan vigente)
 
 1. Persistencia entre pestañas y borrador de letra (punto 9).
    Archivo: `App.jsx`. Las pantallas se ocultan, no se desmontan. El
@@ -565,7 +568,7 @@ sin PASS y APPROVE en `memory.md`.
   en este paquete. El sonido se queda. Si más adelante se quieren en
   config, es otro cambio y se pregunta.
 
-## Cómo se sabrá que quedó bien
+## Criterios históricos de esa propuesta
 
 En la ventana a 1400×900 y a 1080×700:
 

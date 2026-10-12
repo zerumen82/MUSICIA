@@ -1,52 +1,59 @@
 # 🎵 Musicia
 
-Estudio de música con IA **100% local** para Windows. Genera canciones, canta con texto-a-voz, sube tus propios audios y mézclalos — todo sin salir de tu PC y sin enviar nada a la nube.
+Estudio musical local para Windows: crea canciones instrumentales o con voz cantada, trabaja sobre tus audios y mezcla pistas con FastAPI, React/Vite y Electron. El canto lo genera ACE-Step; la locución edge-tts se retiró.
 
-## ✨ Qué puede hacer
+## Qué puede hacer
 
-- **CREAR** — Genera música instrumental o canciones con voz a partir de un prompt. Asistente de calidad en 5 pasos, mejora de prompt con un clic, variaciones A/B comparables.
-- **SUBIR** — Arrastra tus MP3/WAV, análisis DSP automático (BPM, loudness, dinámica) y re-creación con IA a partir de un prompt editable.
-- **MEZCLA** — Mezcla varias pistas con volúmenes, fundidos de entrada/salida y normalización.
-- **BIBLIOTECA** — Todas tus creaciones, con remezcla y ajustes por pista.
+- **CREAR** — Prompt editable, letra e idioma opcionales; BPM, tono, compás, semilla y variantes. MEJORAR propone un borrador optativo.
+- **SUBIR** — MP3/WAV, análisis DSP y análisis local revisable de la fuente. REMIX trabaja sobre el original mediante cover, repaint o separación de voz, batería, bajo y acompañamiento restante.
+- **MEZCLA** — Pistas de biblioteca y subidas, volúmenes, fundidos, cuadre cuando el tempo es fiable y normalización con ffmpeg.
+- **BIBLIOTECA** — Audios, fichas de generación, renombrado, descarga y herramientas por pista. Los trabajos muestran fase y errores reales.
 
-## 🏗️ Arquitectura
+El plan R9/R10 está en corrección tras la auditoría del 2026-10-13. La implementación existente y las pruebas parciales no acreditan su cierre completo: consulta [pendientes](spec/03-PENDIENTES.md), [criterios del plan](spec/06-REMIX-INTEGRAL.md) y [bitácora](memory.md). La adecuación musical requiere escucha del usuario.
 
-| Componente | Tecnología | Puerto |
+## Arquitectura
+
+| Componente | Tecnología | Puerto local |
 |---|---|---|
-| Frontend (ventana Electron) | React + Vite + Tailwind | — |
-| API local | FastAPI (Python, venv propio) | 8000 |
-| Motor de música | ACE-Step 1.5 turbo (2B, venv propio en `vendor/`) | 8001 |
+| Ventana | Electron + React/Vite/Tailwind | — |
+| API y UI de producción | FastAPI, `backend/venv` | 8000 |
+| Motor musical | ACE-Step 1.5, venv propio en `vendor/` | 8001 |
+| Separación | Demucs, `backend/demucs-venv` | invocado por la API |
 
-- Backend en Python con dependencias mínimas (FastAPI, httpx, pydub, loguru); análisis DSP en Python puro (sin numpy).
-- Procesamiento de audio con ffmpeg (instalado aparte).
-- Progreso en vivo con fases y porcentaje real durante la generación.
-- Bandeja de sistema: cerrar la ventana la minimiza; el botón SALIR detiene API y motor.
+El perfil aprobado usa **SFT en toda la app**, 50 pasos, guidance 9 y dos variantes por defecto; `thinking` y `use_format` apagados. Los valores efectivos proceden de configuración y de los controles explícitos. Generación y separación se serializan para la GPU NVIDIA de 8 GB verificada en este equipo. La documentación de módulos y contratos está en [arquitectura](spec/01-ARQUITECTURA.md).
 
-## 🚀 Puesta en marcha
+## Puesta en marcha
+
+Con las dependencias y pesos ya instalados:
 
 ```powershell
-# 1. Frontend
-cd frontend
-npm install
-npm run build
+# Desde la raíz: motor + API + ventana Electron
+powershell -ExecutionPolicy Bypass -File scripts/open_musicia.ps1
 
-# 2. Lanzar todo (API + motor + ventana Electron)
+# Solo servicios
 powershell -ExecutionPolicy Bypass -File scripts/start_local.ps1
-# o directamente: Musicia.exe
+
+# Parar servicios
+powershell -ExecutionPolicy Bypass -File scripts/stop_local.ps1
 ```
 
-Requisitos: Windows, Python 3.11+, Node 18+, GPU NVIDIA con ≥8 GB VRAM recomendado (RTX 3060 Ti verificado).
+Después de cambiar el frontend, ejecutar `npm run build` dentro de `frontend/`: la API sirve `frontend/dist` en `/`. Para desarrollo con HMR, usar `npm run dev` en ese directorio. La X se ignora: no cierra ni esconde la ventana. SALIR detiene los servicios y cierra la aplicación. PARAR actúa sobre un trabajo, con reinicio del motor cuando la operación lo requiere.
 
-## 📁 Estructura
+Requisitos del entorno: Windows, ffmpeg/ffprobe en PATH, los venv del backend y motor, Node compatible con el Vite instalado y GPU NVIDIA recomendada. La instalación de paquetes o modelos requiere aprobación explícita; la primera descarga de pesos del motor y de Demucs necesita red.
 
+## Verificación
+
+Hay suites backend `backend/test_*.py` (unittest) y frontend `frontend/src/*.test.js` (Node). La auditoría del 2026-10-13 registró lint/build verdes, 164 tests backend y 8 frontend; son una referencia fechada, no el resultado de las correcciones en curso.
+
+```powershell
+# Prueba oficial: genera música local y valida el MP3 con ffprobe
+powershell -ExecutionPolicy Bypass -File scripts/verify_e2e.ps1 -Seconds 30
 ```
-backend/     API FastAPI + servicios (música, mezcla, análisis DSP)
-frontend/    UI React/Vite + main.cjs de Electron
-scripts/     lanzadores, launcher C# (Musicia.exe)
-spec/        especificaciones SDD
-vendor/      ACE-Step 1.5 (no incluido en el repo)
-```
 
-## 🔒 Privacidad
+Un cierre exige ejecución real de los recorridos afectados, lint/build verdes, **PASS del tester + APPROVE del reviewer**, con evidencia en `memory.md`.
 
-Todo el procesamiento — generación, análisis y mezcla — ocurre en tu máquina. No hay telemetría ni llamadas externas.
+## Privacidad y estructura
+
+La generación, análisis, separación y mezcla se ejecutan en la máquina del usuario. Las descargas iniciales y cualquier dependencia de red se declaran en la bitácora. No se instala ni se descarga nada por abrir estos documentos.
+
+`backend/` contiene la API y servicios; `frontend/`, la UI y Electron; `scripts/`, lanzadores y sondas; `spec/`, especificaciones SDD; `vendor/`, el motor externo. El secuenciador permanece fuera de la navegación; no se reactivan sus samples remotos.

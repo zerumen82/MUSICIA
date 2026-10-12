@@ -53,7 +53,8 @@ class RemixContractTest(unittest.TestCase):
         self.assertEqual(payload["repainting_end"], 4)
         self.assertEqual(payload["chunk_mask_mode"], "explicit")
         self.assertEqual(payload["repaint_mode"], "conservative")
-        self.assertEqual(payload["repaint_wav_crossfade_sec"], 0.15)
+        self.assertEqual(payload["repaint_wav_crossfade_sec"], AppSettings().remix.repaint_resolution_max_wav_seconds)
+        self.assertNotEqual(payload["repaint_wav_crossfade_sec"], 0.15)
         self.assertFalse(payload["use_random_seed"])
         self.assertEqual(payload["batch_size"], 2)
 

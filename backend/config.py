@@ -193,6 +193,10 @@ class RemixSettings:
     repaint_strength: float = 0.5
     repaint_wav_crossfade_sec: float = 0.1
     repaint_latent_crossfade_frames: int = 10
+    # Contrato del motor instalado generate_music._resolve_repaint_config;
+    # los campos crossfade directos del request se ignoran allí.
+    repaint_resolution_max_frames: int = 25
+    repaint_resolution_max_wav_seconds: float = 0.05
     sample_rate: int = 48000
     intermediate_format: str = "wav32"
     export_bitrate: str = "192k"
@@ -204,6 +208,7 @@ class RemixSettings:
     demucs_overlap: float = 0.25
     subprocess_poll_seconds: float = 0.5
     subprocess_timeout_seconds: float = 1800.0
+    subprocess_termination_seconds: float = 5.0
     parameters: dict[str, dict[str, float]] = field(default_factory=lambda: {
         "cover_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
         "cover_noise_strength": {"min": 0.0, "max": 1.0, "step": 0.05},

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Loader2, AlertTriangle, Play, Pause, CheckCircle2, Layers, X } from 'lucide-react';
 import { api } from '../api';
+import AudioComparator from './AudioComparator';
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
@@ -13,7 +14,7 @@ const STATUS_UI = {
 
 /**
  * Cola de trabajos de la sesión + comparador A/B: marca hasta 2 pistas
- * terminadas y las reproduce juntas para comparar.
+ * terminadas y compara el mismo tramo alternando una sola reproducción.
  * Presentacional: los items los sondea App.jsx UNA vez cada 3 s y los
  * reparte (barra, auto-refresh y este panel beben del mismo tick).
  */
@@ -38,6 +39,7 @@ export default function JobsPanel({ items = [] }) {
   };
 
   const toggleMark = (jobId) => {
+    setPlaying(null);
     setAbMarks((cur) => {
       if (cur.includes(jobId)) return cur.filter((x) => x !== jobId);
       if (cur.length >= 2) return [cur[1], jobId];
@@ -47,6 +49,10 @@ export default function JobsPanel({ items = [] }) {
 
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
   const done = jobs.filter((j) => j.status === 'succeeded').slice(0, 8);
+  const comparisonTracks = useMemo(() => abMarks.map((jobId, index) => {
+    const job = jobs.find((item) => item.job_id === jobId);
+    return job?.output_name ? { id: jobId, label: String.fromCharCode(65 + index), url: api.audioUrl(job.output_name), duration: job.duration_seconds } : null;
+  }).filter(Boolean), [abMarks, jobs]);
 
   if (jobs.length === 0) return null;
 
@@ -114,20 +120,7 @@ export default function JobsPanel({ items = [] }) {
         </div>
       )}
 
-      {abMarks.length > 0 && (
-        <div className="flex flex-col gap-2 pt-1">
-          {abMarks.map((jobId, i) => {
-            const job = jobs.find((j) => j.job_id === jobId);
-            if (!job?.output_name) return null;
-            return (
-              <div key={jobId} className="flex items-center gap-3">
-                <span className="mono text-[10px] text-[var(--acc)] w-4">{String.fromCharCode(65 + i)}</span>
-                <audio key={jobId} controls src={api.audioUrl(job.output_name)} className="player flex-1" />
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {comparisonTracks.length > 0 && <AudioComparator tracks={comparisonTracks} />}
 
       {jobs.some((j) => j.status === 'failed') && (
         <div className="flex items-center gap-2">

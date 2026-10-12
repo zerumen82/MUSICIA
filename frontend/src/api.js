@@ -16,6 +16,9 @@ export const JOB_POLL_INTERVAL_MS = 3000
 /** Cortes seguidos del sondeo antes de dar el trabajo local por perdido. */
 export const JOB_POLL_MAX_MISSES = 5
 
+/** Espera compartida de las consultas de borrador y vista previa. */
+export const PROMPT_PREVIEW_DEBOUNCE_MS = 300
+
 /**
  * Tope del chequeo de la pastilla. Tiene que ser mayor que
  * `acestep.health_timeout` (3 s): así un motor apagado contesta
@@ -85,6 +88,27 @@ export const api = {
   musicConfig: async () => {
     const { data } = await client.get('/music/config')
     return data
+  },
+
+  generationPreview: async (payload) => {
+    try {
+      const { data } = await client.post('/music/preview', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixPreview: async (payload) => {
+    try {
+      const { data } = await client.post('/music/remix/preview', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixAiPreview: async (payload) => {
+    try {
+      const { data } = await slowClient.post('/audio/remix/ai/preview', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
   },
 
   remixCapabilities: async () => {

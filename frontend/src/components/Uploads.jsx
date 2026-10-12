@@ -6,7 +6,6 @@ import {
 import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
-import { structureLyric } from '../vocal';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
@@ -91,48 +90,19 @@ export default function Uploads() {
     setChosenAction(null);
   };
 
-  // Re-creación: cover del audio, sin duración y sin el BPM medido.
-  // Crear base: pieza nueva de la duración del audio. El BPM medido no se manda.
-  const runAIGeneration = async ({ prompt, seed = null, name = null, lyrics = null, duration_seconds = null, bpm = null, source_kind = null } = {}) => {
+  // El formulario prepara una sola petición para preview y envío, sin recomponerla.
+  const runAIGeneration = async (request) => {
     setError(null);
-    const text = (prompt ?? '').trim();
-    if (!text) {
-      setError('Escribe un prompt antes de la versión');
-      return;
-    }
     setGenerating(true);
-    const a = lastAnalysis?.analysis ?? {};
-    const letra = lyrics ? structureLyric(lyrics) : null;
-    const esBaseNueva = chosenAction === 'backing';
-    let duration = null;
-    if (esBaseNueva) {
-      const measured = Number(duration_seconds ?? a.duration_seconds);
-      if (Number.isFinite(measured) && measured > 0) {
-        const cfg = await api.musicConfig().catch(() => null);
-        const max = Number(cfg?.max_duration_seconds);
-        duration = Number.isFinite(max) && max > 0 ? Math.min(measured, max) : measured;
-      }
-    }
     try {
-      const created = await api.generateMusic({
-        prompt: text,
-        instrumental: !letra,
-        lyrics: letra,
-        bpm: bpm ?? null,
-        seed,
-        output_name: name,
-        ...(esBaseNueva
-          ? { duration_seconds: duration }
-          : { source_name: lastAnalysis.file_name, source_kind: source_kind ?? 'upload', task_type: 'cover' }),
-      });
+      const created = await api.generateMusic(request);
       setRemixState({
         ok: true, job: true, job_id: created.job_id,
-        note: esBaseNueva
-          ? 'Base nueva lanzada. El progreso está en la barra de arriba.'
-          : 'Versión lanzada sobre este audio. El progreso está en la barra de arriba.',
+        note: 'Base nueva lanzada. El progreso está en la barra de arriba.',
       });
     } catch (e) {
       setRemixState({ ok: false, error: e.message });
+      throw e;
     } finally {
       setGenerating(false);
     }
@@ -289,7 +259,7 @@ export default function Uploads() {
             )}
 
             {chosenAction === 'backing' && (
-              <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind} sourceKind="upload"
+              <RemixIAPanel fileName={lastAnalysis.file_name} sourceKind="upload" sourceDuration={lastAnalysis.analysis.duration_seconds}
                 createBacking onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
             )}
 

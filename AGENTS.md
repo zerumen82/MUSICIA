@@ -13,14 +13,17 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
 - Dev backend: `backend/venv/Scripts/python.exe backend/main.py`
 - Dev frontend (HMR en navegador solo para desarrollar): `cd frontend && npm run dev`
 - La UI en producción la sirve la propia API en `/` (mount de `frontend/dist`); hay que hacer `npm run build` tras cambiar el frontend
-- Test: `backend/test_remix_logic.py` (unittest stdlib, sin GPU) + la verificación oficial es la ejecución real (ver reglas)
+- Tests: `backend/test_*.py` (unittest, contratos/análisis/cuadre/fichas/biblioteca/prompts) y `frontend/src/*.test.js` (Node). Auditoría CI del 2026-10-13: 164 backend + 8 frontend. No sustituyen la verificación oficial real de los recorridos afectados (ver reglas)
 
 ## Architecture
 - `backend/` — FastAPI: generación ACE-Step 1.5, voz cantada por el mismo motor (la locución edge-tts se quitó el 2026-10-05), mezcla ffmpeg (atempo/loudnorm), separación demucs, DSP y análisis con pydub
+  - Perfil aprobado: SFT en toda la app desde el 2026-10-09; 50 pasos, guidance 9, batch 2, LM 0.6B, thinking/use_format off (valores/config efectivos, no defaults inventados por UI)
+  - `remix_project.py`: original/referencia, cover/repaint/grupos y trazabilidad; `source_understanding.py`: análisis local revisable de la fuente. Los cuatro grupos reales son voz, batería, bajo y acompañamiento restante; no stems individuales supuestos
 - `frontend/` — React 19 + Vite + Tailwind + Tone.js; app de escritorio via Electron (`frontend/main.cjs`, CommonJS porque el package.json es `"type": "module"`; contextIsolation + sandbox)
   - En producción Electron carga `http://127.0.0.1:8000` (la API sirve la UI); en dev sin build, carga `http://localhost:5173`
 - `.agents/` — definiciones de agentes (music-orchestrator, music-composer, audio-engineer)
 - `spec/` — especificación SDD: principios (00), arquitectura (01), requisitos (02), pendientes (03), ejército de agentes (04)
+  - `spec/05-MEJORAS.md` es histórico; `spec/06-REMIX-INTEGRAL.md` contiene el plan R9 autorizado. Auditoría CI reabrió el cierre R9/R10; CII autoriza sus correcciones. No reactivar decisiones antiguas ni declarar que solo falta oído sin completar los criterios técnicos
 - Agentes SDD GLOBALES en `~/.agents/`: `sd-coordinator` (pregunta antes de decidir), `sd-editor` (implementa), `sd-tester` (verifica con evidencia), `sd-reviewer` (APPROVE/CHANGES_REQUESTED), `sd-scout` (skills), `sd-researcher` (internet). Invócalos por nombre; ver spec/04-EJERCITO.md
 - **PROTOCOLO DE EJECUCIÓN OBLIGATORIO** (el usuario lo dejó claro: los agentes
   SE USAN en cada trabajo, no son decorativos):
@@ -43,7 +46,7 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
   - Motor: `POST /music/generate` → ACE-Step `/release_task` → sondeo `/query_result` → descarga `/v1/audio` → verificación con pydub → `GET /music/audio/{name}`
 
 ## Conventions
-- VRAM: el DiT 2B turbo cabe en 8 GB (pico medido 6.9 GB); el XL 4B (9 GB de pesos) NO cabe. Perfil del motor: tier3/tier4 con offload a CPU
+- VRAM: turbo y SFT se han ejecutado en la GPU de 8 GB del equipo; perfil vigente SFT en toda la app, tier3/tier4 con offload. Mediciones históricas no acreditan margen actual. XL/base/SFT-stems no están instalados ni autorizados en R9; no habilitar Lego/Extract/Complete con los checkpoints actuales
 - Si una generación falla: el error real viaja en `job["error"]` y en `logs/acestep-api.err.log`; nunca se maquilla
 - REGLAS INNEGOCIABLES (todos los agentes):
   - NO HARDCODE: valores en config/parámetros, nunca mágicos en código

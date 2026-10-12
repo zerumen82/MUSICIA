@@ -1,10 +1,10 @@
-# R9 — REMIX integral: propuesta para aprobación
+# R9 — REMIX integral: plan autorizado y cierre en corrección
 
-Fecha: 2026-10-12. Estado: **APROBADO E IMPLEMENTADO; TESTER PASS (8 sondas reales) + REVIEWER APPROVE el 2026-10-12** (`memory.md` XCIX). Falta el veredicto de oído del usuario.
+Plan fechado el 2026-10-12; estado actualizado el 2026-10-13: **AUTORIZADO, PARCIALMENTE CUMPLIDO Y EN CORRECCIÓN** (`memory.md` CI/CII). Las ocho sondas y APPROVE de XCIX fueron evidencia parcial; la auditoría posterior emitió FAIL del cierre integral + CHANGES_REQUESTED. Los criterios técnicos pendientes y la escucha del usuario son distintos. No declarar cierre antes del nuevo PASS integral y APPROVE de los archivos completos.
 
 Autorización explícita: «arreglas el problema del prompting e implementas el plan, teniendo en cuenta la autodetección de si es electrónica o no». Incluye R10 compartido con CREAR. La autodetección se ejecuta sobre audio real, informa su procedencia/incertidumbre y permite corrección manual; no añade instrumentos, voces, patrones o estilos al prompt ni sustituye decisiones explícitas. Sin nuevas instalaciones/modelos. Sus inferencias no son certificaciones artísticas.
 
-Aclaración previa a la aprobación: el usuario exige revisar las adiciones no pedidas también en CREAR. El contrato común de prompts se registra en `spec/02-REQUISITOS.md` [R10]; hay fallos automáticos reproducidos y la fidelidad general sigue abierta. Esta propuesta de REMIX no es una solución completa a ese problema compartido.
+Aclaración incorporada al alcance aprobado: el usuario exige revisar las adiciones no pedidas también en CREAR. El contrato común de prompts se registra en `spec/02-REQUISITOS.md` [R10]. El texto literal ya tiene evidencia parcial, pero siguen pendientes conflictos y preview efectivo en el cierre auditado. REMIX no resuelve por sí solo ese contrato compartido.
 
 ## Contexto y objetivo
 
@@ -20,7 +20,7 @@ Actualmente cover y repaint ya existen en Musicia. Esta propuesta no los present
 - Sin instalar paquetes, modelos ni skills. El modelo base, XL y SFT-stems no están instalados y no se incluyen en la fase propuesta.
 - No habilitar tareas solo por `/v1/models`: su implementación local puede anunciar tareas base para SFT. La compatibilidad debe contrastarse con checkpoint, código y documentación del fabricante.
 
-## Fase propuesta con lo instalado
+## Fase autorizada con lo instalado
 
 1. **Un proyecto de remix asociado al original.** Prompt libre, origen y referencia opcional; operación y zonas/grupos elegidos revisables. Mantener el texto exacto del usuario y mostrar los parámetros efectivos. No inferir silenciosamente otra operación mediante palabras sueltas. La interfaz enseña controles útiles y el resultado de las operaciones, con opciones avanzadas plegadas.
 2. **Transformar la canción completa.** Cover con audio original y prompt completo; conservar la distinción entre fidelidad al original, intensidad de transformación y referencia tímbrica. Exponer `cover_noise_strength` y el audio de referencia, además de los controles ya existentes, solo con rangos del contrato real del motor.
@@ -31,9 +31,9 @@ Actualmente cover y repaint ya existen en Musicia. Esta propuesta no los present
 
 La interpretación artística corresponde al condicionamiento real del modelo sobre texto y audio. Musicia debe transmitir intención, material y controles de forma fiel, validar el contrato y permitir revisar operaciones. No se promete que un análisis LM produzca por sí solo un planificador universal.
 
-## Integración de UI y selección de grupos — propuesta 2026-10-12
+## Integración de UI y selección de grupos — diseño autorizado 2026-10-12
 
-El usuario pregunta cómo se seleccionarán instrumentos, exige integrarlo en la UI y pide reducir opciones absurdas/redundantes. Esta concreción sigue pendiente de aprobación; no se han cambiado componentes.
+El usuario pidió selección de instrumentos integrada en la UI y menos opciones redundantes. La autorización de XCVIII incluye este diseño; `RemixWorkspace.jsx` ya implementa los tres ámbitos, con criterios abiertos identificados en CI. «HAZLO» en CII autoriza completar esas correcciones sin nuevas instalaciones.
 
 - **Una misma mesa dentro de SUBIR y BIBLIOTECA**, reutilizando el panel actual. Encabezado con original y tres ámbitos: canción completa, tramo y por pistas. Prompt y botón REMIX siempre visibles; el resto aparece según el ámbito. No crear una pantalla independiente ni mantener once acciones en el desplegable.
 - **Canción completa**: prompt, un control de transformación/conservación y BPM con opción de mantener el original. La duración nativa de cover se muestra como dato de la fuente: no se ofrece un campo de duración que el motor ignore. Cambiar longitud requiere una operación explícita de recorte/arreglo soportada, dentro de ajustes; no se presenta como un parámetro de cover ni como extensión automática. Referencia opcional en un panel plegable. Los parámetros expertos y el detalle de lo enviado se despliegan cuando se necesitan.
@@ -48,7 +48,7 @@ El usuario pregunta cómo se seleccionarán instrumentos, exige integrarlo en la
 |---|---|
 | VERSIÓN / REESTILAR | Una sola transformación de canción completa; comparten cover |
 | TRAMO | Ámbito tramo, con selección de onda |
-| VOZ + BASE NUEVA | Selección de conservación de voz y transformación de otros grupos; no otro modo principal dedicado a un ejemplo |
+| VOZ + BASE NUEVA | Conservar su recorrido de generación de base desde cero y mezcla con voz original mediante acceso contextual en la mesa. La transformación cover de grupos no demuestra equivalencia; restaurar el acceso perdido identificado por CI |
 | MEDIO TIEMPO / DOBLE TIEMPO / FORZAR TEMPO | Un control de tempo; multiplicadores como accesos dentro de ajustes |
 | QUITAR VOCES / SOLO LA VOZ | Acciones de los grupos: quitar voz o conservar voz y quitar los demás |
 | LOOP DE 4 COMPASES | Herramientas de recorte/loop dentro de ajustes, con medidas reales |
@@ -85,7 +85,7 @@ La propuesta reutiliza motor, separación, DSP y UI existentes. Amplía operacio
 
 Más regiones/grupos implican más tiempo y cómputo; las operaciones se serializan para no solapar generación y separación en la GPU de 8 GB. No se modifica software ajeno ni se presupone margen de VRAM.
 
-**Fuera de esta primera fase:** lego/extract/complete del modelo base, aislamiento universal de instrumentos, XL y puntuación automática que certifique calidad musical. El análisis de audio `full_analysis_only` está implementado en el vendor, pero aún no se ha verificado en Musicia: estudiarlo separadamente y no convertir sus inferencias en órdenes. Base o SFT-stems requieren elección y autorización de descarga, pruebas de memoria y comparación musical antes de ofrecerlos.
+**Fuera de esta primera fase:** lego/extract/complete del modelo base, aislamiento universal de instrumentos, XL y puntuación automática que certifique calidad musical. El análisis local `full_analysis_only` ya está integrado en `source_understanding.py` y tiene evidencia de ejecución real en XCIX; esa sonda no certifica su precisión universal. Sus inferencias son revisables y no se convierten en órdenes del prompt. Base o SFT-stems requieren elección y autorización de descarga, pruebas de memoria y comparación musical antes de ofrecerlos.
 
 ## Evidencia de capacidades y fuentes
 
@@ -101,4 +101,14 @@ Investigación de `sd_researcher`: `release_task_models.py`, `job_generation_set
 
 Las fuentes remotas orientan el diseño; el comportamiento del vendor instalado y las pruebas locales mandan ante discrepancias.
 
-Revisión independiente `sd_reviewer`: **APPROVE del plan**, sin bloqueantes; las capacidades integradas requieren prueba real y la calidad musical requiere comparación de oído. **Cierre 2026-10-12**: tester PASS con 8 sondas reales sobre GPU (evidencia en `memory.md` XCIX) y reviewer APPROVE de los archivos completos. El oído del usuario sigue pendiente.
+Revisión independiente inicial `sd_reviewer`: **APPROVE del plan**. XCIX registró ocho sondas GPU PASS y APPROVE de la implementación; C afirmó el cierre. **La auditoría CI del 2026-10-13 corrige ese estado:** FAIL del cierre integral + CHANGES_REQUESTED del producto, con APPROVE de la exactitud del informe. Las pruebas anteriores se conservan dentro de su alcance.
+
+## Correcciones autorizadas tras auditoría (2026-10-13)
+
+- Comparación A/B con una posición y tramo comunes entre original y variantes; dos reproductores independientes no cumplen el criterio.
+- Conflictos explícitos texto/BPM/voz resueltos antes de generar y preview de los parámetros que realmente se enviarán. No presentar el request de Musicia como payload efectivo del motor.
+- Restaurar voz original + base nueva y GLOSARIO/AÑADIR/variantes en acompañamiento, manteniendo las funciones útiles existentes.
+- Compartir el estado de región entre onda y campos; persistir procedencia de clasificación y semillas por variante; mostrar advertencias de modo agresivo y normalización.
+- Verificar recorridos reales en Electron a ambas dimensiones, cancelación/liberación/recuperación y audio con oráculos adecuados; completar reviewer/tester separados. La escucha artística sigue siendo del usuario.
+
+Implementación y contratos concretos en `spec/01-ARQUITECTURA.md`; estado final únicamente según `spec/02`, `spec/03` y evidencia de `memory.md` CII y entradas posteriores.
