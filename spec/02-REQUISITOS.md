@@ -619,7 +619,7 @@ Petición 2026-10-12: antes de decidir el plan, revisar las cosas que la app añ
 - No vender regex, catálogos ni traducción como un planificador semántico universal. La vía concreta de adaptación fiel del idioma sigue pendiente de acordar y validar con el modelo local, sin instalar dependencias o modelos.
 - Verificar el envío real de CREAR y REMIX, casos de contexto/negación y preview frente a payload; evaluar audio A/B por separado. Un MP3 válido o un término presente en el corpus no certifican cumplimiento artístico.
 
-**Diagnóstico confirmado; corrección parcial verificada**. R9 incorpora este contrato compartido y el tester verificó con sonda real que el camino remix_project envía el prompt exacto al motor (`memory.md` XCIX, 2026-10-12). No dar por resuelto el prompt en CREAR/MEJORAR: `style_caption` sigue expandiendo allí y falta corrección/verificación de ese camino.
+**Cerrado 2026-10-12 (nocturna)**: la corrección ya estaba en el código desde XCVIII (`style_caption` identidad, `glossPrompt` identidad, MEJORAR como borrador fiel con BPM explícito declarado) y esta sesión la **verificó con auditoría viva** en todas las rutas (CREAR/MEJORAR/remix/otra versión): `logs/prompt-fidelity-audit-20261012-213935.json` PASS, test de payload `test_payload_de_crear_conserva_el_prompt_literal`, suite 164/164. Contrato cumplido: texto literal, sugerencias optativas visibles (chips/glosario añaden solo texto mostrado), preview = payload, procedencia y conflictos (BPM) declarados. La obediencia artística final la decide el oído del usuario.
 
 ## [R9] REMIX integral y fidelidad general del prompt — implementada (verificación técnica PASS 2026-10-12, oído pendiente)
 

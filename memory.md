@@ -2334,3 +2334,20 @@ ahí estaba el desfase que oía el usuario.
 - **Verificación final de regresión**: lint 0 (`--max-warnings=0`), build Vite OK (356,66 kB / gzip 111,02 kB), `node --test` 8/8, suite backend 163/163. API y motor arriba durante todas las pruebas.
 - **Límites declarados**: fidelidad ARTÍSTICA no certificada por sondas técnicas (oído del usuario); separación demucs estimada; la autodetección es orientativa y corregible. R10 en CREAR (expansión de `style_caption`) sigue ABIERTA — el camino remix_project cumple el contrato de prompt exacto; falta verificar/ajustar el de CREAR/MEJORAR.
 - **Lección**: una suite verde no prueba el camino de producción: el bug de `hashlib` estaba en vivo y los tests no lo tocaban. Toda función nueva exige un test que ejerite el código real, no solo su mock.
+
+## 2026-10-12 (C) — R10 CERRADA: auditoría viva PASS en TODAS las rutas con prompt
+
+- **Petición del usuario**: «allá donde hay prompt debe haber mejora de ese tema pendiente» — aplicar R10 en todas las rutas con prompt (CREAR, MEJORAR, remix IA, otra versión).
+- **Diagnóstico previo a tocar código**: la corrección de R10 ya estaba implementada durante XCVIII y resultó verificable hoy:
+  - Backend: `style_caption` = identidad (solo sanea espacios); `enhance_prompt` = borrador fiel que solo puede añadir un BPM **explícitamente elegido**, declarado en `additions`/`warnings`; `/audio/remix_prompt` compone una **sugerencia visible y editable** (optativa).
+  - Frontend: `glossPrompt` = identidad (documentado: la antigua glosa de palabras perdía relaciones); `buildPrompt` de Composer = mood (clic explícito) + texto + tags de voz (opciones elegidas), y la vista previa usa la misma función que el envío.
+  - Chips/glosario/géneros: solo añaden texto que la UI muestra antes (AÑADIR/selector = elección explícita del usuario).
+- **Correcciones de transparencia (sd-editor)**:
+  - `main.py`: docstring de `/music/enhance_prompt` decía «reglas de producción musical» — ahora describe el borrador fiel real; eliminado el mensaje muerto «Caption compuesto con el estilo que pides» del remix (nunca se dispara con caption literal y confundiría al saneo de espacios).
+  - `api.js`: comentario de `enhancePrompt` alineado con la realidad.
+  - Nuevo test `test_remix_logic.test_payload_de_crear_conserva_el_prompt_literal`: identidad del prompt en el payload del motor (text2music) con los 4 prompts adversos de la auditoría XCVII.
+- **TESTER — PASS (auditoría viva nueva)**: `scripts/audit_prompt_fidelity.py` ejecuta de verdad: 6 prompts adversos × (style_caption + payload text2music/cover/repaint) = identidad verificada; MEJORAR sin BPM = fiel, con BPM = 133 añadido y declarado, conflicto de BPM = untouched + warning; frontend real con node (`glossPrompt` identidad y composición literal); API viva `/music/enhance_prompt` y `/music/style_options` coherentes con los módulos. Evidencia **`logs/prompt-fidelity-audit-20261012-213935.json` → PASS**.
+- **Regresión**: suite backend **164/164 OK** (test nuevo incluido), ESLint **0** (`--max-warnings=0`). API reiniciada con los fixes y arriba (200).
+- **REVIEWER — APPROVE**: cambios de esta ronda acotados a docstrings/comentario/test/auditoría/spec; sin tocar lógica de generación. La auditoría cubre preview=_payload y payload=envío real del motor en las tres tareas.
+- **Estado final**: R9 y R10 **cerradas a nivel técnico**. Lo único pendiente es el **oído del usuario** (variantes ya generadas en `backend/outputs/` del cover/remix sobre «pista-sin-nombre (2)») y la escucha A/B de obediencia artística.
+- **Lección**: a veces el «bug» diagnosticado ya está corregido en código y lo que falta es la **verificación con evidencia**; antes de reabrir una corrección, re-ejecutar el diagnóstico contra el código actual.

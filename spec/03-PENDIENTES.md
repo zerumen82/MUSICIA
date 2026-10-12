@@ -30,8 +30,8 @@
 
 | ID | Bug | Estado |
 |----|-----|--------|
-| R9 | Comprensión/fidelidad general del prompt y REMIX integral más versátil | Abierto: usuario aclara que voz/guitarra son ejemplos. Diseñar operaciones reales sobre audio original y calidad; las correcciones de envío de XCIV tienen PASS técnico, sin veredicto de oído ni nueva arquitectura implementada |
-| R10 | Adiciones no pedidas y vista previa incompleta en CREAR y REMIX | Parcialmente abierto: el camino remix_project (nuevo R9) envía el prompt EXACTO al motor, verificado con sonda real 2026-10-12 (`memory.md` XCIX). Reproducido 2026-10-12 en CREAR: presets añaden instrumentos/caracteres; modificadores confunden alcance (bajo potente→voz potente en entrada directa sin glosa, batería al fondo→protagonista también desde UI). Ver logs/prompt-audit-tester-20261012.json y spec/02. Falta corregir/verificar el camino CREAR/MEJORAR (`style_caption`) |
+| R9 | Comprensión/fidelidad general del prompt y REMIX integral más versátil | **Implementada y verificada técnicamente 2026-10-12** (R9 PASS 8 sondas + R10 cerrada, `memory.md` XCIX y C): operaciones reales sobre el original, autodetección revisable, prompt literal en todas las rutas. Abierto solo el veredicto de oído del usuario (variantes ya generadas en outputs/) |
+| R10 | Adiciones no pedidas y vista previa incompleta en CREAR y REMIX | **Cerrada 2026-10-12 (nocturna)**: auditoría viva PASS en TODAS las rutas con prompt (`logs/prompt-fidelity-audit-20261012-213935.json`): style_caption identidad, payload del motor literal en text2music/cover/repaint con los prompts adversos de XCVII, MEJORAR fiel (BPM solo explícito y declarado), frontend glossPrompt/buildPrompt literales, API viva coherente. Textos engañosos corregidos (docstrings de MEJORAR y mensaje del remix). `memory.md` C |
 
 ## Puntos de vigilancia
 

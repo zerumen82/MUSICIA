@@ -1228,10 +1228,9 @@ async def _run_ai_remix(
             f"Modelo del motor: {gen.remix_model} (guidance {guidance_remix:g}, "
             f"{steps_remix} pasos: el prompt pesa más que en el turbo)."
         )
-        # El remix usa el MISMO caption compuesto que CREAR (spec/02 [R2]).
+        # Contrato R10: el texto del usuario viaja literal, igual que en CREAR
+        # (`style_caption` solo sanea espacios; ver test_prompt_style).
         caption_remix = style_caption(request.prompt)
-        if caption_remix != request.prompt:
-            step("Caption compuesto con el estilo que pides (igual que CREAR).")
 
         def on_update(status: Any) -> None:
             _throw_if_cancelled(job)
@@ -2115,7 +2114,12 @@ def music_genre_glossary_combine(a: str = "", b: str = "", limit: int = 50) -> d
 
 @app.post("/music/enhance_prompt")
 async def music_enhance_prompt(request: EnhancePromptRequest) -> dict[str, Any]:
-    """Enriquece un prompt con reglas de producción musical (determinista)."""
+    """Borrador fiel de prompt (determinista): no añade recetas de producción.
+
+    Solo puede incorporar un BPM seleccionado explícitamente, y lo declara en
+    `additions`/`warnings`; la UI muestra el borrador para revisarlo antes de
+    aplicarlo (spec/02 [R10]).
+    """
     try:
         return enhance_prompt(request.prompt, bpm=request.bpm)
     except ValueError as exc:

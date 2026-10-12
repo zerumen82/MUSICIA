@@ -417,7 +417,7 @@ export const api = {
     }
   },
 
-  /** Mejora un prompt con reglas de producción local (determinista). */
+  /** Borrador fiel del prompt (solo BPM explícito añadido; revisable antes de aplicar). */
   enhancePrompt: async (payload) => {
     try {
       const { data } = await client.post('/music/enhance_prompt', payload)

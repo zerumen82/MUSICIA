@@ -152,6 +152,21 @@ class ModeloRemixTest(unittest.TestCase):
         self.assertEqual(payload["inference_steps"], self.gen.steps_by_model[self.gen.model])
         self.assertEqual(payload["guidance_scale"], self.gen.guidance_by_model[self.gen.model])
 
+    def test_payload_de_crear_conserva_el_prompt_literal(self):
+        """Contrato R10 verificado en el payload del motor (auditoría XCVII):
+        recetas de género, roles invertidos y negaciones viajan tal cual."""
+        from prompt_style import style_caption
+
+        for prompt in (
+            "techno oscuro, 130 bpm",
+            "batería suave al fondo, sin voz",
+            "bajo potente, sin voz",
+            "electrónica con drops épicos",
+        ):
+            with self.subTest(prompt=prompt):
+                payload = self.service.build_payload(self.request(prompt=style_caption(prompt)))
+                self.assertEqual(payload["prompt"], prompt)
+
     def test_las_dos_tablas_no_son_la_misma(self):
         self.assertIn(self.gen.remix_model, self.gen.allowed_models)
         self.assertIn(self.gen.model, self.gen.allowed_models)
