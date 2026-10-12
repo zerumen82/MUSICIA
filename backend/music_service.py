@@ -93,6 +93,12 @@ class GenerationRequest:
     repaint_start: float | None = None
     repaint_end: float | None = None
     cover_strength: float | None = None
+    reference_path: str | None = None
+    cover_noise_strength: float | None = None
+    repaint_mode: str | None = None
+    repaint_strength: float | None = None
+    repaint_wav_crossfade_sec: float | None = None
+    repaint_latent_crossfade_frames: int | None = None
 
 
 @dataclass
@@ -138,7 +144,7 @@ class MusicService:
         self.engine = self.settings.acestep
         self.defaults: GenerationDefaults = self.settings.generation
         self._client: httpx.AsyncClient | None = None
-        self._staged: dict[str, str] = {}
+        self._staged: dict[str, list[str]] = {}
 
     # -- ciclo de vida -------------------------------------------------------
 
@@ -286,7 +292,12 @@ class MusicService:
     def build_payload(self, request: GenerationRequest) -> dict[str, Any]:
         """Construye el cuerpo de /release_task a partir de config + petición."""
         defaults = self.defaults
-        instrumental = defaults.instrumental if request.instrumental is None else request.instrumental
+        task = request.task_type or defaults.task_type
+        # En cover/repaint una letra vacía no ordena eliminar la voz del audio.
+        instrumental = (
+            defaults.instrumental if task == "text2music" and request.instrumental is None
+            else request.instrumental is True
+        )
         duration = defaults.duration_seconds if request.duration_seconds is None else request.duration_seconds
         if duration <= 0 or duration > defaults.max_duration_seconds:
             raise MusicEngineError(
@@ -297,14 +308,13 @@ class MusicService:
         if instrumental:
             # El motor trata estos marcadores como "sin voz" (server_utils.is_instrumental).
             lyrics = defaults.instrumental_marker
-        elif lyrics is None or not lyrics.strip():
+        elif task == "text2music" and (lyrics is None or not lyrics.strip()):
             raise MusicEngineError(
                 "Para una pieza con voz debes enviar 'lyrics' o marcar instrumental=true "
                 "(con la letra vacía el motor genera un instrumental)"
             )
 
         # Tarea y modelo primero: los pasos y el guidance dependen del modelo.
-        task = request.task_type or defaults.task_type
         model = defaults.model_for(task, request.model)
         inference_steps = (
             request.inference_steps
@@ -319,7 +329,7 @@ class MusicService:
 
         payload = {
             "prompt": request.prompt,
-            "lyrics": lyrics,
+            "lyrics": lyrics or "",
             "audio_duration": duration,
             "bpm": defaults.bpm if request.bpm is None else request.bpm,
             "key_scale": defaults.key_scale if request.key_scale is None else request.key_scale,
@@ -397,6 +407,15 @@ class MusicService:
             payload["repainting_start"] = start
             payload["repainting_end"] = end
             payload["chunk_mask_mode"] = "explicit"
+        if request.reference_path:
+            payload["reference_audio_path"] = request.reference_path
+        for name in (
+            "cover_noise_strength", "repaint_mode", "repaint_strength",
+            "repaint_wav_crossfade_sec", "repaint_latent_crossfade_frames",
+        ):
+            value = getattr(request, name)
+            if value is not None:
+                payload[name] = value
         if task in {"cover", "repaint"} and request.duration_seconds is None:
             # Cero o negativo: el motor toma la duración del audio de origen.
             payload["audio_duration"] = -1
@@ -405,20 +424,22 @@ class MusicService:
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""
         payload = self.build_payload(request)
-        staged = None
-        if payload.get("src_audio_path"):
-            staged = stage_source_audio(payload["src_audio_path"])
-            payload["src_audio_path"] = staged
+        staged: list[str] = []
         try:
+            for key in ("src_audio_path", "reference_audio_path"):
+                if payload.get(key):
+                    path = stage_source_audio(payload[key])
+                    staged.append(path)
+                    payload[key] = path
             data = await self._request("POST", self.engine.submit_path, json=payload)
         except Exception:
-            if staged:
-                Path(staged).unlink(missing_ok=True)
+            for path in staged:
+                Path(path).unlink(missing_ok=True)
             raise
         task_id = data.get("task_id")
         if not task_id:
-            if staged:
-                Path(staged).unlink(missing_ok=True)
+            for path in staged:
+                Path(path).unlink(missing_ok=True)
             raise MusicEngineError(f"El motor no devolvió task_id: {data}")
         if staged:
             self._staged[task_id] = staged
@@ -570,13 +591,11 @@ class MusicService:
 
     def _drop_staged(self, task_id: str) -> None:
         """Borra la copia temporal cuando el motor ya terminó de leerla."""
-        path = self._staged.pop(task_id, None)
-        if not path:
-            return
-        try:
-            Path(path).unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning(f"No se pudo borrar el audio temporal del motor: {exc}")
+        for path in self._staged.pop(task_id, []):
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning(f"No se pudo borrar el audio temporal del motor: {exc}")
 
     def _download_target(self, remote: str) -> tuple[str, dict[str, str] | None]:
         """Normaliza la referencia de una pista a (ruta_http, query).

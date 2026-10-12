@@ -1,12 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Shuffle, Sparkles, Pencil, Check, ChevronDown, CheckSquare, Square, X,
+  Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Sparkles, Pencil, Check, ChevronDown, CheckSquare, Square, X,
 } from 'lucide-react';
 import { api, isTransportBlip } from '../api';
-import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
-import { structureLyric } from '../vocal';
-import { glossPrompt } from '../prompt_gloss';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 const fmtDate = (iso) => new Date(iso).toLocaleString();
@@ -25,15 +22,31 @@ export default function Library({ externalRefresh = 0 }) {
   const [error, setError] = useState(null);
   const [playing, setPlaying] = useState(null); // name del MP3 sonando
   const [editName, setEditName] = useState(null); // name en edición
-  const [remixName, setRemixName] = useState(null); // name en remix
   const [iaName, setIaName] = useState(null); // name en re-creación IA
-  const [iaBusy, setIaBusy] = useState(false);
-  const [iaNote, setIaNote] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [renameName, setRenameName] = useState(null); // item en renombrado
   const [renameValue, setRenameValue] = useState('');
   const [menuName, setMenuName] = useState(null); // item con el menú ACCIONES abierto
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  // El menú ACCIONES se cierra con clic fuera o Escape (antes se quedaba
+  // abierto sin forma de ocultarlo salvo re-pulsar el botón).
+  useEffect(() => {
+    if (!menuName) return undefined;
+    const onDown = (e) => {
+      if (e.target.closest('[data-acciones]')) return;
+      setMenuName(null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setMenuName(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [menuName]);
   const [processing, setProcessing] = useState(false);
   // Tempo medido por pista (GET /audio/groove, DSP local): se mide a mano,
   // una pista cada vez, y se guarda en memoria. Nada automático por fila:
@@ -143,43 +156,13 @@ export default function Library({ externalRefresh = 0 }) {
     }
   };
 
-  // Re-creación IA de una pista de la biblioteca: mismo panel que en SUBIR.
-  const runIAFromLibrary = async ({ prompt, seed = null, name = null, lyrics = null, bpm = null, source_kind = null } = {}) => {
-    setError(null);
-    setIaBusy(true);
-    setIaNote(null);
-    const letra = lyrics ? structureLyric(lyrics) : null;
-    try {
-      const text = (prompt ?? '').trim();
-      if (!text) {
-        setError('Escribe un prompt antes de la versión');
-        setIaBusy(false);
-        return;
-      }
-      await api.generateMusic({
-        prompt: glossPrompt(text),
-        instrumental: !letra,
-        lyrics: letra,
-        bpm: bpm ?? null,
-        seed,
-        output_name: name,
-        source_name: iaName,
-        source_kind: source_kind ?? 'output',
-        task_type: 'cover',
-      });
-      setIaNote('Versión lanzada sobre esta pista. El progreso está en la barra de arriba.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setIaBusy(false);
-    }
-  };
-
   const remove = async (name) => {
     setError(null);
     try {
-      await api.deleteAudio(name);
+      // El cliente libera src antes de que React desmonte el reproductor.
+      const deletion = api.deleteAudio(name);
       if (playing === name) setPlaying(null);
+      await deletion;
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -209,13 +192,21 @@ export default function Library({ externalRefresh = 0 }) {
     setBulkBusy(true);
     setError(null);
     try {
-      const res = await api.deleteMany(names);
+      const deletion = api.deleteMany(names);
       if (playing && names.includes(playing)) setPlaying(null);
-      if (res.not_found?.length > 0) setError(`No estaban: ${res.not_found.join(', ')}`);
-      setSelected(new Set());
+      const res = await deletion;
+      const blocked = res.blocked ?? [];
+      const failed = res.failed ?? [];
+      const remaining = [...blocked, ...failed.map((item) => item.name)];
+      setSelected(new Set(remaining));
       setConfirmBulk(false);
-      setSelectMode(false);
+      setSelectMode(remaining.length > 0);
       await refresh();
+      const messages = [];
+      if (blocked.length) messages.push(`Siguen abiertos en otro proceso: ${blocked.join(', ')}`);
+      if (failed.length) messages.push(...failed.map((item) => `${item.name}: ${item.detail}`));
+      if (res.not_found?.length) messages.push(`No estaban: ${res.not_found.join(', ')}`);
+      if (messages.length) setError(messages.join(' · '));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -369,7 +360,7 @@ export default function Library({ externalRefresh = 0 }) {
                   )}
                 </div>
                 {renameName !== item.name && (
-                  <div className="flex flex-wrap gap-2 pl-14">
+                  <div className="flex flex-wrap gap-2 pl-14" data-acciones>
                     <button onClick={() => { setMenuName(menuName === item.name ? null : item.name); setConfirmDelete(null); }}
                       className={`btn h-8 px-2.5 ${menuName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
                       ACCIONES <ChevronDown size={12} className={menuName === item.name ? 'rotate-180 transition-transform' : 'transition-transform'} />
@@ -386,16 +377,13 @@ export default function Library({ externalRefresh = 0 }) {
                   </div>
                 )}
                 {menuName === item.name && renameName !== item.name && confirmDelete !== item.name && (
-                  <div className="flex flex-wrap gap-2 pl-14 pt-1">
-                    <button onClick={() => { setEditName(null); setRemixName(null); setMenuName(null); setIaName(iaName === item.name ? null : item.name); }}
+                  <div className="flex flex-wrap gap-2 pl-14 pt-1" data-acciones>
+                    <button onClick={() => { setEditName(null); setMenuName(null); setIaName(iaName === item.name ? null : item.name); }}
                       className={`btn h-8 px-2.5 ${iaName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
-                      <Sparkles size={12} /> OTRA VERSIÓN
+                      <Sparkles size={12} /> REMIX
                     </button>
-                    <button onClick={() => { setEditName(null); setIaName(null); setMenuName(null); setRemixName(remixName === item.name ? null : item.name); }}
-                      className={`btn h-8 px-2.5 ${remixName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
-                      <Shuffle size={12} /> BOOTLEG
-                    </button>
-                    <button onClick={() => { setRemixName(null); setIaName(null); setMenuName(null); openEditor(item.name); }}
+
+                    <button onClick={() => { setIaName(null); setMenuName(null); openEditor(item.name); }}
                       className={`btn h-8 px-2.5 ${editName === item.name ? 'btn-ghost !border-[var(--acc-line)] !text-[var(--text)]' : 'btn-ghost'}`}>
                       <SlidersHorizontal size={12} /> AJUSTES
                     </button>
@@ -443,19 +431,12 @@ export default function Library({ externalRefresh = 0 }) {
               {/* Re-creación IA de esta pista (encadenable: cada versión vuelve a la biblioteca) */}
               {iaName === item.name && (
                 <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
-                  <span className="label block mb-1">OTRA VERSIÓN CON IA · {item.name}</span>
-                  <RemixIAPanel fileName={item.name} kind="musica" sourceKind="output"
-                    initialPrompt={item.prompt ?? ''} initialLyrics={item.lyrics ?? ''} showLyrics
-                    onLaunch={runIAFromLibrary} generating={iaBusy} jobNote={iaName === item.name ? iaNote : null} />
-                </div>
-              )}
-
-              {/* Remix de esta pista (encadenable: el resultado vuelve a la biblioteca) */}
-              {remixName === item.name && (
-                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
+                  <span className="label block mb-1">REMIX SOBRE EL ORIGINAL · {item.name}</span>
                   <RemixActions fileName={item.name} ficha={item} sourceKind="output" onDone={() => refresh()} />
                 </div>
               )}
+
+
 
               {/* Editor de post-proceso */}
               {editName === item.name && (
@@ -527,3 +508,6 @@ export default function Library({ externalRefresh = 0 }) {
     </div>
   );
 }
+
+
+

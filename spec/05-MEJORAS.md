@@ -1,5 +1,7 @@
 # 05 · Mejoras propuestas
 
+> Documento histórico de propuestas iniciado el 2026-10-02. Algunas descripciones de estado están desactualizadas. Para el estado verificado actual, ver `memory.md XCIV`; para la nueva petición de REMIX integral, ver R9 y `spec/06-REMIX-INTEGRAL.md`. No revivir decisiones descartadas tomando esta propuesta como estado del código.
+
 Estado: el 2026-10-02 el usuario pidió quitar la locución y aplicar las
 mejoras sustanciales. Esa parte está en código (ver `memory.md`, entrada XVI,
 y [F3] en `spec/02`). No es HECHO: no hay un MP3 de cover ni de repaint.

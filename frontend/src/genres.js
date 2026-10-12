@@ -7,6 +7,11 @@
  * - label: nombre en español para la UI.
  * - bpm: tempo típico oficial del estilo.
  * - genre: término canónico que el modelo reconoce directamente en el prompt.
+ *   DEBE ser una línea LITERAL de genres_vocab.txt y coincidir con lo que el
+ *   backend calcula en genre_glossary.catalog_styles(): lo controlan los tests
+ *   test_realism.test_genres_js_only_offers_genres_the_model_can_write y
+ *   test_genres_js_agrees_with_the_backend_catalog. Un género que no esté en
+ *   ese archivo no puede escribirlo el modelo (NO FAKE).
  */
 
 export const CATALOG_GENRES = [
@@ -20,10 +25,10 @@ export const CATALOG_GENRES = [
   { id: 'trance', label: 'Trance', bpm: 138, genre: 'trance' },
   { id: 'hard techno', label: 'Hard techno', bpm: 145, genre: 'hard techno' },
   { id: 'hardstyle', label: 'Hardstyle', bpm: 150, genre: 'hardstyle' },
-  { id: 'hardcore holandes', label: 'Hardcore holandés', bpm: 180, genre: 'hardcore holandes' },
+  { id: 'hardcore holandes', label: 'Hardcore holandés', bpm: 180, genre: 'gabber' },
   { id: 'frenchcore', label: 'Frenchcore', bpm: 170, genre: 'frenchcore' },
-  { id: 'uptempo hard dance', label: 'Uptempo hard dance', bpm: 160, genre: 'uptempo' },
-  { id: 'hard bounce', label: 'Hard bounce', bpm: 140, genre: 'hard bounce' },
+  { id: 'uptempo hard dance', label: 'Uptempo hard dance', bpm: 160, genre: 'hard dance' },
+  { id: 'hard bounce', label: 'Hard bounce', bpm: 140, genre: 'hard house' },
   { id: 'lo-fi', label: 'Lo-fi', bpm: 85, genre: 'lo-fi' },
   { id: 'hip hop', label: 'Hip hop', bpm: 90, genre: 'hip hop' },
   { id: 'trap', label: 'Trap', bpm: 140, genre: 'trap' },
@@ -33,12 +38,12 @@ export const CATALOG_GENRES = [
   { id: 'pop', label: 'Pop', bpm: 110, genre: 'pop' },
   { id: 'jazz', label: 'Jazz', bpm: 110, genre: 'jazz' },
   { id: 'funk', label: 'Funk / Disco', bpm: 115, genre: 'funk' },
-  { id: 'folk acustico', label: 'Folk / Acústico', bpm: 95, genre: 'acustico' },
+  { id: 'folk acustico', label: 'Folk / Acústico', bpm: 95, genre: 'folk' },
   { id: 'flamenco', label: 'Flamenco', bpm: 100, genre: 'flamenco' },
   { id: 'salsa', label: 'Salsa', bpm: 100, genre: 'salsa' },
   { id: 'reggae', label: 'Reggae', bpm: 90, genre: 'reggae' },
   { id: 'ambient', label: 'Ambient', bpm: 70, genre: 'ambient' },
-  { id: 'orquestal', label: 'Orquestal / Épica', bpm: 100, genre: 'orquestal' },
+  { id: 'orquestal', label: 'Orquestal / Épica', bpm: 100, genre: 'orchestral' },
 ];
 
 /**

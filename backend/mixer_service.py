@@ -446,6 +446,62 @@ class MixerService:
     """Mezclas dos pistas alineando el groove y normalizando el volumen."""
 
     @staticmethod
+    def mix_groups(
+        tracks: list[tuple[Path, float]], output: Path, duration_seconds: float,
+        sample_rate: int,
+    ) -> dict:
+        """Suma float PCM sobre una timeline explícita; sin normalizar stems."""
+        if not tracks or duration_seconds <= 0:
+            raise ValueError("La mezcla necesita pistas y una duración positiva")
+        inputs = []
+        filters = []
+        labels = []
+        for index, (path, gain) in enumerate(tracks):
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            inputs.extend(["-i", str(path)])
+            label = f"[g{index}]"
+            filters.append(
+                f"[{index}:a]aresample={sample_rate},aformat=sample_fmts=flt:channel_layouts=stereo,"
+                f"volume={gain}dB,apad,atrim=duration={duration_seconds}{label}"
+            )
+            labels.append(label)
+        filters.append(
+            f"{''.join(labels)}amix=inputs={len(labels)}:duration=first:"
+            "dropout_transition=0:normalize=0[mix]"
+        )
+        run_ffmpeg(inputs + ["-filter_complex", ";".join(filters), "-map", "[mix]",
+                            "-c:a", "pcm_f32le", "-f", "wav", str(output)], output)
+        return {"duration_seconds": duration_seconds, "tracks": len(tracks),
+                "normalization": "none", "output_path": str(output)}
+
+    @staticmethod
+    def export_remix(source: Path, output: Path, settings) -> dict:
+        """Una exportación MP3; atenuación global solo si excede el límite real."""
+        measured = measure_loudness(source)
+        peak = measured.get("input_tp")
+        if peak is None or math.isnan(float(peak)):
+            raise RuntimeError("No se pudo medir el pico del intermedio de remix")
+        gain = min(0.0, settings.peak_limit_dbfs - peak) if math.isfinite(peak) else 0.0
+        run_ffmpeg(["-i", str(source), "-af", f"volume={gain}dB",
+                    "-c:a", "libmp3lame", "-b:a", settings.export_bitrate,
+                    "-ar", str(settings.sample_rate), "-f", "mp3", str(output)], output)
+        final = measure_loudness(output)
+        if not final or not math.isfinite(final.get("input_tp", float("nan"))):
+            output.unlink(missing_ok=True)
+            raise RuntimeError("La exportación está vacía o no tiene medidas válidas")
+        # La codificación perceptual puede introducir sobremuestreo; se vuelve
+        # a exportar siempre desde el PCM, nunca recomprimiendo el MP3.
+        if final["input_tp"] > settings.peak_limit_dbfs:
+            gain -= final["input_tp"] - settings.peak_limit_dbfs
+            run_ffmpeg(["-i", str(source), "-af", f"volume={gain}dB",
+                        "-c:a", "libmp3lame", "-b:a", settings.export_bitrate,
+                        "-ar", str(settings.sample_rate), "-f", "mp3", str(output)], output)
+            final = measure_loudness(output)
+        return {"loudness": final, "global_gain_db": round(gain, 4),
+                "normalization": "peak attenuation only", "input_loudness": measured}
+
+    @staticmethod
     def mix_tracks(
         base_track_path: str,
         vocal_track_path: str,

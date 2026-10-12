@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from source_understanding import SourceAnalysisSettings
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BACKEND_DIR.parent
@@ -75,7 +76,9 @@ class GenerationDefaults:
     # aciertas con una»). Decisión 2026-10-06 (ask_user): x2 tiempo/GPU.
     # Las 2 se descargan a BIBLIOTECA y el usuario elige (spec/02 [R3]).
     audio_format: str = "mp3"
-    model: str = "acestep-v15-turbo"
+    model: str = "acestep-v15-sft"
+    # SFT en toda la app desde 2026-10-09 (decisión del usuario tras oír el
+    # A/B iii.mp3 vs iii-sft.mp3): el turbo no obedece el prompt (guidance 1.0).
     # Dos modelos medidos en esta GPU de 8 GB (spec/02 [M1]): el turbo horneado
     # (rápido, sin CFG) y el sft con CFG de verdad (obedece el prompt).
     allowed_models: tuple[str, ...] = ("acestep-v15-turbo", "acestep-v15-sft")
@@ -130,6 +133,7 @@ class GenerationDefaults:
     bpm_display_tolerance: int = 3
     instrumental_marker: str = "[instrumental]"
     max_slug_chars: int = 40
+    max_name_versions: int = 500
 
     def model_for(self, task: str, requested: str | None = None) -> str:
         """Modelo efectivo de una generación: lo pedido, o el de remix.
@@ -164,6 +168,55 @@ class MixerSettings:
 
 
 @dataclass
+class RemixSettings:
+    """Contrato de edición del material original, independiente del género."""
+
+    scopes: list[dict[str, str]] = field(default_factory=lambda: [
+        {"id": "full", "label": "Canción completa"},
+        {"id": "region", "label": "Tramo"},
+        {"id": "groups", "label": "Por pistas"},
+    ])
+    groups: list[dict[str, str]] = field(default_factory=lambda: [
+        {"id": "vocals", "label": "Voz"},
+        {"id": "drums", "label": "Batería"},
+        {"id": "bass", "label": "Bajo"},
+        {"id": "other", "label": "Acompañamiento restante"},
+    ])
+    actions: list[dict[str, str]] = field(default_factory=lambda: [
+        {"id": "keep", "label": "Conservar"},
+        {"id": "transform", "label": "Transformar"},
+        {"id": "remove", "label": "Quitar"},
+    ])
+    repaint_modes: list[str] = field(default_factory=lambda: ["conservative", "balanced", "aggressive"])
+    cover_noise_strength: float = 0.0
+    repaint_mode: str = "balanced"
+    repaint_strength: float = 0.5
+    repaint_wav_crossfade_sec: float = 0.1
+    repaint_latent_crossfade_frames: int = 10
+    sample_rate: int = 48000
+    intermediate_format: str = "wav32"
+    export_bitrate: str = "192k"
+    peak_limit_dbfs: float = -1.0
+    duration_tolerance_seconds: float = 0.25
+    demucs_model: str = "htdemucs"
+    demucs_device: str = "auto"
+    demucs_shifts: int = 1
+    demucs_overlap: float = 0.25
+    subprocess_poll_seconds: float = 0.5
+    subprocess_timeout_seconds: float = 1800.0
+    parameters: dict[str, dict[str, float]] = field(default_factory=lambda: {
+        "cover_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
+        "cover_noise_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
+        "repaint_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
+        "repaint_wav_crossfade_sec": {"min": 0.0, "max": 2.0, "step": 0.05},
+        "repaint_latent_crossfade_frames": {"min": 0, "max": 100, "step": 1},
+        "bpm": {"min": 30, "max": 300, "step": 1},
+        "seed": {"min": 0, "max": 2147483647, "step": 1},
+        "gain_db": {"min": -60.0, "max": 12.0, "step": 0.5},
+    })
+
+
+@dataclass
 class PathsSettings:
     outputs_dir: str = str(BACKEND_DIR / "outputs")
 
@@ -182,6 +235,8 @@ class AppSettings:
     acestep: AcestepSettings = field(default_factory=AcestepSettings)
     generation: GenerationDefaults = field(default_factory=GenerationDefaults)
     mixer: MixerSettings = field(default_factory=MixerSettings)
+    remix: RemixSettings = field(default_factory=RemixSettings)
+    source_analysis: SourceAnalysisSettings = field(default_factory=SourceAnalysisSettings)
     paths: PathsSettings = field(default_factory=PathsSettings)
 
     @property

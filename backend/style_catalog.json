@@ -1,9 +1,23 @@
 {
-  "_doc": "CatÃ¡logo de estilos y modificadores (NO HARDCODE: datos, no cÃ³digo). Lo lee prompt_style.py. Claves: subcadenas, o regex con prefijo 're:' para palabras que serÃ­an subcadena de otras (rap/rÃ¡pido). El primer estilo cuyas claves aparecen gana; el orden importa (trap antes que hip hop porque 'trap' contiene 'rap'). BPM = tempo tÃ­pico del estilo (dato); lo pedido por el usuario manda siempre. Fuentes 2026-10-06: guÃ­a oficial de captions (5 capas: gÃ©nero, instrumentos, mood, estilo vocal, tempo feel), 400 textos del fabricante minados (frecuencias) y 1 A/B de oÃ­do (hardstyle/doble bombo). Los modificadores de voz llevan voice:true (la base de VOZ + BASE NUEVA es instrumental por diseÃ±o y no los sugiere).",
+  "_doc": "Catálogo de estilos y modificadores como datos (NO HARDCODE). Lo lee prompt_style.py; matching se comparte con la glosa frontend. Claves completas o regex re: para inflexiones explícitas; gana la coincidencia más específica en cada fragmento y se conservan todos los estilos pedidos en fragmentos independientes. Se respetan negaciones y caption_exclusions. Las descripciones no sustituyen el género literal por un vecino; las traducciones ES/EN declaradas deben existir en genres_vocab.txt. BPM típico del estilo como dato: lo pedido manda. La prosa de las descripciones y cláusulas se verifica contra las 400 captions locales del fabricante. Ese vocabulario valida los datos, no garantiza fidelidad audible. Revisado 2026-10-12 tras los logs de gabber/hardcore y el recordatorio del usuario.",
+  "matching": {
+    "negation_before": "(?:^|[^a-z0-9])(?:sin|no|not|without|excepto|evita|avoid)(?:\\s+(?:el|la|los|las|un|una|unos|unas|any|the))?\\s+(?:[a-z0-9-]+(?:\\s+[a-z0-9-]+)*\\s+(?:ni|nor|or|y|and)\\s+)*$",
+    "genre_translations": {"electronica": "electronic", "tecno": "techno", "orquestal": "orchestral"}
+  },
+  "caption_exclusions": [
+    {"keys": ["re:\\bguitarr\\w*", "re:\\bguitars?\\b"], "caption_keys": ["re:\\bguitars?\\b"]},
+    {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kick|percussion|hi-hats|breakbeats)\\b"]},
+    {"keys": ["re:\\b(?:bombos?|kick(?: drum)?)\\b"], "caption_keys": ["re:\\bkick\\b", "double bass drumming"]},
+    {"keys": ["re:\\b(?:melodias?|melody|melodies)\\b"], "caption_keys": ["re:\\b(?:melody|melodies|melodic|arpeggios|arpeggiated|leads)\\b"]},
+    {"keys": ["re:\\b(?:voces?|vocals?|cantar)\\b"], "caption_keys": ["re:\\b(?:vocals?|sung|rapped|choir)\\b"]},
+    {"keys": ["re:\\b(?:bajos?|bass|bassline)\\b"], "caption_keys": ["re:\\b(?:bass|sub-bass|bassline)\\b"]},
+    {"keys": ["re:\\b(?:pianos?)\\b"], "caption_keys": ["re:\\bpianos?\\b"]},
+    {"keys": ["re:\\b(?:sintetizadores?|sintes?|synths?|synthesizers?)\\b"], "caption_keys": ["re:\\b(?:synths?|synthesizers?)\\b"]}
+  ],
   "styles": [
     {
       "keys": [
-        "hardcore holand",
+        "re:\\bhardcore holand\\w*",
         "dutch hardcore",
         "gabber",
         "hakken",
@@ -11,7 +25,7 @@
         "hardcore"
       ],
       "name": "hardcore holandes",
-      "style": "A hardstyle track with heavily distorted, punchy kick drums, aggressive snare, a pounding relentless rhythm, dark energy and a raw, aggressive mix",
+      "style": "A track with heavily distorted, punchy kick drums, aggressive snare, a pounding relentless rhythm, dark energy and a raw, aggressive mix",
       "bpm": 180
     },
     {
@@ -19,17 +33,18 @@
         "frenchcore"
       ],
       "name": "frenchcore",
-      "style": "A pounding frenchcore track with a fast distorted kick, aggressive relentless energy and a dark, heavy mix",
+      "style": "A pounding track with a fast distorted kick, aggressive relentless energy and a dark, heavy mix",
       "bpm": 170
     },
     {
       "keys": [
         "uptempo",
         "rawstyle",
-        "makina"
+        "makina",
+        "hard dance"
       ],
       "name": "uptempo hard dance",
-      "style": "A high-energy hard dance track with a hard distorted kick, relentless driving rhythm and an aggressive atmosphere",
+      "style": "A high-energy track with a hard distorted kick, relentless driving rhythm and an aggressive atmosphere",
       "bpm": 160
     },
     {
@@ -37,7 +52,7 @@
         "hardstyle"
       ],
       "name": "hardstyle",
-      "style": "A driving hardstyle track with a punchy distorted reverse kick, powerful euphoric synth leads and a tight, energetic groove",
+      "style": "A driving track with a punchy distorted reverse kick, powerful euphoric synth leads and a tight, energetic groove",
       "bpm": 150
     },
     {
@@ -48,7 +63,7 @@
         "hardhouse"
       ],
       "name": "hard bounce",
-      "style": "A bouncy hard house track with a heavy kick, groovy off-beat bass, energetic feel and a punchy club mix",
+      "style": "A bouncy track with a heavy kick, groovy off-beat bass, energetic feel and a punchy club mix",
       "bpm": 140
     },
     {
@@ -56,7 +71,7 @@
         "hard techno"
       ],
       "name": "hard techno",
-      "style": "A dark, relentless hard techno track with a pounding kick, hypnotic industrial percussion and a raw, high-energy club sound",
+      "style": "A dark, relentless track with a pounding kick, hypnotic industrial percussion and a raw, high-energy club sound",
       "bpm": 145
     },
     {
@@ -68,7 +83,7 @@
         "jungle"
       ],
       "name": "drum and bass",
-      "style": "A fast drum and bass track with crisp breakbeats, a deep rolling sub-bass and an energetic dancefloor groove",
+      "style": "A fast track with crisp breakbeats, a deep rolling sub-bass and an energetic dancefloor groove",
       "bpm": 174
     },
     {
@@ -76,7 +91,7 @@
         "dubstep"
       ],
       "name": "dubstep",
-      "style": "A heavy dubstep track with wobble bass, hard syncopated drums and a dark groove",
+      "style": "A heavy track with wobble bass, hard syncopated drums and a dark groove",
       "bpm": 140
     },
     {
@@ -84,7 +99,7 @@
         "trance"
       ],
       "name": "trance",
-      "style": "A uplifting trance track with shimmering arpeggiated synths, a rolling bassline and an emotional, euphoric build",
+      "style": "An uplifting track with shimmering arpeggiated synths, a rolling bassline and an emotional, euphoric build",
       "bpm": 138
     },
     {
@@ -93,7 +108,7 @@
         "re:\\btecno\\b"
       ],
       "name": "techno",
-      "style": "A hypnotic techno track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove",
+      "style": "A hypnotic track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove",
       "bpm": 135
     },
     {
@@ -101,10 +116,11 @@
         "electronica",
         "edm",
         "idm",
+        "electronic",
         "big room"
       ],
       "name": "electronica",
-      "style": "A modern electronic dance track with a powerful four-on-the-floor kick, deep rolling bass drops and a polished, high-energy club mix",
+      "style": "A modern track with a powerful four-on-the-floor kick, deep rolling bass drops and a polished, high-energy club mix",
       "bpm": 128
     },
     {
@@ -112,7 +128,7 @@
         "electro"
       ],
       "name": "electro",
-      "style": "An electro track with syncopated drum machine beats, synth bass and a crisp, futuristic production",
+      "style": "A track with syncopated drum machine beats, synth bass and a crisp, futuristic production",
       "bpm": 128
     },
     {
@@ -124,7 +140,7 @@
         "synth pop"
       ],
       "name": "synthwave",
-      "style": "A retro synthwave track with analog bass, nostalgic neon arpeggios, gated drums and a nocturnal, cinematic 80s atmosphere",
+      "style": "A retro track with analog bass, nostalgic neon arpeggios, gated drums and a nocturnal, cinematic 80s atmosphere",
       "bpm": 100
     },
     {
@@ -132,7 +148,7 @@
         "house"
       ],
       "name": "house",
-      "style": "A warm house track with a four-on-the-floor kick, crisp hi-hats, a groovy bassline and a soulful, danceable feel",
+      "style": "A warm track with a four-on-the-floor kick, crisp hi-hats, a groovy bassline and a soulful, danceable feel",
       "bpm": 124
     },
     {
@@ -141,7 +157,7 @@
         "dembow"
       ],
       "name": "reggaeton",
-      "style": "A reggaeton track with the classic dembow rhythm, punchy sub-bass and a clean, modern urban production",
+      "style": "A track with the classic dembow rhythm, punchy sub-bass and a clean, modern urban production",
       "bpm": 95
     },
     {
@@ -149,7 +165,7 @@
         "trap"
       ],
       "name": "trap",
-      "style": "A dark trap track with rolling hi-hats, deep 808 sub-bass and a moody, atmospheric groove",
+      "style": "A dark track with rolling hi-hats, deep 808 sub-bass and a moody, atmospheric groove",
       "bpm": 140
     },
     {
@@ -159,7 +175,7 @@
         "lo-fi"
       ],
       "name": "lo-fi",
-      "style": "A relaxed lo-fi hip hop track with dusty vinyl drums, soft warm chords and a mellow, nostalgic atmosphere",
+      "style": "A relaxed track with dusty vinyl drums, soft warm chords and a mellow, nostalgic atmosphere",
       "bpm": 85
     },
     {
@@ -169,7 +185,7 @@
         "re:\\brap\\b"
       ],
       "name": "hip hop",
-      "style": "A hip hop track with punchy boom-bap drums, a deep bassline and a laid back, head-nodding groove",
+      "style": "A track with punchy boom-bap drums, a deep bassline and a laid back, head-nodding groove",
       "bpm": 90
     },
     {
@@ -181,7 +197,7 @@
         "unplugged"
       ],
       "name": "folk acustico",
-      "style": "An intimate acoustic folk track with warm nylon-string guitars, soft hand percussion and a raw, heartfelt acoustic performance",
+      "style": "An intimate track with warm nylon-string guitars, soft hand percussion and a raw, heartfelt acoustic performance",
       "bpm": 95
     },
     {
@@ -189,7 +205,7 @@
         "metal"
       ],
       "name": "metal",
-      "style": "A heavy metal track with distorted electric guitars, aggressive double bass drumming and a powerful mix",
+      "style": "A heavy track with distorted electric guitars, aggressive double bass drumming and a powerful mix",
       "bpm": 145
     },
     {
@@ -197,7 +213,7 @@
         "rock"
       ],
       "name": "rock",
-      "style": "An energetic rock track with driving live drums, electric guitars and a punchy, band-style production",
+      "style": "An energetic track with driving live drums, electric guitars and a punchy, band-style production",
       "bpm": 120
     },
     {
@@ -206,7 +222,7 @@
         "dub"
       ],
       "name": "reggae",
-      "style": "A laid back reggae track with offbeat chords, a deep bassline and a warm, sunny sound",
+      "style": "A laid back track with offbeat chords, a deep bassline and a warm, sunny sound",
       "bpm": 90
     },
     {
@@ -215,7 +231,7 @@
         "disco"
       ],
       "name": "funk",
-      "style": "A groovy funk disco track with tight live drums, a punchy slap bass and warm rhythm guitars",
+      "style": "A groovy track with tight live drums, a punchy slap bass and warm rhythm guitars",
       "bpm": 115
     },
     {
@@ -223,7 +239,7 @@
         "salsa"
       ],
       "name": "salsa",
-      "style": "A lively salsa track with bright brass, piano, percussion and a dancing tropical groove",
+      "style": "A lively track with bright brass, piano, percussion and a dancing tropical groove",
       "bpm": 100
     },
     {
@@ -231,19 +247,19 @@
         "flamenco"
       ],
       "name": "flamenco",
-      "style": "A passionate flamenco track with acoustic guitar, percussion and an intense, earthy groove",
+      "style": "A passionate track with acoustic guitar, percussion and an intense, earthy groove",
       "bpm": 100
     },
     {
       "keys": [
         "orquestal",
         "orchestral",
-        "cinemat",
-        "epic",
+        "re:\\bcinemat\\w*",
+        "re:\\bepic\\w*",
         "banda sonora"
       ],
       "name": "orquestal",
-      "style": "A cinematic orchestral track with soaring strings, powerful brass and dramatic percussion in a wide, powerful production",
+      "style": "A cinematic track with soaring strings, powerful brass and dramatic percussion in a wide, powerful production",
       "bpm": 100
     },
     {
@@ -258,7 +274,7 @@
         "re:\\bchill\\b"
       ],
       "name": "ambient",
-      "style": "A soft ambient track with evolving synth pads, no drums and a spacious, atmospheric, meditative soundscape",
+      "style": "A soft track with evolving synth pads, no drums and a spacious, atmospheric, meditative soundscape",
       "bpm": 70
     },
     {
@@ -266,7 +282,7 @@
         "jazz"
       ],
       "name": "jazz",
-      "style": "A smooth jazz track with brushed drums, a walking bassline and warm melodic solo",
+      "style": "A smooth track with brushed drums, a walking bassline and warm melodic solo",
       "bpm": 110
     },
     {
@@ -274,7 +290,7 @@
         "pop"
       ],
       "name": "pop",
-      "style": "A catchy pop track with clean production, a strong chorus and a bright, polished arrangement",
+      "style": "A catchy track with clean production, a strong chorus and a bright, polished arrangement",
       "bpm": 110
     }
   ],
@@ -653,8 +669,7 @@
       "label": "Pegadizo",
       "text": "pegadizo",
       "keys": [
-        "pegadizo",
-        "pegadiza",
+        "re:\\bpegadiz[oa]s?\\b",
         "catchy"
       ],
       "suggest_with": [

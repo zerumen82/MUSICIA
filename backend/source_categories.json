@@ -1,0 +1,11 @@
+{
+  "categories": [
+    {"id": "electronic", "label": "Electrónica"},
+    {"id": "non_electronic", "label": "No electrónica"},
+    {"id": "mixed", "label": "Mixta"},
+    {"id": "unknown", "label": "Sin determinar"}
+  ],
+  "electronic": ["electronic", "electronica", "electro", "techno", "house", "trance", "gabber", "hardcore techno", "hardstyle", "hardtek", "hard dance", "dubstep", "drum and bass", "breakbeat", "jungle", "synthwave", "synthpop", "synth pop", "EDM", "IDM", "industrial techno", "ambient electronic", "trip hop"],
+  "non_electronic": ["acoustic", "classical", "orchestral", "flamenco", "bluegrass", "folk", "jazz", "blues", "rock", "punk", "metal", "country", "chamber music", "a cappella", "acapella"],
+  "explanation": "Clasificación orientativa de la descripción y géneros inferidos del audio por el modelo local; puede corregirse. No modifica el prompt ni selecciona instrumentos."
+}

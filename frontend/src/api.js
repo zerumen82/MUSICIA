@@ -5,6 +5,7 @@
  * para desarrollo local. Ningún componente debe escribir la URL a mano.
  */
 import axios from 'axios'
+import { releaseAudioSources } from './audio_player'
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
@@ -84,6 +85,48 @@ export const api = {
   musicConfig: async () => {
     const { data } = await client.get('/music/config')
     return data
+  },
+
+  remixCapabilities: async () => {
+    try {
+      const { data } = await client.get('/music/remix/capabilities')
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixAnalyze: async (payload) => {
+    try {
+      const { data } = await client.post('/music/remix/analyze', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixAnalyzeStatus: async (jobId) => {
+    try {
+      const { data } = await client.get(`/music/remix/analyze/${encodeURIComponent(jobId)}`)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixProject: async (payload) => {
+    try {
+      const { data } = await client.post('/music/remix/project', payload, { timeout: GENERATE_SUBMIT_TIMEOUT_MS })
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  remixSeparate: async (payload) => {
+    try {
+      const { data } = await client.post('/music/remix/separate', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  separateJob: async (jobId) => {
+    try {
+      const { data } = await client.get(`/audio/separate/${encodeURIComponent(jobId)}`)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
   },
 
   /** Capas detectadas del prompt + chips sugeridos (catálogo del backend). */
@@ -289,6 +332,7 @@ export const api = {
 
   deleteAudio: async (name) => {
     try {
+      releaseAudioSources([api.audioUrl(name)])
       const { data } = await client.delete(`/music/audio/${encodeURIComponent(name)}`)
       return data
     } catch (error) {
@@ -299,6 +343,7 @@ export const api = {
   /** Borrado en bloque de la biblioteca (una petición, reporte por archivo). */
   deleteMany: async (names) => {
     try {
+      releaseAudioSources(names.map((name) => api.audioUrl(name)))
       const { data } = await client.post('/music/audio/delete_many', { names })
       return data
     } catch (error) {

@@ -133,7 +133,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   };
   const addChip = (chip) => addTexto(chip.clause ?? chip.text);
 
-  /** Al elegir género: añade el término canónico al prompt y propone su BPM típico si no hay uno fijado. */
+  /** La selección añade solo el género visible; el BPM sigue siendo una elección aparte. */
   const onSelectGenre = (id) => {
     setGenre(id || null);
     if (!id) return;
@@ -143,9 +143,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     const target = item.genre;
     if (!p.toLowerCase().includes(target.toLowerCase())) {
       setPrompt(p ? `${p} ${target}` : target);
-    }
-    if (bpm == null && item.bpm) {
-      setBpm(item.bpm);
     }
   };
 
@@ -171,20 +168,12 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     if (m) parts.push(m.text);
     const free = prompt.trim();
     if (free) parts.push(free);
-    // Si eligió género en el selector pero aún no está en el prompt escrito, añadirlo
-    if (genre) {
-      const g = findGenre(genre);
-      if (g && !free.toLowerCase().includes(g.genre.toLowerCase())) {
-        parts.unshift(g.genre);
-      }
-    }
     // En modo voz, los descriptores elegidos forman parte del prompt (A3).
     if (mode === 'voice') {
       const voiceTags = buildVocalTags(vocal);
       if (voiceTags) parts.push(voiceTags);
     }
-    // Glosa inglesa: el motor obedece mejor el caption en inglés.
-    // Se ve en VER LO QUE SE ENVÍA porque sale de aquí.
+    // Caption literal: vista previa y envío usan esta misma función.
     return glossPrompt(parts.join(', '));
   };
 
@@ -286,8 +275,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     const created = await api.generateMusic({
       prompt: finalPrompt,
       instrumental: !conVoz,
-      // La letra sin marcas de estructura hace que el motor cante poco (A3).
-      lyrics: conVoz ? structureLyric(lyrics.trim()) : null,
+      // La estructura se añade solo con la acción explícita ESTRUCTURAR LETRA.
+      lyrics: conVoz ? lyrics.trim() : null,
       duration_seconds: meta.duration,
       bpm: bpm ?? null,
       key_scale: key || null,
@@ -365,7 +354,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     setEnhancing(true);
     try {
       const res = await api.enhancePrompt({ prompt: base, bpm: bpm ?? null });
-      setPrompt(res.enhanced);
       setEnhanceInfo(res);
     } catch (e) {
       setError(e.message);
@@ -459,7 +447,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             options={GENRES.map(({ id, label }) => ({ id, label }))}
             value={selectedGenre} onChange={onSelectGenre} />
           <SelectBox label="MOOD" placeholder="AUTO"
-            options={MOODS.map(({ id, tag }) => ({ id, label: tag }))}
+            options={MOODS.map(({ id, tag, text }) => ({ id, label: tag, title: `Se añade: «${text}»` }))}
             value={mood ?? ''} onChange={(id) => setMood(id || null)} />
           <SelectBox label="BPM" placeholder="AUTO"
             options={BPM_PRESETS.filter((p) => p.value != null).map(({ value, tag }) => ({ id: String(value), label: tag }))}
@@ -476,14 +464,23 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         <div className="flex flex-col gap-3">
           {enhanceInfo && (
             <div className="flex flex-col gap-1 border-l-2 border-[var(--acc-line)] pl-4 py-1">
-              <span className="label">PROMPT MEJORADO · AÑADIDO POR LAS REGLAS DE PRODUCCIÓN:</span>
-              <span className="mono text-[10px] text-[var(--muted)] leading-relaxed">{enhanceInfo.additions.join(' · ')}</span>
-              <button onClick={() => setEnhanceInfo(null)} className="mono text-[9.5px] text-[var(--faint)] hover:text-red-300 self-start">OCULTAR</button>
+              <span className="label">BORRADOR · REVISA ANTES DE APLICAR</span>
+              <textarea aria-label="Borrador del prompt" value={enhanceInfo.enhanced}
+                onChange={(e) => setEnhanceInfo({ ...enhanceInfo, enhanced: e.target.value })}
+                className="bg-transparent mono text-[11px] text-[var(--muted)] outline-none resize-y min-h-[54px]" />
+              {(enhanceInfo.warnings ?? []).map((warning) => (
+                <span key={warning} className="mono text-[10px] text-[var(--warn)]">{warning}</span>
+              ))}
+              <div className="flex gap-3">
+                <button onClick={() => { setPrompt(enhanceInfo.enhanced); setGenre(null); setEnhanceInfo(null); }}
+                  className="btn btn-ghost h-7 px-3">APLICAR BORRADOR</button>
+                <button onClick={() => setEnhanceInfo(null)} className="mono text-[9.5px] text-[var(--faint)] hover:text-red-300">DESCARTAR</button>
+              </div>
             </div>
           )}
           <textarea
             value={prompt}
-            onChange={(e) => { setPrompt(e.target.value); if (enhanceInfo) setEnhanceInfo(null); }}
+            onChange={(e) => { setPrompt(e.target.value); setGenre(null); if (enhanceInfo) setEnhanceInfo(null); }}
             placeholder="Describe: estilo + ritmo + detalles. Ej.: «techno oscuro en 4x4, sin melodías». Di qué quieres que haga (doble bombo, percusiones, voz…) — el motor no adivina."
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
@@ -506,20 +503,38 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           <VariantChips prompt={prompt} setPrompt={setPrompt} />
           {/* Previsualización de capas: tu frase / estilo detectado /
               detalles. Solo lectura: el prompt sigue siendo UN texto. */}
-          {styleInfo && (styleInfo.detected_genre || styleInfo.modifiers?.length > 0) && (
+          {styleInfo && ((styleInfo.detected_genres?.length || styleInfo.detected_genre) || styleInfo.modifiers?.length > 0) && (
             <div className="flex items-center gap-4 flex-wrap pl-5">
-              {styleInfo.detected_genre && (
+              {(styleInfo.detected_genres?.length || styleInfo.detected_genre) && (
                 <span className="mono text-[10.5px] text-[var(--acc)]">
-                  ESTILO: {styleInfo.detected_genre}{styleInfo.suggested_bpm ? ` · ${styleInfo.suggested_bpm} bpm` : ''}
+                  ESTILO{(styleInfo.detected_genres?.length || 0) > 1 ? 'S' : ''} DEL CATÁLOGO: {(styleInfo.detected_genres?.length ? styleInfo.detected_genres : [styleInfo.detected_genre]).join(' + ')}{styleInfo.suggested_bpm ? ` · BPM sugerido: ${styleInfo.suggested_bpm} (sin aplicar)` : ''}
                 </span>
               )}
               {styleInfo.modifiers?.length > 0 && (
                 <span className="mono text-[10.5px] text-[var(--muted)]">
-                  DETALLES: {styleInfo.modifiers.join(', ')}
+                  FRASES DEL CATÁLOGO: {styleInfo.modifiers.join(', ')}
                 </span>
               )}
             </div>
           )}
+          <details className="border border-[var(--line)] px-4 py-3">
+            <summary className="label cursor-pointer">VER LO QUE SE ENVÍA</summary>
+            <p className="mono text-[11px] text-zinc-200 whitespace-pre-wrap mt-3">{finalPrompt || '(descripción vacía)'}</p>
+            <p className="mono text-[10px] text-[var(--muted)] mt-2">
+              {mode === 'voice' ? 'Con voz · selección de modo' : 'Instrumental · selección de modo'}
+              {' · '}BPM: {bpm ?? 'AUTO'}{' · '}Tono: {key || 'AUTO'}{' · '}Compás: {timeSig || 'AUTO'}
+              {' · '}Duración: {duration} s{' · '}Semilla: {seed || 'aleatoria'}
+            </p>
+            <p className="mono text-[10px] text-[var(--muted)] mt-1">
+              Configuración: {config?.model ?? '…'}{' · '}Pasos: {config?.steps_by_model?.[config?.model] ?? config?.inference_steps ?? '…'}
+              {' · '}Guidance: {config?.guidance_by_model?.[config?.model] ?? config?.guidance_scale ?? '…'}{' · '}Variantes: {config?.batch_size ?? '…'}
+              {' · '}Formato LM: {config?.use_format ? 'activo' : 'desactivado'}
+            </p>
+            <p className="mono text-[10px] text-[var(--faint)] mt-1">
+              El texto libre se conserva. El género, carácter y voz elegidos aparecen arriba.
+              Inglés puede facilitar la descripción al motor; no se añaden traducciones parciales.
+            </p>
+          </details>
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
@@ -563,19 +578,19 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">ESTILO</dt>
-                      <dd className="text-[var(--faint)]">al enviar, el servidor añade la descripción en inglés del estilo que pide tu frase (la ves exacta con MEJORAR PROMPT)</dd>
+                      <dd className="text-[var(--faint)]">Texto y selecciones explícitas; sin recetas de estilo añadidas al enviar.</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">MODELO</dt>
-                      <dd className="text-zinc-200">{config?.model ?? '(el rápido)'} · rápido = obedece el estilo a grandes rasgos, no los detalles (límite del modelo, no se puede subir)</dd>
+                      <dd className="text-zinc-200">{config?.model ?? '(consultando configuración)'}</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">FORMATO</dt>
-                      <dd className="text-zinc-200">{config?.use_format ? 'SÍ · el LM reescribe tu frase al formato de entrenamiento (no la sustituye)' : 'NO'}</dd>
+                      <dd className="text-zinc-200">{config?.use_format ? 'SÍ · el motor puede reformular el texto' : 'NO · texto literal'}</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">VARIANTES</dt>
-                      <dd className="text-zinc-200">{config?.batch_size ?? 1} por tirada · salen todas en BIBLIOTECA y eliges tú</dd>
+                      <dd className="text-zinc-200">{config?.batch_size ?? '…'} por tirada · salen todas en BIBLIOTECA y eliges tú</dd>
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">IDIOMA VOZ</dt>
@@ -587,12 +602,12 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     </div>
                     <div className="flex gap-2">
                       <dt className="text-[var(--faint)] shrink-0 w-[110px]">TIPO</dt>
-                      <dd className="text-zinc-200">{lyrics.trim() ? 'CON VOZ · canta la letra' : 'INSTRUMENTAL'}</dd>
+                      <dd className="text-zinc-200">CON VOZ · letra necesaria antes de generar</dd>
                     </div>
                     {lyrics.trim() !== '' && (
                       <div className="flex gap-2">
                         <dt className="text-[var(--faint)] shrink-0 w-[110px]">LETRA</dt>
-                        <dd className="text-zinc-200 whitespace-pre-wrap">{structureLyric(lyrics.trim())}</dd>
+                        <dd className="text-zinc-200 whitespace-pre-wrap">{lyrics.trim()}</dd>
                       </div>
                     )}
                   </dl>
@@ -602,6 +617,10 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <span className="label">LETRA</span>
+                  <button onClick={() => setLyrics(structureLyric(lyrics))} disabled={!lyrics.trim() || hasLyricStructure(lyrics)}
+                    className="btn btn-ghost h-8 px-3" title="Añadir [Intro], [Verse], [Chorus] y [Outro] a tu letra">
+                    ESTRUCTURAR LETRA
+                  </button>
                   <button onClick={autoWriteLyrics} disabled={writingLyrics}
                     title="Construye la canción a partir de las frases que hayas escrito; el motor intenta ampliarlas"
                     className="btn btn-ghost h-8 px-3">
@@ -621,10 +640,10 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                   {lyricsWarning
                     ? <span className="text-[var(--warn)]">{lyricsWarning}</span>
                     : lyrics.trim() === ''
-                      ? 'Sin letra el motor hace un instrumental. Con letra, canta.'
+                      ? 'Escribe una letra o pide un borrador antes de generar con voz.'
                       : hasLyricStructure(lyrics)
                         ? 'Ya tiene marcas de estructura: se canta tal cual.'
-                        : 'Se enviará con [Verse]/[Chorus] añadidos automáticamente.'}
+                        : 'Se envía tal cual. ESTRUCTURAR LETRA añade marcas si lo eliges.'}
                 </p>
               </div>
             </div>
@@ -662,7 +681,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <Layers size={13} /> VARIAR
             </button>
           </div>
-          <span className="mono text-[10px] text-[var(--faint)]">CREAR usa el modelo rápido: acierta el estilo a grandes rasgos, no los detalles. Si pides detalles concretos y no salen, reestílalo en BIBLIOTECA (REESTILAR usa el modelo estricto, que sí obedece).</span>
+          <span className="mono text-[10px] text-[var(--faint)]">Modelo: {config?.model ?? 'consultando configuración'} · compara las variantes para comprobar el resultado musical.</span>
         </div>
 
         {/* Cola de trabajos + comparador A/B (tick compartido desde App) */}

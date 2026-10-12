@@ -56,7 +56,15 @@ from separator_service import SeparatorService
 from separator_service import free_vram_mb
 from separator_service import is_available as separator_available
 from separator_service import pick_device
-from prompt_enhancer import enhance_prompt
+from prompt_enhancer import (
+    REMIX_BASES,
+    REMIX_BASS_BALANCED,
+    REMIX_BASS_STRONG,
+    REMIX_DYN_EXPRESSIVE,
+    REMIX_DYN_STEADY,
+    REMIX_PAUSES,
+    enhance_prompt,
+)
 from prompt_style import analyze_prompt, style_caption
 from genre_glossary import search as glossary_search, combine as glossary_combine
 from music_service import (
@@ -65,6 +73,8 @@ from music_service import (
     MusicService,
     lyrics_are_song,
 )
+from remix_project import RemixProjectRuntime
+from source_understanding import active_analysis, register_source_understanding
 
 settings = get_settings()
 music = MusicService(settings)
@@ -161,8 +171,8 @@ class CrossfadeRequest(BaseModel):
 class AiRemixRequest(BaseModel):
     """Reestilo con IA (cover nativo): el motor oye la pista y la reviste.
 
-    Fuerza manual manda; vacía = la deduce el prompt. Duración vacía = la
-    del tema. Letra vacía = reestilo instrumental (el motor no clona voces).
+    Fuerza manual manda; vacía = configuración. Duración vacía = la
+    del tema. La ausencia de letra no ordena eliminar la voz original.
     """
 
     file_name: str
@@ -170,10 +180,11 @@ class AiRemixRequest(BaseModel):
     bpm: float | None = None
     output_name: str | None = None
     duration_seconds: float | None = Field(default=None, description="Duración elegida; vacía = la del tema")
-    lyrics: str | None = Field(default=None, description="Letra nueva; vacía = instrumental")
+    lyrics: str | None = Field(default=None, description="Letra nueva opcional; vacía no ordena eliminar la voz")
+    instrumental: bool | None = None
     source_kind: str | None = Field(default=None, description="upload | output: de qué lista viene")
     cover_strength: float | None = Field(
-        default=None, description="Fuerza manual del cover (0-1); vacío = la deduce del prompt"
+        default=None, ge=0, le=1, description="Fuerza manual del cover (0-1); vacío = configuración"
     )
     mode: Literal["reestilar", "voz"] = Field(
         default="reestilar",
@@ -310,6 +321,15 @@ def _resolve_output(output_name: str) -> Path:
 DEFAULT_STEM = "pista-sin-nombre"
 
 
+def _versioned_stem(base: str, index: int) -> str:
+    """Reserva el ordinal dentro del límite configurado del nombre."""
+    ordinal = f" ({index})"
+    room = settings.generation.max_slug_chars - len(ordinal)
+    if room < 1:
+        raise HTTPException(status_code=400, detail="El límite de longitud configurado no permite numerar versiones")
+    return f"{base[:room].rstrip(' .-')}{ordinal}"
+
+
 def _unique_output_path(stem: str, suffix: str) -> Path:
     """Ruta libre para `stem` en outputs/, numerando: nombre, (2), (3)…
 
@@ -317,15 +337,16 @@ def _unique_output_path(stem: str, suffix: str) -> Path:
     desambigua sola (spec/02 Épica E).
     """
     candidate = _resolve_output(_safe_name(stem, DEFAULT_STEM, suffix=suffix))
-    index = 2
-    while candidate.exists():
-        candidate = _resolve_output(
-            _safe_name(f"{stem} ({index})", DEFAULT_STEM, suffix=suffix)
-        )
-        index += 1
-        if index > 500:
-            raise HTTPException(status_code=409, detail="Demasiadas versiones con ese nombre")
-    return candidate
+    if not candidate.exists():
+        return candidate
+    base = candidate.name[:-len(suffix)] if suffix else candidate.name
+    for index in range(2, settings.generation.max_name_versions + 1):
+        # El ordinal es parte del nombre: reservar su espacio evita que
+        # _safe_name lo recorte y vuelva a probar siempre el mismo fichero.
+        candidate = _resolve_output(f"{_versioned_stem(base, index)}{suffix}")
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=409, detail="Demasiadas versiones con ese nombre")
 
 
 def _find_audio(name: str, kind: str | None = None) -> Path:
@@ -1240,21 +1261,19 @@ async def _run_ai_remix(
         # modelo: la UI «Remix» es una operación cover). Fuerza manual manda;
         # en auto la deduce el prompt (doc: 0,3-0,5 cambios grandes,
         # 0,7-0,9 sutiles).
-        auto_strength, _melody_note = remix_cover_strength_for(request.prompt)
         if request.cover_strength is None:
-            strength = auto_strength
-            step(f"Fuerza auto {strength:g} según lo que pides.")
+            strength = settings.generation.remix_cover_strength
+            step(f"Fuerza configurada {strength:g}.")
         else:
-            strength = min(max(float(request.cover_strength), 0.0), 1.0)
+            strength = float(request.cover_strength)
             step(f"Fuerza manual {strength:g} (0 = otro tema, 1 = casi el mismo).")
-        escrita = (request.lyrics or "").strip()
-        letra = escrita if lyrics_are_song(escrita) else ""
-        if escrita and not letra:
-            step("La letra no es una canción: el reestilo sale instrumental.")
+        letra = (request.lyrics or "").strip()
+        if request.instrumental is True:
+            step("Instrumental solicitado explícitamente.")
         elif letra:
             step("La versión canta tu letra nueva con el estilo pedido.")
         else:
-            step("Sin letra nueva: el reestilo sale instrumental (el motor no clona tu voz).")
+            step("Sin letra nueva: no se añade una orden de eliminar la voz; cover puede resintetizarla.")
         if request.duration_seconds:
             step(f"Duración pedida: {float(request.duration_seconds):g} s (si no, la del tema).")
         if request.bpm:
@@ -1264,7 +1283,7 @@ async def _run_ai_remix(
             GenerationRequest(
                 prompt=caption_remix,
                 lyrics=letra or None,
-                instrumental=not letra,
+                instrumental=request.instrumental,
                 duration_seconds=request.duration_seconds,
                 bpm=int(round(request.bpm)) if request.bpm else None,
                 model=settings.generation.remix_model,
@@ -1301,7 +1320,8 @@ async def _run_ai_remix(
             result={
                 "mix": saved[0],
                 "variants": saved,
-                "with_vocals": bool(letra),
+                "with_vocals": False if request.instrumental is True else True if letra else None,
+                "vocal_intent": "instrumental" if request.instrumental is True else "new_lyrics" if letra else "source",
                 "cover_strength": strength,
             },
             loudness=loudness,
@@ -1314,7 +1334,10 @@ async def _run_ai_remix(
             logger.error(f"Remix IA falló ({job_id}): {exc}")
             job.update(status="failed", phase="Error", error=str(exc),
                        elapsed_seconds=round(time.monotonic() - started, 1))
-    _save_history()
+    finally:
+        # El modo voz retorna tras mezclar. Su resultado terminal también
+        # debe sobrevivir al reinicio, junto con errores y cancelaciones.
+        _save_history()
 
 
 @app.get("/audio/remix/ai/{job_id}")
@@ -1326,15 +1349,30 @@ async def audio_remix_ai_status(job_id: str) -> dict[str, Any]:
     return _public_side_job(job)
 
 
+def _separator_estado() -> tuple[bool, str]:
+    """(¿disponible?, dispositivo) con subprocesos reales: demucs importa
+    torch (segundos) y `pick_device` llama a nvidia-smi. NUNCA en el hilo del
+    evento: ahí congelaría TODA la API (bug 2026-10-08)."""
+    return separator_available(), pick_device()
+
+
 @app.get("/audio/separate/status")
 async def audio_separate_status() -> dict[str, Any]:
-    """¿Está el motor de separación instalado? (la UI lo dice, no lo inventa)"""
+    """¿Está el motor de separación instalado? (la UI lo dice, no lo inventa)
+
+    El trabajo es bloqueante y va en un hilo (`asyncio.to_thread`): en el
+    hilo del evento congelaba la API entera ~5 s y en CREAR el AÑADIR se
+    quedaba en «SIN DATOS DEL MOTOR». Además el estado se cachea en
+    `separator_service.is_available` (positivo para siempre, negativo 60 s:
+    un chequeo fallido no deja la separación muerta toda la sesión).
+    """
+    disponible, dispositivo = await asyncio.to_thread(_separator_estado)
     return {
-        "available": separator_available(),
-        "device": pick_device(),
+        "available": disponible,
+        "device": dispositivo,
         "message": (
             "Separación de voces disponible."
-            if separator_available()
+            if disponible
             else "Separación no instalada: sigue usándose el mezclado normal."
         ),
     }
@@ -1347,6 +1385,8 @@ _GPU_ACTIVE = {"queued", "running"}
 
 def _gpu_busy() -> str | None:
     """En 8 GB solo cabe un trabajo pesado. El segundo espera."""
+    if reason := active_analysis():
+        return reason
     if any(job.get("status") in _GPU_ACTIVE for job in jobs.values()):
         return "Hay una generación en la GPU. Espera a que termine: en 8 GB no caben dos a la vez."
     if any(job.get("status") in _GPU_ACTIVE for job in remix_jobs.values()):
@@ -1497,25 +1537,34 @@ async def generate_music(
     suffix = f".{audio_format}"
     stem = _safe_name(request.output_name, DEFAULT_STEM)
     output_name = _unique_output_path(stem, suffix).name
-
-    # Fail-fast (deuda T7): si el motor no responde, no colgar la petición.
-    health = await music.health()
-    if not health.get("reachable"):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "El motor de música no está activo. Ejecuta scripts\\open_musicia.ps1 "
-                "o deja los servicios activos al cerrar la ventana."
-            ),
-        )
-
+    # Reserva atómica ANTES de cualquier await. Análisis, separación y otros
+    # remixes ven esta plaza mientras /health o /release_task esperan al motor.
+    job = {
+        "job_id": job_id, "status": "queued", "engine_status": 0,
+        "prompt": request.prompt,
+        "instrumental": (settings.generation.instrumental if task == "text2music" and request.instrumental is None
+                         else request.instrumental),
+        "output_name": output_name, "lyrics": request.lyrics, "bpm": request.bpm,
+        "key_scale": request.key_scale, "time_signature": request.time_signature,
+        "model": model, "task_type": task, "source_name": request.source_name,
+        "seed": request.seed, "created_at": _now(), "started": time.monotonic(),
+        "progress": "", "progress_ratio": 0.0, "stage": "queued",
+        "phase": "Comprobando el motor local", "elapsed_seconds": 0.0,
+        "events": [], "duration_seconds": None, "error": None,
+    }
+    _remember(jobs, job_id, job)
+    _save_history()
     try:
-        # El caption compuesto (frase + estilo EN + detalles) viaja al
-        # motor en TODOS los caminos (CREAR, versión, tramo, otra
-        # versión, re-crear): antes solo lo componían MEJORAR y el
-        # remix IA, y el resto mandaba la frase en crudo. La ficha y
-        # la barra guardan la frase del usuario (job["prompt"]).
+        health = await music.health()
+        if not health.get("reachable"):
+            raise HTTPException(
+                status_code=503,
+                detail="El motor de música no está activo. Ejecuta scripts\\open_musicia.ps1 o deja los servicios activos.",
+            )
+        _throw_if_cancelled(job)
+        # El contrato común conserva el texto completo del usuario.
         caption = style_caption(request.prompt)
+        job.update(status="running", phase="Enviando al motor local")
         task_id, initial_status = await music.submit(
             GenerationRequest(
                 prompt=caption,
@@ -1540,38 +1589,18 @@ async def generate_music(
                 use_format=request.use_format,
             )
         )
-    except MusicEngineError as exc:
+        _throw_if_cancelled(job)
+    except HTTPException as exc:
+        job.update(status="failed", phase="Error", error=str(exc.detail), completed_at=_now())
+        _save_history()
+        raise
+    except Exception as exc:
         logger.error(f"No se pudo enviar la generación al motor: {exc}")
+        job.update(status="failed", phase="Cancelado" if job.get("cancelled") else "Error",
+                   error=CANCELLED_MESSAGE if job.get("cancelled") else str(exc), completed_at=_now())
+        _save_history()
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    _remember(jobs, job_id, {
-        "job_id": job_id,
-        "engine_task_id": task_id,
-        "status": initial_status,
-        "engine_status": 0,
-        "prompt": request.prompt,
-        "instrumental": (
-            settings.generation.instrumental if request.instrumental is None else request.instrumental
-        ),
-        "output_name": output_name,
-        "lyrics": request.lyrics,
-        "bpm": request.bpm,
-        "key_scale": request.key_scale,
-        "time_signature": request.time_signature,
-        "model": model,
-        "task_type": task,
-        "source_name": request.source_name,
-        "seed": request.seed,
-        "created_at": _now(),
-        "progress": "",
-        "progress_ratio": 0.0,
-        "stage": "queued",
-        "phase": "Enviada al motor local",
-        "elapsed_seconds": 0.0,
-        "events": [],
-        "duration_seconds": None,
-        "error": None,
-    })
+    job.update(engine_task_id=task_id, status="queued", phase="Enviada al motor local")
     if caption != (request.prompt or ""):
         jobs[job_id]["events"].append({"t": 0.0, "text": "Caption compuesto con el estilo que pides."})
         logger.info("Caption compuesto con el estilo que pide el prompt (igual que CREAR).")
@@ -1643,11 +1672,12 @@ _MUSIC_KEPT = (
 )
 _REMIX_KEPT = (
     "job_id", "status", "phase", "source", "source_dir", "prompt", "base_bpm",
-    "created_at", "completed_at", "elapsed_seconds", "result", "error",
+    "created_at", "completed_at", "elapsed_seconds", "result", "error", "project",
+    "source_digest", "effective_parameters", "engine_task_id", "preserved_groups", "duration_seconds", "source_analysis",
 )
 _SEPARATE_KEPT = (
     "job_id", "status", "phase", "source", "prompt", "device", "vocals",
-    "base", "created_at", "completed_at", "elapsed_seconds", "error",
+    "base", "created_at", "completed_at", "elapsed_seconds", "error", "result", "source_digest", "source_kind",
 )
 
 
@@ -1812,6 +1842,8 @@ def _job_uses_motor(job: dict[str, Any], store: str) -> bool:
     cola, no. Un remix separando la voz tampoco: el motor sigue libre."""
     if job.get("status") != "running":
         return False
+    if store == "remix" and job.get("project") is not None:
+        return bool(job.get("engine_active"))
     if store == "separate":
         return False
     if store == "remix" and str(job.get("phase") or "").startswith("Separando"):
@@ -2105,20 +2137,14 @@ async def audio_remix_prompt(request: RemixPromptRequest) -> dict[str, Any]:
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    kind = request.kind if request.kind in {"musica", "voz", "mixta", "otro"} else "musica"
-    bases = {
-        "musica": "pieza musical inspirada en una referencia con carácter similar",
-        "voz": "base musical suave para acompañar una voz protagonista",
-        "mixta": "versión renovada de un tema con música y voz, mismo espíritu",
-        "otro": "textura sonora evocadora basada en una referencia ambiental",
-    }
-    parts = [bases[kind]]
+    kind = request.kind if request.kind in REMIX_BASES else "musica"
+    parts = [REMIX_BASES[kind]]
     if a.get("bpm"):
         parts.append(f"{a['bpm']} bpm")
-    parts.append("graves marcados" if a.get("bass_ratio", 0) >= 0.55 else "mezcla equilibrada y brillante")
-    parts.append("textura continua y fluida" if a.get("dynamics_std_db", 0) < 9 else "dinámica expresiva")
+    parts.append(REMIX_BASS_STRONG if a.get("bass_ratio", 0) >= 0.55 else REMIX_BASS_BALANCED)
+    parts.append(REMIX_DYN_STEADY if a.get("dynamics_std_db", 0) < 9 else REMIX_DYN_EXPRESSIVE)
     if a.get("silence_ratio", 0) >= 0.15:
-        parts.append("con respiraciones y pausas")
+        parts.append(REMIX_PAUSES)
 
     try:
         enhanced = enhance_prompt(", ".join(parts), bpm=a.get("bpm"))
@@ -2271,10 +2297,29 @@ async def audio_remix(request: RemixRequest) -> dict[str, Any]:
 async def delete_audio(name: str) -> dict[str, Any]:
     """Borra un MP3 real del directorio de salidas."""
     path = _resolve_output(name)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Audio no encontrado")
-    path.unlink()
-    _drop_ficha(path)
+    try:
+        path.unlink()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Audio no encontrado") from exc
+    except PermissionError as exc:
+        if getattr(exc, "winerror", None) in (32, 33):
+            detail = f"No se puede borrar «{path.name}»: otro proceso utiliza el archivo. {exc}"
+            status_code = 409
+        else:
+            detail = f"No se puede borrar «{path.name}»: acceso denegado. {exc}"
+            status_code = 403
+        logger.warning(detail)
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except OSError as exc:
+        detail = f"No se pudo borrar «{path.name}»: {exc}"
+        logger.error(detail)
+        raise HTTPException(status_code=500, detail=detail) from exc
+    try:
+        _drop_ficha(path)
+    except OSError as exc:
+        detail = f"Audio «{path.name}» borrado, pero no se pudo borrar su ficha: {exc}"
+        logger.error(detail)
+        raise HTTPException(status_code=500, detail=detail) from exc
     logger.info(f"Audio borrado: {path.name}")
     return {"status": "deleted", "name": path.name}
 
@@ -2283,25 +2328,33 @@ async def delete_audio(name: str) -> dict[str, Any]:
 async def delete_many_audio(request: DeleteManyRequest) -> dict[str, Any]:
     """Borra un bloque de MP3 de la biblioteca en una sola petición (spec/02 [L2]).
 
-    Cada nombre se resuelve y borra igual que el borrado individual (con su
-    ficha). Lo inexistente se reporta en `not_found` sin tumbar el resto.
+    Reutiliza el borrado individual. Ausentes, ocupados y errores reales
+    se reportan por separado, sin impedir borrar el resto del bloque.
     """
     deleted: list[str] = []
     not_found: list[str] = []
+    blocked: list[str] = []
+    failed: list[dict[str, Any]] = []
     for name in request.names:
         try:
-            path = _resolve_output(name)
-        except HTTPException:
-            not_found.append(name)
+            result = await delete_audio(name)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                not_found.append(name)
+            elif exc.status_code == 409:
+                blocked.append(name)
+            else:
+                failed.append({"name": name, "detail": exc.detail, "status_code": exc.status_code})
             continue
-        if not path.exists():
-            not_found.append(name)
-            continue
-        path.unlink()
-        _drop_ficha(path)
-        deleted.append(path.name)
-    logger.info(f"Bloque borrado: {len(deleted)} ok, {len(not_found)} no encontrados")
-    return {"status": "deleted", "deleted": deleted, "not_found": not_found}
+        deleted.append(result["name"])
+    logger.info(
+        f"Bloque borrado: {len(deleted)} ok, {len(not_found)} no encontrados, "
+        f"{len(blocked)} ocupados, {len(failed)} errores"
+    )
+    return {
+        "status": "partial" if blocked or failed else "deleted",
+        "deleted": deleted, "not_found": not_found, "blocked": blocked, "failed": failed,
+    }
 
 
 @app.post("/audio/process")
@@ -2493,10 +2546,10 @@ async def rename_audio(name: str, request: RenameRequest) -> dict[str, Any]:
     target = source.with_name(f"{stem}{suffix}")
     index = 2
     while target.exists() and target != source:
-        target = source.with_name(f"{stem} ({index}){suffix}")
-        index += 1
-        if index > 500:
+        if index > settings.generation.max_name_versions:
             raise HTTPException(status_code=409, detail="Demasiadas versiones con ese nombre")
+        target = source.with_name(f"{_versioned_stem(stem, index)}{suffix}")
+        index += 1
     if target == source:
         return {"status": "unchanged", "name": source.name}
     source.rename(target)
@@ -2511,6 +2564,12 @@ async def rename_audio(name: str, request: RenameRequest) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _DIST = PROJECT_ROOT / "frontend" / "dist"
+_remix_runtime = RemixProjectRuntime(
+    app, music, settings, remix_jobs, separate_jobs, _find_audio, _gpu_busy,
+    _remember, _public_side_job, _push_event, _save_history, _unique_output_path,
+    _safe_name, _carry_ficha, _measure_bpm, _now, _throw_if_cancelled,
+)
+register_source_understanding(app, music, settings, _find_audio, _gpu_busy)
 if _DIST.is_dir():
     app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="ui")
     logger.info(f"UI de escritorio servida desde {_DIST}")

@@ -110,6 +110,21 @@ class Catalogo(unittest.TestCase):
         self.assertEqual(por_nombre.get("hard techno"), "hard techno")
         self.assertEqual(por_nombre.get("hard bounce"), "hard house")
 
+    @unittest.skipUnless(DISPONIBLE, "falta vendor/ACE-Step-1.5 (vocabulario del motor)")
+    def test_ningun_estilo_se_queda_sin_genre(self) -> None:
+        """Los 29 estilos ofrecen un genre literal; si ninguna clave es
+        línea del modelo, se busca en el nombre la subfrase que SÍ lo es
+        (uptempo hard dance → «hard dance»). NO FAKE: nunca None, nunca
+        inventado."""
+        _, lower = genre_glossary._vocab()
+        styles = genre_glossary.catalog_styles(set(lower))
+        por_nombre = {s["name"]: s["genre"] for s in styles}
+        self.assertEqual(por_nombre.get("uptempo hard dance"), "hard dance")
+        for name, genre in por_nombre.items():
+            with self.subTest(estilo=name):
+                self.assertTrue(genre, f"«{name}» se queda sin genre")
+                self.assertIn(genre.lower(), set(lower))
+
 
 class SinDatos(unittest.TestCase):
     """Sin el archivo del modelo el glosario se queda vacío: nunca inventa."""

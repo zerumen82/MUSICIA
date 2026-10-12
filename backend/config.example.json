@@ -2,7 +2,10 @@
   "host": "127.0.0.1",
   "port": 8000,
   "log_level": "INFO",
-  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+  "cors_origins": [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+  ],
   "acestep": {
     "base_url": "http://127.0.0.1:8001",
     "request_timeout": 60.0,
@@ -20,12 +23,24 @@
     "batch_size": 2,
     "use_format": false,
     "audio_format": "mp3",
-    "model": "acestep-v15-turbo",
-    "allowed_models": ["acestep-v15-turbo", "acestep-v15-sft"],
+    "model": "acestep-v15-sft",
+    "allowed_models": [
+      "acestep-v15-turbo",
+      "acestep-v15-sft"
+    ],
     "remix_model": "acestep-v15-sft",
-    "remix_tasks": ["cover", "repaint"],
-    "steps_by_model": { "acestep-v15-turbo": 8, "acestep-v15-sft": 50 },
-    "guidance_by_model": { "acestep-v15-turbo": 1.0, "acestep-v15-sft": 9.0 },
+    "remix_tasks": [
+      "cover",
+      "repaint"
+    ],
+    "steps_by_model": {
+      "acestep-v15-turbo": 8,
+      "acestep-v15-sft": 50
+    },
+    "guidance_by_model": {
+      "acestep-v15-turbo": 1.0,
+      "acestep-v15-sft": 9.0
+    },
     "lm_model": "acestep-5Hz-lm-0.6B",
     "lm_backend": "pt",
     "max_duration_seconds": 600.0,
@@ -33,7 +48,9 @@
     "remix_cover_strength": 0.2,
     "remix_cover_strength_no_melody": 0.1,
     "remix_cover_strength_like_original": 0.5,
-    "bpm_display_tolerance": 3
+    "bpm_display_tolerance": 3,
+    "max_slug_chars": 40,
+    "max_name_versions": 500
   },
   "mixer": {
     "min_gain_db": -60.0,
@@ -51,5 +68,122 @@
   },
   "paths": {
     "outputs_dir": "./outputs"
+  },
+  "remix": {
+    "scopes": [
+      {
+        "id": "full",
+        "label": "Canción completa"
+      },
+      {
+        "id": "region",
+        "label": "Tramo"
+      },
+      {
+        "id": "groups",
+        "label": "Por pistas"
+      }
+    ],
+    "groups": [
+      {
+        "id": "vocals",
+        "label": "Voz"
+      },
+      {
+        "id": "drums",
+        "label": "Batería"
+      },
+      {
+        "id": "bass",
+        "label": "Bajo"
+      },
+      {
+        "id": "other",
+        "label": "Acompañamiento restante"
+      }
+    ],
+    "actions": [
+      {
+        "id": "keep",
+        "label": "Conservar"
+      },
+      {
+        "id": "transform",
+        "label": "Transformar"
+      },
+      {
+        "id": "remove",
+        "label": "Quitar"
+      }
+    ],
+    "repaint_modes": [
+      "conservative",
+      "balanced",
+      "aggressive"
+    ],
+    "cover_noise_strength": 0.0,
+    "repaint_mode": "balanced",
+    "repaint_strength": 0.5,
+    "repaint_wav_crossfade_sec": 0.1,
+    "repaint_latent_crossfade_frames": 10,
+    "sample_rate": 48000,
+    "intermediate_format": "wav32",
+    "export_bitrate": "192k",
+    "peak_limit_dbfs": -1.0,
+    "duration_tolerance_seconds": 0.25,
+    "demucs_model": "htdemucs",
+    "demucs_device": "auto",
+    "demucs_shifts": 1,
+    "demucs_overlap": 0.25,
+    "subprocess_poll_seconds": 0.5,
+    "subprocess_timeout_seconds": 1800.0,
+    "parameters": {
+      "cover_strength": {
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05
+      },
+      "cover_noise_strength": {
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05
+      },
+      "repaint_strength": {
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05
+      },
+      "repaint_wav_crossfade_sec": {
+        "min": 0.0,
+        "max": 2.0,
+        "step": 0.05
+      },
+      "repaint_latent_crossfade_frames": {
+        "min": 0,
+        "max": 100,
+        "step": 1
+      },
+      "bpm": {
+        "min": 30,
+        "max": 300,
+        "step": 1
+      },
+      "seed": {
+        "min": 0,
+        "max": 2147483647,
+        "step": 1
+      },
+      "gain_db": {
+        "min": -60.0,
+        "max": 12.0,
+        "step": 0.5
+      }
+    }
+  },
+  "source_analysis": {
+    "sample_seconds": 30.0,
+    "poll_interval": 3.0,
+    "timeout_seconds": 1800.0,
+    "max_history": 30
   }
 }

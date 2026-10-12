@@ -1,8 +1,8 @@
 """Ofertas realistas para el modelo (regla NO FAKE).
 
-La app ofrece chips (AÑADIR), captions de estilo y términos de glosa. Nada de
-eso puede usar vocabulario que el modelo no haya escrito, o el usuario pide
-algo y el motor obedece otra cosa.
+La app ofrece chips y textos voluntarios de catálogo. Estos datos se
+contrastan con ejemplos del fabricante, sin tratar el corpus como vocabulario
+cerrado del encoder ni usarlo para afirmar fidelidad musical.
 
 Oráculos (datos, no código):
   B = 400 captions del fabricante (examples/text2music + examples/simple_mode)
@@ -20,16 +20,24 @@ from __future__ import annotations
 import glob
 import json
 import re
+import shutil
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+RAIZ = BACKEND_DIR.parent
 EJEMPLOS = RAIZ / "vendor" / "ACE-Step-1.5" / "examples"
 GENRES = RAIZ / "vendor" / "ACE-Step-1.5" / "acestep" / "genres_vocab.txt"
 CATALOGO = RAIZ / "backend" / "style_catalog.json"
 GLOSA = RAIZ / "frontend" / "src" / "prompt_gloss.js"
 VARIANTES_JS = RAIZ / "frontend" / "src" / "variants.js"
 VOCAL_JS = RAIZ / "frontend" / "src" / "vocal.js"
+GENRES_JS = RAIZ / "frontend" / "src" / "genres.js"
 
 DISPONIBLES = EJEMPLOS.exists() and GENRES.exists()
 
@@ -105,10 +113,9 @@ class TestOfertasRealistas(unittest.TestCase):
                 )
 
     def test_variantes_del_modelo(self):
-        """Las VARIANTES del UI (inglés) usan el corpus y disparan estilo o
-        modificador: si no, el motor improvisaría en vez de obedecer."""
+        """Variantes elegidas: datos revisados, conservados sin expansión automática."""
         self.assertTrue(self.variantes, "no encontré variantes en frontend/src/variants.js")
-        from prompt_style import analyze_prompt
+        from prompt_style import style_caption
 
         for nombre, etiqueta, texto in self.variantes:
             with self.subTest(variante=nombre):
@@ -119,11 +126,7 @@ class TestOfertasRealistas(unittest.TestCase):
                     [],
                     f"la variante «{etiqueta}» pide palabras que el modelo no escribe",
                 )
-                info = analyze_prompt(texto)
-                self.assertTrue(
-                    info["detected_genre"] or info["modifiers"],
-                    f"la variante «{etiqueta}» no dispara estilo ni modificador",
-                )
+                self.assertEqual(style_caption(texto), texto)
 
     def test_style_captions_use_only_vocabulary_the_model_uses(self):
         for estilo in self.catalogo["styles"]:
@@ -146,13 +149,104 @@ class TestOfertasRealistas(unittest.TestCase):
                     f"el género «{estilo['name']}» no está en genres_vocab.txt",
                 )
 
-    def test_gloss_terms_exist_in_the_model_vocabulary(self):
-        for termino in re.findall(r"en:\s*'([^']+)'", self.glosa):
-            with self.subTest(termino=termino):
-                partes = _norm(termino).split()
-                self.assertTrue(
-                    all(p in self.generos or p in self.captions for p in partes),
-                    f"la glosa añade «{termino}» y el modelo no lo usa",
+    @unittest.skipUnless(shutil.which("node"), "falta Node para ejecutar la vista previa real")
+    def test_preview_frontend_equals_backend_caption(self):
+        """Recorrido Node → backend de los prompts que antes cambiaban su intención."""
+        from prompt_style import style_caption
+
+        prompts = [
+            "batería suave al fondo", "bajo potente, sin voz", "jazz con contrabajo",
+            "techno", "electrónica", "sin guitarra ni batería",
+            "si hay voz consérvala; cambia solo la percusión",
+        ]
+        script = (
+            "import { glossPrompt } from './frontend/src/prompt_gloss.js';"
+            "import { readFileSync } from 'node:fs';"
+            "const inputs = JSON.parse(readFileSync(0, 'utf8'));"
+            "process.stdout.write(JSON.stringify(inputs.map(glossPrompt)));"
+        )
+        execution = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script],
+            cwd=RAIZ, input=json.dumps(prompts), text=True, encoding="utf-8",
+            capture_output=True, timeout=30, check=True,
+        )
+        previews = json.loads(execution.stdout)
+        self.assertEqual(len(previews), len(prompts))
+        for original, preview in zip(prompts, previews):
+            with self.subTest(original=original):
+                self.assertEqual(preview, original)
+                self.assertEqual(style_caption(preview), preview)
+
+    def test_las_bases_del_remix_son_del_vocabulario_del_modelo(self):
+        """El prompt que sugiere el remix (SUBIR y BIBLIOTECA) va en inglés y
+        solo con palabras de las captions del modelo: antes era prosa en
+        español que el motor ignoraba aunque el panel prometía «ENVÍA»
+        (auditoría 2026-10-08). La explicación (basis) sí es español: es UI."""
+        from prompt_enhancer import (
+            REMIX_BASES,
+            REMIX_BASS_BALANCED,
+            REMIX_BASS_STRONG,
+            REMIX_DYN_EXPRESSIVE,
+            REMIX_DYN_STEADY,
+            REMIX_PAUSES,
+        )
+
+        self.assertEqual(sorted(REMIX_BASES), ["mixta", "musica", "otro", "voz"])
+        trozos = [
+            REMIX_BASS_STRONG, REMIX_BASS_BALANCED,
+            REMIX_DYN_STEADY, REMIX_DYN_EXPRESSIVE, REMIX_PAUSES,
+        ]
+        for texto in [*REMIX_BASES.values(), *trozos]:
+            with self.subTest(texto=texto):
+                self.assertEqual(
+                    _prosa_ausente(texto, self.captions),
+                    [],
+                    f"la base del remix «{texto}» usa palabras que el modelo no escribe",
+                )
+
+    def test_genres_js_only_offers_genres_the_model_can_write(self):
+        """El selector GÉNERO (CREAR + ASISTENTE) añade al prompt un `genre`
+        que tiene que ser LÍNEA LITERAL de genres_vocab.txt: si no, el
+        usuario pide un estilo que el modelo no puede emitir (bug 2026-10-08:
+        5 de 29 no estaban: hardcore holandes, uptempo, hard bounce,
+        acustico, orquestal)."""
+        self.assertTrue(GENRES_JS.exists(), "no encuentro frontend/src/genres.js")
+        lineas = {
+            linea.strip().lower()
+            for linea in GENRES.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if linea.strip()
+        }
+        generos = re.findall(r"genre: '([^']+)'", GENRES_JS.read_text(encoding="utf-8"))
+        self.assertTrue(generos, "no extraje ningún genre de genres.js")
+        for g in generos:
+            with self.subTest(genre=g):
+                self.assertIn(
+                    g.lower(),
+                    lineas,
+                    f"el género «{g}» de genres.js no es una línea literal de genres_vocab.txt",
+                )
+
+    def test_genres_js_agrees_with_the_backend_catalog(self):
+        """Mismo estilo ⇒ mismo texto en el selector GÉNERO y en el GLOSARIO:
+        la fuente de verdad del género es catalog_styles() (backend), y
+        genres.js no puede divergir (bug 2026-10-08: el glosario añadía
+        «gabber» y el selector «hardcore holandes» para el mismo estilo)."""
+        from genre_glossary import catalog_styles
+
+        backend = {s["name"]: s["genre"] for s in catalog_styles()}
+        pares = re.findall(
+            r"\{ id: '([^']+)', label: '[^']+', bpm: \d+, genre: '([^']+)' \}",
+            GENRES_JS.read_text(encoding="utf-8"),
+        )
+        self.assertTrue(pares, "no extraje los estilos de genres.js")
+        self.assertEqual(len(pares), len(backend), "genres.js y el catálogo del backend no tienen los mismos estilos")
+        for nombre, genre in pares:
+            with self.subTest(estilo=nombre):
+                self.assertIn(nombre, backend, f"el estilo «{nombre}» no está en el catálogo del backend")
+                self.assertEqual(
+                    genre,
+                    backend[nombre],
+                    f"«{nombre}»: el selector añade «{genre}» y el glosario «{backend[nombre]}»",
                 )
 
 

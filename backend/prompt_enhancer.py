@@ -1,55 +1,58 @@
-"""El prompt del usuario se queda como está, primero.
+"""Borrador optativo que conserva la intención y los controles elegidos.
 
-MEJORAR añade dos cosas, sin pisar su frase:
-1. El BPM elegido, si la frase no lo trae ya.
-2. La descripción de estilo en inglés del estilo que EL PROMPT pide
-   (`prompt_style`): el motor fue entrenado con captions ingleses largos y
-   con una frase corta en español el sonido sale «a otra cosa» aunque el
-   tempo acierte. Si el prompt no encaja en ninguna regla, no se añade nada.
-
-No pega un género distinto al pedido (decisión 2026-10-04): la tabla de
-estilos se elige por las palabras del propio usuario.
+No añade recetas de género ni traduce palabras aisladas. El borrador solo
+puede incorporar un BPM seleccionado explícitamente, sin contradecir uno
+ya escrito. La UI requiere aplicarlo antes de sustituir el texto editable.
 """
 
 from __future__ import annotations
 
-from prompt_style import style_caption, find_style
+import re
+
+from prompt_style import find_style
 
 MIN_LENGTH = 3
 MAX_PROMPT_CHARS = 800
 
+# Textos históricos de sugerencia optativa; no intervienen en el caption
+# efectivo. La ruta que los presenta debe declarar que son un borrador y
+# nunca aplicar estas decisiones musicales automáticamente.
+REMIX_BASES: dict[str, str] = {
+    "musica": "an instrumental piece inspired by a reference track",
+    "voz": "soft musical backing for a lead vocal",
+    "mixta": "a new take on a track with music and vocals, same spirit",
+    "otro": "sound texture inspired by an ambient reference",
+}
+REMIX_BASS_STRONG = "strong bass"
+REMIX_BASS_BALANCED = "balanced bright mix"
+REMIX_DYN_STEADY = "steady smooth texture"
+REMIX_DYN_EXPRESSIVE = "expressive dynamics"
+REMIX_PAUSES = "with quiet breaks"
+
 
 def enhance_prompt(prompt: str, bpm: int | None = None) -> dict:
-    """Deja la frase del usuario la primera."""
+    """Prepara un borrador fiel; no muta ningún prompt enviado."""
     original = (prompt or "").strip()
     if len(original) < MIN_LENGTH:
         raise ValueError(f"El prompt necesita al menos {MIN_LENGTH} caracteres")
 
-    low = original.lower()
-    bpm_part = f"{bpm} bpm" if (bpm and f"{bpm} bpm" not in low) else ""
-
-    # Estilo en inglés del género que el propio prompt pide (datos, no magia).
     rule = find_style(original)
-    styled = style_caption(original)
-    has_style = styled != original
-    if has_style and len(f"{styled}, {bpm_part}".rstrip(", ")) > MAX_PROMPT_CHARS:
-        has_style = False  # sin sitio: mejor la frase sola que cortarla a la mitad
-
     additions: list[str] = []
-    if bpm_part:
-        additions.append(bpm_part)
-    if has_style:
-        additions.append("descripción de estilo en inglés")
-
-    tail = ", ".join(a for a in additions if a != "descripción de estilo en inglés")
-    if has_style and tail:
-        enhanced = f"{styled}, {tail}"
-    elif has_style:
-        enhanced = styled
-    elif tail:
-        enhanced = f"{original}, {tail}"
-    else:
-        enhanced = original
+    warnings: list[str] = []
+    enhanced = original
+    written_bpms = [float(value.replace(",", ".")) for value in re.findall(
+        r"(?<![\w.])([0-9]+(?:[.,][0-9]+)?)\s*bpm\b", original, flags=re.IGNORECASE,
+    )]
+    if bpm and written_bpms and any(value != bpm for value in written_bpms):
+        warnings.append("El BPM del texto y el seleccionado difieren; revisa cuál quieres conservar.")
+    elif bpm and not written_bpms:
+        addition = f"{bpm} bpm"
+        candidate = f"{original}, {addition}"
+        if len(candidate) <= MAX_PROMPT_CHARS:
+            enhanced = candidate
+            additions.append(addition)
+        else:
+            warnings.append("No se añade el BPM: el borrador excedería el límite de caracteres.")
 
     return {
         "original": original,
@@ -57,4 +60,6 @@ def enhance_prompt(prompt: str, bpm: int | None = None) -> dict:
         "genre_detected": None if rule is None else rule["name"],
         "suggested_bpm": None if rule is None else rule["bpm"],
         "additions": additions,
+        "warnings": warnings,
+        "adaptation": "literal",
     }

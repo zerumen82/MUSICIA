@@ -22,12 +22,16 @@
 | T1 | Mezclador decorativo en pantalla | La pestaña MEZCLA es `MixLab` (ffmpeg). `Mixer.jsx` no se monta. Historia [C1] cerrada por [F1] |
 | T7 | Fail-fast: si el motor no responde, no colgar la petición | Existe en `POST /music/generate` y `/audio/remix/ai` (503 con mensaje). Citada en código pero nunca anotada aquí: se registra el 2026-10-05 |
 | A3 | «Falta la UI de la canción con voz» | Hecha y verificada: selector, letra, `vocal_language`. El usuario confirmó el 2026-10-02 que funciona |
+| B1 | Borrado con MP3 ocupado y recursos del reproductor abiertos | Cerrada 2026-10-12: conflicto/lote Windows real y UI Electron real PASS; reviewer APPROVE. Evidencia XCIV |
+| B2 | Historial perdido al retornar el modo voz | Cerrada 2026-10-12: remix real de dos variantes persistido y recuperado tras reinicio API; reviewer APPROVE. Evidencia XCIV |
+| B3 | Colisión de nombres largos al recortar el ordinal | Cerrada 2026-10-12: regresión antes/después y remix largo de dos variantes PASS; límites en config. Evidencia XCIV |
 
 ## Bugs conocidos no resueltos
 
 | ID | Bug | Estado |
 |----|-----|--------|
-| — | Ninguno abierto. Los cerrados están en `memory.md` con su fix | ✅ |
+| R9 | Comprensión/fidelidad general del prompt y REMIX integral más versátil | Abierto: usuario aclara que voz/guitarra son ejemplos. Diseñar operaciones reales sobre audio original y calidad; las correcciones de envío de XCIV tienen PASS técnico, sin veredicto de oído ni nueva arquitectura implementada |
+| R10 | Adiciones no pedidas y vista previa incompleta en CREAR y REMIX | Abierto y reproducido 2026-10-12: presets añaden instrumentos/caracteres; modificadores confunden alcance (bajo potente→voz potente en entrada directa sin glosa, batería al fondo→protagonista también desde UI). Ver logs/prompt-audit-tester-20261012.json y spec/02. No considerar resuelta la fidelidad general por el PASS técnico de XCIV |
 
 ## Puntos de vigilancia
 
@@ -37,6 +41,7 @@
 | W2 | Motor y API son procesos aparte | Con la ventana abierta, `scripts/ensure_local.ps1` arranca el proceso que falte. No mata uno que ya responde. SALIR escribe `logs/stop.flag` y los para. La siguiente apertura borra esa marca y los arranca. Un `/health` que no contesta no pinta APAGADO |
 | W3 | La primera ejecución de ACE-Step descarga ~10 GB. demucs, ~80 MB la primera separación | declarado en el lanzador y en esta bitácora |
 | W4 | Umbrales de cuadre (`-14 LUFS`, confianza 0.12, ratio 0.8–1.25) viven en `mixer_service.py`, no en `config.py` | no duplicarlos; cambiarlos solo si el usuario lo pide |
+| W5 | **Otros programas en la GPU**: ComfyUI de AUTOAUTO (PID 18536, `--normalvram`) subió la línea base de VRAM de **710 MB (09:30) a ~3 300 MB**, dejó al motor con `Effective free VRAM: 0.03 GB` al empezar el VAE y forzó decode en CPU → job `5fc1bbb7` agotó `job_timeout=1800` (2026-10-08, entrada LXXXIV) | antes de una generación larga o del e2e, `nvidia-smi --query-gpu=memory.used`; si la base está por encima de ~1 GB, cerrar el otro programa. El motor sigue contestando `200` aunque su hilo siga decodificando tras el timeout |
 
 ## Propuesta de mejoras
 

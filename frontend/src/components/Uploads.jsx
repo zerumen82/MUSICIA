@@ -7,7 +7,6 @@ import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import { structureLyric } from '../vocal';
-import { glossPrompt } from '../prompt_gloss';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
@@ -21,8 +20,7 @@ const KIND_OPTIONS = [
 /* Acciones que la app ofrece según lo que el usuario confirma que es el audio. */
 const ACTIONS_BY_KIND = {
   musica: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Abre el remixer: versión, voz, tempo, loop y el ajuste local.' },
-    { id: 'recreate', title: 'Re-crear con IA', desc: 'Versión nueva sobre este audio, con el prompt que escribas.' },
+    { id: 'remix', title: 'Remix del audio', desc: 'Transforma la canción completa, un tramo o grupos de pistas del original.' },
     { id: 'extend', title: 'Rehacer un tramo', desc: 'Regenera un trozo de esta pista. El resto se queda.' },
   ],
   voz: [
@@ -30,8 +28,7 @@ const ACTIONS_BY_KIND = {
     { id: 'backing', title: 'Crear base para la voz', desc: 'Base nueva, de la misma duración que este audio, con el prompt que escribas.' },
   ],
   mixta: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Abre el remixer: versión, voz, tempo, loop y el ajuste local.' },
-    { id: 'recreate', title: 'Re-creación IA', desc: 'Versión nueva del tema, con el prompt que escribas.' },
+    { id: 'remix', title: 'Remix del audio', desc: 'Transforma la canción completa, un tramo o grupos de pistas del original.' },
   ],
   otro: [
     { id: 'remix', title: 'Efectos sobre el audio', desc: 'Abre el remixer sobre este audio.' },
@@ -118,7 +115,7 @@ export default function Uploads() {
     }
     try {
       const created = await api.generateMusic({
-        prompt: glossPrompt(text),
+        prompt: text,
         instrumental: !letra,
         lyrics: letra,
         bpm: bpm ?? null,
@@ -279,7 +276,7 @@ export default function Uploads() {
             )}
 
             {/* Acción elegida: panel específico */}
-            {chosenAction === 'remix' && (
+            {(chosenAction === 'remix' || chosenAction === 'recreate') && (
               <RemixActions fileName={lastAnalysis.file_name} sourceKind="upload" onDone={async () => {
                 await refresh();
                 setRemixState(null);
@@ -291,9 +288,9 @@ export default function Uploads() {
               }} />
             )}
 
-            {(chosenAction === 'recreate' || chosenAction === 'backing') && (
+            {chosenAction === 'backing' && (
               <RemixIAPanel fileName={lastAnalysis.file_name} kind={confirmKind} sourceKind="upload"
-                onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
+                createBacking onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
             )}
 
             {remixState?.ok && !remixState.job && (
@@ -388,3 +385,5 @@ export default function Uploads() {
 
 /* Panel de remix DSP: sliders de tempo/pitch/gain + reverse + fades. */
 /* Panel de re-creación con IA: ahora es RemixIAPanel (compartido con BIBLIOTECA). */
+
+

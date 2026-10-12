@@ -138,6 +138,7 @@ fundir dos temas, **para** hacer bootlegs y remixes sin salir de la app.
 - [ ] Un tramo repaint real, con la misma prueba de audio.
 - [x] Ajustar sigue siendo el panel DSP (tempo, tono, fundido, recorte).
 - [x] `POST /audio/separate` responde al momento con `job_id`. `GET /audio/separate/status` sigue diciendo si demucs está instalado.
+- [x] **`GET /audio/separate/status` no congela la API** (2026-10-08, «acabo de errar la api creo»; `memory.md LXXXIV`): el estado se calcula en `asyncio.to_thread` y se cachea una vez por proceso. Medido: 1ª llamada 2,790 s (fría), 2ª 0,091 s; con 6 llamadas en paralelo, `/music/style_options` responde 200 en 0,0077 s. Antes clavaba el hilo de eventos ~5 s y en CREAR el AÑADIR salía `SIN DATOS DEL MOTOR`. Regresión cubierta por `backend/test_separator_status.py` (5 tests).
 - [x] MEZCLA lista biblioteca y subidas en BASE y en VOZ. El nombre vacío usa el stem de `mixer.default_output_name`.
 - [x] Al acabar una generación se escribe `*.ficha.json` junto al MP3.
 - [x] CREAR, SUBIR, MEZCLA y BIBLIOTECA siguen montadas al cambiar de pestaña.
@@ -573,10 +574,61 @@ vocabulario (`husky`, `sung vocals`, `brooding`, `happy`… con 0 apariciones).
 - Sincronización del asistente `QualityWizard.jsx` con el catálogo real del modelo.
 
 **Criterios de aceptación**
-- [ ] Selector GÉNERO de `Composer.jsx` con los 29 estilos oficiales del modelo, con etiquetas legibles en español y orden coherente.
-- [ ] Al seleccionar género, añade el término al prompt y el backend compone la caption oficial en inglés (`style_caption`).
-- [ ] Descriptores de voz en `frontend/src/vocal.js` 100% verificados contra el corpus de entrenamiento del modelo (sin palabras ausentes como `grit`).
-- [ ] `backend/test_realism.py` ampliado para auditar también `vocal.js`.
-- [ ] `QualityWizard.jsx` alineado con los géneros del modelo.
-- [ ] Tests de backend pasan (92/92), tests de frontend/glosa pasan, ESLint 0 advertencias, build de Vite exitoso.
+- [x] Selector GÉNERO de `Composer.jsx` con los 29 estilos oficiales del modelo, con etiquetas legibles en español y orden coherente (`frontend/src/genres.js`: 29 `id` = 29 `genre`).
+- [x] Al seleccionar género, añade el término al prompt (`item.genre`, línea literal; nunca el `id` en español) y el backend compone la caption oficial en inglés (`style_caption`, vía MEJORAR).
+- [x] Descriptores de voz en `frontend/src/vocal.js` 100% verificados contra el corpus de entrenamiento del modelo (sin palabras ausentes como `grit`).
+- [x] `backend/test_realism.py` ampliado para auditar también `vocal.js` (`test_vocal_tags_use_only_vocabulary_the_model_uses`).
+- [x] `QualityWizard.jsx` alineado con los géneros del modelo (lee `CATALOG_GENRES`; su `prompt` monta `g.genre` + `words`/`extra` que la glosa traduce al inglés).
+- [x] Tests de backend pasan, tests de frontend/glosa pasan, ESLint 0 advertencias, build de Vite exitoso.
+
+**2ª auditoría (2026-10-08, «en toda la app el glosario y los chips en unos sitios funcionan y en otros no» + «debes eliminar los términos que no entiende el modelo»; alcance Completo P0–P4)** — `memory.md LXXXIII`:
+- [x] Ver ≠ enviar en remix: `RemixActions.jsx` mostraba `ENVÍA: glossPrompt(...)` pero mandaba `prompt.trim()`; hoy los 4 envíos (versión/tramo, reestilar, voz, MEJORAR) glosan con `promptEnviado()`. SUBIR/BIBLIOTECA ya glosaban en el padre.
+- [x] `AÑADIR` nunca despliega vacío sin explicación en remix y OTRA VERSIÓN (`SIN DATOS DEL MOTOR` / `SIN SUGERENCIAS`), mismo criterio que CREAR.
+- [x] Los 5 `genre` de `genres.js` que no eran línea literal pasan a `gabber`, `hard dance`, `hard house`, `folk`, `orchestral`; control en `test_realism.test_genres_js_only_offers_genres_the_model_can_write` y `test_genres_js_agrees_with_the_backend_catalog` (29 estilos ⇒ mismo género en selector y glosario).
+- [x] `catalog_styles()` nunca devuelve `genre: None`: si ninguna clave es línea literal se usa la subfrase más larga del nombre que sí lo es (`uptempo hard dance` → `hard dance`); test `test_genre_glossary.test_ningun_estilo_se_queda_sin_genre`.
+- [x] Glosa completa de todos los textos fijos de la UI: `evoluci[oó]n`, `cálido→warm`, `relajado→relaxed`, `textura→texture`, `clara→clear`, `íntimo→intimate`, `banda→full band`, `hard bounce→hard house`; control en `prompt_gloss.test.js` (11 tests) sobre moods de `Composer.jsx` y `words`/`extra` de `QualityWizard.jsx`.
+- [x] Bases del prompt de remix (`/audio/remix_prompt`) en inglés y solo con palabras de los captions del modelo, como datos en `prompt_enhancer.py` (`REMIX_BASES` y asociados); el `basis` que se explica al usuario sigue en español. Test `test_realism.test_las_bases_del_remix_son_del_vocabulario_del_modelo`.
+- [x] Evidencia: **117/117 backend** + **11/11 glosa** + ESLint 0 + build `index-BFgd1hNJ.js` + API reiniciada con endpoints en vivo (`genre_glossary`, `style_options`, `remix_prompt` con MP3 real). Sin clic en ventana (no hay browser tooling): TESTER PASS con ese límite declarado.
+
+# Correcciones autorizadas 2026-10-12 — B1/B2 (diagnóstico XCIII)
+
+El usuario solicita «hazlo» tras la revisión de memoria/logs y añade que los estilos no parecen lo pedido. B1/B2 corrigen los contratos existentes de biblioteca e historial; el tratamiento musical se diagnostica y se acuerda con el usuario antes de cambiar el diseño.
+
+- **B1 — Borrado con archivo ocupado**: un MP3 ocupado por otro proceso devuelve un conflicto HTTP con explicación real en el borrado individual, sin excepción ASGI/500 ni éxito falso. El borrado múltiple continúa con los archivos disponibles y declara los ocupados por separado; conserva sus fichas y no anuncia que los borró. El reproductor de Musicia libera el archivo seleccionado antes de solicitar su borrado. Verificar con un bloqueo Windows real sobre un MP3 de prueba y una petición real a la API, además de las pruebas de regresión.
+- **B2 — Historial del modo voz**: todo resultado terminal de remix (incluido el retorno anticipado del modo voz) se persiste por el camino común. Verificar que una ejecución real de voz termina y que su job existe con estado final en `job_history.json`; cubrir el retorno anticipado con una regresión automatizada. No cambiar SFT, batch ni duraciones elegidas.
+- **Regresión encontrada durante la prueba real B2**: un nombre que alcanza `generation.max_slug_chars` no puede perder el ordinal de desambiguación al añadir ` (2)`, ` (3)`; debe reservar sitio dentro de ese límite, sin pisar archivos y sin repetir el mismo candidato hasta el error 409. El máximo de intentos se declara en configuración. Verificar nombres largos con archivos reales temporales y repetir el remix de dos variantes que falló.
+- **Estilos/conservación**: contrastar el prompt original, las reglas del catálogo y el payload al motor. No presentar género sustituto como equivalente demostrado ni éxito técnico como fidelidad musical. La corrección del envío está verificada; la interpretación y transformación integral de la canción pertenece a R9, sin convertir ejemplos de voz/guitarra en alcance separado.
+- **Corrección de fidelidad existente (recordatorio del usuario: NO HARDCODING y lenguaje del modelo)**: conservar los géneros literales pedidos y añadir descripciones sin introducir géneros vecinos. Las reglas lingüísticas y restricciones viven como datos del catálogo. Coincidencias negadas o contenidas en una frase más específica no añaden estilos/detalles positivos; una mezcla explícita con ocurrencias independientes sigue funcionando. La glosa no convierte frenchcore en hard dance ni jungle en breakbeat. Las descripciones que contradigan una exclusión explícita del usuario se omiten; no se inventa un reemplazo. Géneros añadidos y prosa siguen verificados con vocabulario/captions locales. La conservación específica de guitarra original queda pendiente de acordar un tratamiento posible con los modelos ya instalados.
+- **Plan de verificación**: tests de regresión backend/frontend, lint y build, revisión independiente y verificación real con evidencia en `memory.md`. No instalar dependencias/modelos ni modificar programas ajenos.
+
+**Estado de las correcciones**: PASS técnico del tester y APPROVE del reviewer, evidencia real en `memory.md XCIV`. B1/B2 y colisiones de nombres verificadas; cumplimiento musical de oído no verificado.
+
+## [R10] Fidelidad del prompt en CREAR y REMIX — corrección autorizada
+
+Autorización 2026-10-12: corregir el prompting e implementar R9 con autodetección de audio electrónico. Se retiran las recetas automáticas y las glosas parciales que desvirtúan el contexto. Sugerencias voluntarias conservadas; una adaptación semántica no verificada no se presenta como comprensión universal. La fuente se clasifica mediante análisis real, con desconocido/mixto y revisión manual disponibles; no se traduce la clasificación en órdenes musicales nuevas.
+
+Petición 2026-10-12: antes de decidir el plan, revisar las cosas que la app añade sin pedirlas; el usuario aclara expresamente «no solo en remix, al crear también». Rige para todos los recorridos de generación, no para un ejemplo de instrumento concreto.
+
+**Estado real**: las correcciones de XCIV evitaron determinadas sustituciones de género y coincidencias, pero no eliminaron la expansión musical automática. Ejecución local de `style_caption` documentada en `logs/prompt-audit-20261012.json`: «batería suave al fondo» añade batería protagonista; «bajo potente, sin voz» enviado directamente al backend añade voz principal potente y luego instrumental. En el recorrido con glosa de la UI este segundo caso sí filtra la voz potente: no confundir ambas entradas. El tester ejecutó Node y Python para el recorrido completo (`logs/prompt-audit-tester-20261012.json`): los cuatro previews cambian al pasar por backend y la batería al fondo sigue convertida en protagonista. CREAR y REMIX llaman esta función después de la glosa que muestra la UI. El vocabulario del modelo no demuestra equivalencia semántica ni aprobación del usuario.
+
+**Contrato propuesto, pendiente de acuerdo antes de implementar**:
+- Mantener texto original, intención y restricciones; adaptar al idioma/formato del motor sin introducir instrumentos, protagonismo, carácter, patrones rítmicos o estilos adicionales. La glosa de palabras actual no equivale a interpretar el prompt completo.
+- Las sugerencias creativas son optativas y revisables; una selección explícita en la UI forma parte de la petición. Detectar un género o un adjetivo no autoriza a insertar una receta musical.
+- Mostrar el prompt y los parámetros efectivos del motor en ambos modos, con procedencia de texto, selección y configuración; el servidor no añade otra expansión oculta después de la vista previa.
+- Resolver contradicciones entre texto y controles de voz/BPM/estructura antes de generar; distinguir omisión de letra, deseo de instrumental y conservación de la voz original. No cambiar los valores SFT/batch/thinking/use_format aprobados para tratar de compensar el fallo.
+- No vender regex, catálogos ni traducción como un planificador semántico universal. La vía concreta de adaptación fiel del idioma sigue pendiente de acordar y validar con el modelo local, sin instalar dependencias o modelos.
+- Verificar el envío real de CREAR y REMIX, casos de contexto/negación y preview frente a payload; evaluar audio A/B por separado. Un MP3 válido o un término presente en el corpus no certifican cumplimiento artístico.
+
+**Diagnóstico confirmado, corrección general pendiente**. R9 debe incorporar este contrato compartido; no dar por resuelto el prompt al rediseñar solo REMIX.
+
+## [R9] REMIX integral y fidelidad general del prompt — diseño en curso
+
+El usuario aclara que conservar voz/guitarra era solo un ejemplo; quiere un remix real más versátil respecto al modelo y la calidad de las creaciones. Se retira la propuesta de convertir ese ejemplo en una función específica. No se aprobó ninguna descarga.
+
+- Usar el audio original como material del remix y distinguir qué se conserva, transforma o rehace según la intención completa del prompt.
+- Contrastar cada operación con capacidades efectivas del modelo local; no ofrecer éxito falso para operaciones incompatibles.
+- Prompts y parámetros en lenguaje/contratos del modelo, sin sustituir géneros ni añadir decisiones musicales ajenas al usuario; valores como configuración/datos.
+- Calidad verificable mediante archivos válidos, revisión de defectos técnicos, trazabilidad de petición/operación/resultado y escucha comparada del usuario.
+- Plan concreto y criterios por acordar antes de implementar; mantener las funciones existentes mientras se diseña y no instalar dependencias/modelos sin autorización.
+- Propuesta concreta, capacidades rastreadas y criterios en `spec/06-REMIX-INTEGRAL.md`; pendiente de aprobación del usuario.
 

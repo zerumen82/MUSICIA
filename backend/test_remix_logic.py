@@ -110,10 +110,11 @@ class RemixCoverStrengthTest(unittest.TestCase):
 
 
 class ModeloRemixTest(unittest.TestCase):
-    """model_for + build_payload: el remix va al modelo con CFG, CREAR al otro.
+    """model_for + build_payload: todo va al modelo con CFG (decisión
+    2026-10-09: SFT en toda la app, el turbo no obedecía el prompt).
 
     Los valores salen de config; el test solo comprueba que el camino
-    decide por modelo y que las dos tablas no son la misma.
+    decide por modelo y que las tablas distinguen turbo de sft.
     """
 
     def setUp(self):
@@ -154,13 +155,16 @@ class ModeloRemixTest(unittest.TestCase):
     def test_las_dos_tablas_no_son_la_misma(self):
         self.assertIn(self.gen.remix_model, self.gen.allowed_models)
         self.assertIn(self.gen.model, self.gen.allowed_models)
+        # Decisión 2026-10-09 (SFT en toda la app): modelo y remix_model
+        # son el mismo; lo que sigue distinguiendo es la tabla por modelo.
+        self.assertEqual(self.gen.model, self.gen.remix_model)
         self.assertNotEqual(
-            self.gen.steps_by_model.get(self.gen.model),
-            self.gen.steps_by_model.get(self.gen.remix_model),
+            self.gen.steps_by_model.get("acestep-v15-turbo"),
+            self.gen.steps_by_model.get("acestep-v15-sft"),
         )
         self.assertLess(
-            self.gen.guidance_by_model.get(self.gen.model, 0.0),
-            self.gen.guidance_by_model.get(self.gen.remix_model, 0.0),
+            self.gen.guidance_by_model.get("acestep-v15-turbo", 0.0),
+            self.gen.guidance_by_model.get("acestep-v15-sft", 0.0),
         )
 
     def test_modelo_fuera_de_la_allowlist_se_rechaza(self):

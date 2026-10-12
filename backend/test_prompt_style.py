@@ -14,11 +14,11 @@ if str(BACKEND_DIR) not in sys.path:
 
 from prompt_enhancer import enhance_prompt  # noqa: E402
 from prompt_style import (  # noqa: E402
-    MAX_CAPTION_CHARS,
     STYLE_MODIFIERS,
     analyze_prompt,
     find_modifiers,
     find_style,
+    find_styles,
     style_bpm,
     style_caption,
 )
@@ -67,130 +67,80 @@ class FindStyleTest(unittest.TestCase):
         self.assertEqual(find_style("hardcore techno de rotterdam")["name"], "hardcore holandes")
         self.assertEqual(find_style("trance epico")["name"], "trance")
 
+    def test_tres_estilos_se_detectan_todos(self):
+        """Bug 2026-10-10: con 3 estilos solo viajaba el primero."""
+        rules = find_styles("techno hardcore trance")
+        names = [r["name"] for r in rules]
+        self.assertGreaterEqual(len(names), 2)
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_caption_conserva_mezcla_sin_presets(self):
+        self.assertEqual(style_caption("techno hardcore trance"), "techno hardcore trance")
+
+    def test_caption_multiestilo_es_idempotente(self):
+        once = style_caption("techno hardcore trance")
+        self.assertEqual(style_caption(once), once)
+
+    def test_bpm_multiestilo_es_el_del_primero(self):
+        first = find_styles("techno hardcore trance")
+        if first:
+            self.assertEqual(style_bpm("techno hardcore trance"), first[0]["bpm"])
+
+    def test_analyze_expone_todos_los_generos(self):
+        info = analyze_prompt("techno hardcore trance")
+        self.assertTrue(info["detected_genres"])
+        self.assertEqual(info["detected_genre"], info["detected_genres"][0])
+
 
 class StyleCaptionTest(unittest.TestCase):
-    """style_caption: la frase del usuario va entera y primero."""
+    """Casos que antes invertían el papel, el carácter o las restricciones."""
 
-    def test_conserva_la_frase_y_annade_estilo_en_ingles(self):
-        caption = style_caption(PROMPT)
-        self.assertTrue(caption.startswith(PROMPT))
-        # Vocabulario que el motor reconoce (A/B GPU 2026-10-06): hardstyle
-        # + distorted kick, no «gabber», que no existe en su vocabulario.
-        self.assertIn("distorted", caption)
-        self.assertIn("kick", caption)
-        self.assertNotIn("gabber", caption.lower())
-        self.assertLessEqual(len(caption), MAX_CAPTION_CHARS)
+    def test_instrumentos_conservan_su_papel(self):
+        for prompt in (
+            "batería suave al fondo", "bajo potente, sin voz",
+            "jazz con contrabajo", "piano protagonista y batería discreta",
+            "guitarras limpias, nada de riffs distorsionados",
+            "melodía potente con voz susurrada", "sin guitarra ni batería",
+            "voz al fondo, sin modificar el bajo",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(style_caption(prompt), prompt)
 
-    def test_sin_regla_se_queda_igual(self):
-        texto = "idea suave para la cena"
-        self.assertEqual(style_caption(texto), texto)
+    def test_generos_no_autorizan_recetas(self):
+        for prompt in ("techno", "electrónica", "gabber", "jungle", "rap", "synth pop"):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(style_caption(prompt), prompt)
 
-    def test_no_pega_genero_distinto(self):
-        caption = style_caption("jazz suave con piano")
-        self.assertTrue(caption.startswith("jazz suave con piano"))
-        self.assertIn("jazz", caption.lower())
-        self.assertNotIn("hardcore", caption.lower())
+    def test_instrucciones_y_ambiguedad_no_se_resuelven_con_listas(self):
+        for prompt in (
+            "cambia solo la batería; conserva el resto",
+            "si hay voz, consérvala; no añadas una cantante",
+            "más cálido sin ralentizarlo", "crea algo extraño, evita lo oscuro",
+            "conserva los sintes y sustituye la percusión por palmas",
+            "no techno: prefiero jazz; nada de voces",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(style_caption(prompt), prompt)
 
-    def test_doble_bombo_como_capa_componible(self):
-        """Los detalles pedidos se detectan en LA FRASE del usuario (A/B real)."""
-        caption = style_caption(f"{PROMPT} con doble bombo a toda velocidad")
-        self.assertTrue(caption.startswith(PROMPT))
-        self.assertIn("double bass", caption)  # Cláusula actualizada
-        self.assertIn("energetic tempo", caption)  # Cláusula actualizada
-        # La capa de estilo no lleva pegado el doble bombo: es componible.
-        self.assertNotIn("double bass", find_style(PROMPT)["style"])
+    def test_puntuacion_saltos_y_texto_largo_no_se_recortan(self):
+        prompt = "Conserva esto.\nDespués aquello; sin cambios: ¡sí! " + "detalle " * 180
+        self.assertEqual(style_caption(prompt), prompt.strip())
 
-    def test_modificadores_solo_cuando_se_piden(self):
-        self.assertEqual(find_modifiers("hardcore holandes"), ())
-        self.assertEqual(len(find_modifiers("hardcore holandes con doble bombo")), 1)
+    def test_clausulas_voluntarias_se_conservan_sin_repetir(self):
+        clause = STYLE_MODIFIERS[0]["clause"]
+        prompt = f"techno. {clause}"
+        self.assertEqual(style_caption(prompt), prompt)
+        self.assertEqual(style_caption(style_caption(prompt)), prompt)
 
-    def test_modificadores_sensibles_a_acentos(self):
-        clausulas = find_modifiers("algo rapidísimo")
-        self.assertEqual(len(clausulas), 1)
-        self.assertIn("energetic tempo", clausulas[0])  # Cláusula actualizada
+    def test_palabras_de_busqueda_no_se_marcan_como_roles_elegidos(self):
+        for prompt in ("batería suave al fondo", "bajo potente", "jazz con double bass"):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(find_modifiers(prompt), ())
 
-    def test_capa_estilo_y_capa_detalles_independientes(self):
-        """«Doble bombo» solo no pega un género, y un género no añade detalles."""
-        caption_pop = style_caption("pop alegre con doble bombo")
-        self.assertIn("pop", caption_pop.lower())
-        self.assertIn("double bass", caption_pop)  # Cláusula actualizada
-        self.assertNotIn("hardstyle", caption_pop.lower())
-
-    def test_sin_recortar_a_mitad_de_frase(self):
-        largo = (f"{PROMPT} " + "y otra cosa " * 90).strip()
-        caption = style_caption(largo)
-        if len(caption) > MAX_CAPTION_CHARS:
-            self.assertEqual(caption, largo)
-
-    def test_idempotente_mejorar_luego_generar(self):
-        """MEJORAR compone y GENERAR vuelve a componer: el estilo sale UNA vez."""
-        once = style_caption(PROMPT)
-        self.assertEqual(style_caption(once), once)
-        rule = find_style(PROMPT)
-        self.assertEqual(once.count(rule["style"]), 1)
-
-    def test_genero_del_desplegable_no_duplica_estilo(self):
-        """La frase del desplegable ya trae la cláusula: no se pega otra."""
-        rule = find_style("techno oscuro")
-        con_clausula = f"techno oscuro con bombo seco. {rule['style']}"
-        self.assertEqual(style_caption(con_clausula), con_clausula)
-
-    def test_palabras_sueltas_reconocen_estilo(self):
-        """Agujeros 2026-10-06: hardcore/tecno/rap/trap/dembow/chill solos
-        viajaban en español sin frase inglesa (el motor no cumplía)."""
-        casos = {
-            "hardcore en 4x4": ("hardcore holandes", 180),
-            "tecno oscuro": ("techno", 135),
-            "rap noventero": ("hip hop", 90),
-            "trap oscuro": ("trap", 140),
-            "dembow pegajoso": ("reggaeton", 95),
-            "chill para dormir": ("ambient", 70),
-        }
-        for texto, (genero, bpm) in casos.items():
-            with self.subTest(texto=texto):
-                self.assertEqual(find_style(texto)["name"], genero)
-                caption = style_caption(texto)
-                self.assertTrue(caption.startswith(texto))
-                self.assertGreater(len(caption), len(texto))
-                self.assertEqual(style_bpm(texto), bpm)
-
-    def test_trap_no_cae_en_hip_hop(self):
-        """«trap» contiene «rap»: la regla trap tiene que ir primero."""
-        self.assertEqual(find_style("trap oscuro")["name"], "trap")
-
-    def test_detalles_viajan_aunque_no_haya_genero(self):
-        """Sin estilo reconocido, los detalles sí se traducen (antes se perdían)."""
-        caption = style_caption("algo contundente con doble bombo")
-        self.assertTrue(caption.startswith("algo contundente con doble bombo"))
-        self.assertIn("double bass", caption)  # Cláusula actualizada
-
-    def test_clausulas_no_se_duplican(self):
-        """Idempotencia también para modificadores: dos pasadas = una."""
-        once = style_caption("algo contundente con doble bombo")
-        self.assertEqual(style_caption(once), once)
-        self.assertEqual(once.count("double bass"), 1)  # Cláusula actualizada
-
-    def test_capa_documental_estilo_vocal_y_tempo(self):
-        """Guía oficial (vocal style + tempo feel) y 400 textos minados:
-        las palabras del fabricante se detectan y viajan en inglés."""
-        casos = {
-            "balada con voz susurrada": "whispered vocals",
-            "tema en falsete": "falsetto vocals",
-            "rock con voz gritada": "shouted vocals",
-            "trap con voz rapeada": "rapped verses",
-            "canción a tempo lento": "slow, laid-back tempo",
-            "pulso constante y moderado": "steady",
-            "himno explosivo": "anthemic",
-            "riffs pegadizos con capas": "catchy, memorable hook",  # Cláusula actualizada
-            "caja de ritmos y contrabajo": "drum-machine",
-        }
-        for texto, esperado in casos.items():
-            with self.subTest(texto=texto):
-                caption = style_caption(texto)
-                self.assertIn(esperado, caption)
-                # Idempotencia: solo para frases sin estilo detectado
-                if "caja de ritmos" not in texto:  # Este caso detecta estilo en la caption
-                    self.assertEqual(style_caption(caption), caption)
+    def test_frase_de_chip_completa_se_reconoce(self):
+        mod = next(mod for mod in STYLE_MODIFIERS if mod["label"] == "Doble bombo")
+        self.assertIn(mod["clause"], find_modifiers(f"hardcore {mod['text']}"))
+        self.assertIn(mod["clause"], find_modifiers(f"hardcore {mod['clause']}"))
 
 
 class NewCatalogTest(unittest.TestCase):
@@ -218,7 +168,7 @@ class NewCatalogTest(unittest.TestCase):
         self.assertEqual(find_style("canción tranquila para dormir")["name"], "ambient")
 
     def test_sin_voz_como_modificador(self):
-        clausulas = find_modifiers("techno contundente sin voz")
+        clausulas = find_modifiers("techno contundente sin voz, instrumental")
         self.assertEqual(len(clausulas), 1)
         self.assertIn("no vocals", clausulas[0])
         # Solo se detecta al escribirlo: nunca se sugiere como chip.
@@ -253,12 +203,8 @@ class NewCatalogTest(unittest.TestCase):
         ]
         for texto in variantes:
             with self.subTest(texto=texto):
-                regla = find_style(texto)
-                detalles = find_modifiers(texto)
-                self.assertTrue(
-                    regla is not None or len(detalles) > 0,
-                    f"«{texto}» no dispara nada",
-                )
+                self.assertEqual(style_caption(texto), texto)
+                self.assertTrue(analyze_prompt(texto)["chips"])
 
     def test_moods_de_crear_caen_en_regla(self):
         moods = [
@@ -274,12 +220,8 @@ class NewCatalogTest(unittest.TestCase):
         ]
         for texto in moods:
             with self.subTest(texto=texto):
-                mods = analyze_prompt(f"techno {texto}")["modifiers"]
-                regla = find_style(texto)
-                self.assertTrue(
-                    regla is not None or len(mods) > 0,
-                    f"«{texto}» no dispara nada",
-                )
+                self.assertEqual(style_caption(texto), texto)
+                self.assertTrue(analyze_prompt(texto)["chips"])
 
 
 class StyleBpmTest(unittest.TestCase):
@@ -300,14 +242,14 @@ class AnalyzePromptTest(unittest.TestCase):
     """analyze_prompt: capas separadas + chips desde el catálogo (sin LM)."""
 
     def test_capas_separadas(self):
-        res = analyze_prompt(f"{PROMPT} con doble bombo")
+        res = analyze_prompt(f"{PROMPT} con doble bombo a toda velocidad")
         self.assertEqual(res["detected_genre"], "hardcore holandes")
         self.assertEqual(res["suggested_bpm"], 180)
         self.assertIn("Doble bombo", res["modifiers"])
 
     def test_chip_activo_no_se_sugiere(self):
         """Lo ya escrito se marca activo y deja de sugerirse (no duplica)."""
-        res = analyze_prompt(f"{PROMPT} con doble bombo")
+        res = analyze_prompt(f"{PROMPT} con doble bombo a toda velocidad")
         chip = next(c for c in res["chips"] if c["label"] == "Doble bombo")
         self.assertTrue(chip["active"])
         self.assertFalse(chip["suggested"])
@@ -365,41 +307,52 @@ class AnalyzePromptTest(unittest.TestCase):
 
 
 class EnhancePromptTest(unittest.TestCase):
-    """MEJORAR PROMPT: frase del usuario + estilo en inglés, visible y editable."""
+    """Borrador optativo: solo valores elegidos, sin reglas creativas."""
 
-    def test_annade_estilo_y_lo_declara(self):
-        res = enhance_prompt(PROMPT)
-        self.assertTrue(res["enhanced"].startswith(PROMPT))
-        self.assertIn("distorted", res["enhanced"])
-        self.assertEqual(res["genre_detected"], "hardcore holandes")
-        self.assertEqual(res["suggested_bpm"], 180)
-        self.assertIn("descripción de estilo en inglés", res["additions"])
+    def test_genero_no_annade_caracter_instrumentos_o_ritmo(self):
+        for prompt in (PROMPT, "techno", "electrónica", "batería suave al fondo", "jazz con contrabajo"):
+            with self.subTest(prompt=prompt):
+                result = enhance_prompt(prompt)
+                self.assertEqual(result["enhanced"], prompt)
+                self.assertEqual(result["additions"], [])
+                self.assertEqual(result["adaptation"], "literal")
 
-    def test_bpm_elegido_se_une_al_final(self):
-        res = enhance_prompt(PROMPT, bpm=175)
-        self.assertIn("175 bpm", res["enhanced"])
-        self.assertTrue(res["enhanced"].startswith(PROMPT))
+    def test_bpm_elegido_se_propone_sin_preset_de_genero(self):
+        result = enhance_prompt(PROMPT, bpm=175)
+        self.assertEqual(result["enhanced"], f"{PROMPT}, 175 bpm")
+        self.assertEqual(result["additions"], ["175 bpm"])
+        self.assertEqual(result["suggested_bpm"], 180)
 
-    def test_detalles_pedidos_aparecen_en_enhanced(self):
-        res = enhance_prompt(f"{PROMPT} con doble bombo")
-        self.assertIn("double bass", res["enhanced"])  # Cláusula actualizada
-        self.assertEqual(res["genre_detected"], "hardcore holandes")
+    def test_bpm_existente_no_se_duplica(self):
+        for prompt in ("techno 120 BPM", "techno a 120bpm", "techno 120,0 bpm"):
+            with self.subTest(prompt=prompt):
+                result = enhance_prompt(prompt, bpm=120)
+                self.assertEqual(result["enhanced"], prompt)
+                self.assertEqual(result["additions"], [])
 
-    def test_sin_estilo_y_sin_bpm_no_cambia_nada(self):
-        res = enhance_prompt("cancion bonita para mi novia")
-        self.assertEqual(res["enhanced"], "cancion bonita para mi novia")
-        self.assertEqual(res["additions"], [])
-        self.assertIsNone(res["genre_detected"])
+    def test_bpm_contradictorio_se_declara_y_no_se_impone(self):
+        for prompt in ("techno a 130 bpm", "120 bpm al inicio y 130 bpm al final"):
+            with self.subTest(prompt=prompt):
+                result = enhance_prompt(prompt, bpm=120)
+                self.assertEqual(result["enhanced"], prompt)
+                self.assertTrue(result["warnings"])
+                self.assertEqual(result["additions"], [])
 
-    def test_solo_bpm_comportamiento_antiguo(self):
-        res = enhance_prompt("cancion bonita para mi novia", bpm=120)
-        self.assertEqual(res["enhanced"], "cancion bonita para mi novia, 120 bpm")
-        self.assertEqual(res["additions"], ["120 bpm"])
+    def test_texto_largo_se_conserva_y_no_se_amplia(self):
+        prompt = "techno " + "detalle " * 110
+        result = enhance_prompt(prompt, bpm=120)
+        self.assertEqual(result["enhanced"], prompt.strip())
+        self.assertEqual(result["additions"], [])
+        self.assertTrue(result["warnings"])
 
-    def test_prompt_demasiado_largo_no_se_recorta(self):
-        largo = (f"{PROMPT} " + "detalle " * 110).strip()
-        res = enhance_prompt(largo)
-        self.assertEqual(res["enhanced"], largo)
+    def test_borrador_preserva_restricciones_al_annadir_bpm(self):
+        prompt = "bajo potente, sin voz; batería suave al fondo"
+        result = enhance_prompt(prompt, bpm=120)
+        self.assertEqual(style_caption(result["enhanced"]), f"{prompt}, 120 bpm")
+
+    def test_prompt_vacio_se_rechaza(self):
+        with self.assertRaises(ValueError):
+            enhance_prompt(" ")
 
 
 if __name__ == "__main__":

@@ -68,6 +68,23 @@ def _clamp(limit: Any) -> int:
         return DEFAULT_LIMIT
 
 
+def _subfrase_literal(nombre: str, vocab: set[str]) -> str | None:
+    """La subfrase más larga de `nombre` que sea LÍNEA LITERAL del modelo.
+
+    «uptempo hard dance» no es línea (ni sus claves: uptempo, rawstyle,
+    makina), pero «hard dance» sí: esa es la forma que el modelo puede
+    escribir y por eso es la que se ofrece. Si ninguna subfrase está en el
+    archivo devuelve None: aquí no se inventa ninguna forma (NO FAKE).
+    """
+    palabras = _norm(nombre).split()
+    for size in range(len(palabras), 0, -1):
+        for i in range(len(palabras) - size + 1):
+            frase = " ".join(palabras[i:i + size])
+            if frase in vocab:
+                return frase
+    return None
+
+
 def catalog_styles(vocab_lower: set[str] | None = None) -> list[dict[str, Any]]:
     """Estilos propios de Musicia (catálogo: nombre, bpm y caption real).
 
@@ -94,6 +111,10 @@ def catalog_styles(vocab_lower: set[str] | None = None) -> list[dict[str, Any]]:
                 if _norm(key) in vocab_lower:
                     genre = key
                     break
+            if genre is None:
+                # Ninguna clave es línea del modelo: la subfrase del nombre
+                # que sí lo es («uptempo hard dance» → «hard dance»).
+                genre = _subfrase_literal(rule["name"], vocab_lower)
         estilos.append({
             "name": rule["name"], "bpm": rule.get("bpm"), "text": rule.get("style", ""),
             "keys": list(rule.get("keys", ())), "genre": genre,

@@ -1,8 +1,8 @@
 """Separación de voces en local con demucs (venv propio: backend/demucs-venv).
 
 El motor ACE-Step no separa stems, así que la separación va en su propio
-entorno con torch. Nada sale a la nube: los pesos se descargan una vez a
-~/.cache/torch y a partir de ahí es 100 % local.
+entorno con torch. Las operaciones solo leen pesos ya instalados; descargar
+modelos requiere autorización explícita fuera de este servicio.
 """
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
+import tempfile
 from pathlib import Path
+from typing import Callable
 
 from loguru import logger
 
@@ -20,20 +24,87 @@ DEMUCS_VENV = PROJECT_ROOT / "backend" / "demucs-venv"
 DEMUCS_PYTHON = DEMUCS_VENV / "Scripts" / "python.exe"
 # VRAM libre mínima (MB) para usar la GPU: por debajo, se va por CPU.
 GPU_MIN_FREE_MB = 2600
+# El import de demucs+torch tarda ~11 s en frío y más con el motor ACE-Step
+# cargando; con 60 s y SIN LOG, el chequeo falló una vez en frío y el falso
+# negativo se cacheó para toda la sesión (bug 2026-10-10, remix 0540d437).
+CHEQUEO_TIMEOUT_S = 120
+# Un negativo cacheado PARA TODA LA PROCESIÓN es lo que mató el remix del
+# 2026-10-10: el negativo caduca y se vuelve a comprobar; el positivo no.
+NEGATIVO_TTL_S = 60.0
+_CHEQUEO = threading.Lock()
 
 
-def is_available() -> bool:
-    """¿Está instalado el motor de separación?"""
+def _instalado() -> bool:
+    """Comprobación real: importa demucs+torch en un subproceso (segundos).
+
+    Registra duración y motivo de cada fallo: sin eso, un falso negativo es
+    indistinguible de «no instalado» (se vio el 2026-10-09 y 2026-10-10).
+    """
     if not DEMUCS_PYTHON.exists():
+        logger.warning(f"Motor de separación ausente: no existe {DEMUCS_PYTHON}")
         return False
+    inicio = time.monotonic()
     try:
         proc = subprocess.run(
             [str(DEMUCS_PYTHON), "-c", "import demucs, torch; print('ok')"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, errors="replace",
+            timeout=CHEQUEO_TIMEOUT_S,
         )
-        return proc.returncode == 0 and "ok" in proc.stdout
-    except (OSError, subprocess.SubprocessError):
+    except subprocess.TimeoutExpired:
+        logger.error(
+            f"Chequeo de demucs sin responder en {CHEQUEO_TIMEOUT_S} s "
+            "(máquina cargada): se repetirá en {NEGATIVO_TTL_S:.0f} s"
+        )
         return False
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.error(f"Chequeo de demucs imposible ({exc!r}): se repetirá en "
+                     f"{NEGATIVO_TTL_S:.0f} s")
+        return False
+    duracion = round(time.monotonic() - inicio, 1)
+    ok = proc.returncode == 0 and "ok" in (proc.stdout or "")
+    if ok:
+        logger.info(f"Motor de separación verificado (demucs+torch en {duracion} s)")
+    else:
+        cola = (proc.stderr or proc.stdout or "").strip().splitlines()[-4:]
+        logger.error(
+            f"Chequeo de demucs falló (rc={proc.returncode}, {duracion} s): "
+            f"{' | '.join(cola)} — se repetirá en {NEGATIVO_TTL_S:.0f} s"
+        )
+    return ok
+
+
+# ¿Instalado o no? El positivo se contesta UNA vez por proceso (la
+# instalación no cambia mientras la app corre). El NEGATIVO caduca cada
+# NEGATIVO_TTL_S: un chequeo que falló por frío/carga no puede dejar la
+# separación muerta toda la sesión (bug 2026-10-10). La comprobación importa
+# torch, así que NUNCA corre en el hilo del evento (bug 2026-10-08: en cada
+# llamada congelaba la API ~5 s y en CREAR el AÑADIR salía «SIN DATOS DEL
+# MOTOR»); siempre se pide desde `asyncio.to_thread` o un hilo.
+_DISPONIBLE: bool | None = None
+_DISPONIBLE_TS: float = 0.0
+
+
+def is_available() -> bool:
+    """¿Está instalado el motor de separación? (positivo cacheado, negativo
+    con caducidad NEGATIVO_TTL_S)"""
+    global _DISPONIBLE, _DISPONIBLE_TS
+    if _disponible_cacheado():
+        return _DISPONIBLE is True
+    with _CHEQUEO:
+        if _disponible_cacheado():
+            return _DISPONIBLE is True
+        _DISPONIBLE = _instalado()
+        _DISPONIBLE_TS = time.monotonic()
+        return _DISPONIBLE
+
+
+def _disponible_cacheado() -> bool:
+    """¿Hay un resultado en vigor (positivo para siempre, negativo TTL)?"""
+    if _DISPONIBLE is True:
+        return True
+    if _DISPONIBLE is False:
+        return (time.monotonic() - _DISPONIBLE_TS) < NEGATIVO_TTL_S
+    return False
 
 
 def free_vram_mb() -> int:
@@ -60,13 +131,79 @@ class SeparatorService:
     """Extrae la voz (y la base) de una pista real."""
 
     @staticmethod
+    def separate_groups(
+        source: Path, out_dir: Path, stem_name: str, settings,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> dict:
+        """Cuatro grupos reales, float WAV; sin descargas ni resultados ajenos."""
+        if not DEMUCS_PYTHON.is_file():
+            raise RuntimeError("No está instalado el separador local Demucs")
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        from pydub import AudioSegment
+
+        device = pick_device() if settings.demucs_device == "auto" else settings.demucs_device
+        if device not in {"cpu", "cuda"}:
+            raise ValueError("remix.demucs_device debe ser auto, cpu o cuda")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="musicia-groups-", dir=out_dir) as work:
+            cmd = [
+                str(DEMUCS_PYTHON), str(Path(__file__).with_name("demucs_local.py")),
+                "-n", settings.demucs_model, "-d", device, "--float32",
+                "--clip-mode", "none", "--shifts", str(settings.demucs_shifts),
+                "--overlap", str(settings.demucs_overlap), "-o", work, str(source),
+            ]
+            started = time.monotonic()
+            with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, errors="replace") as proc:
+                try:
+                    while True:
+                        if cancelled and cancelled():
+                            raise RuntimeError("Cancelado por el usuario")
+                        if time.monotonic() - started > settings.subprocess_timeout_seconds:
+                            raise RuntimeError("Demucs agotó el tiempo máximo configurado")
+                        try:
+                            stdout, stderr = proc.communicate(timeout=settings.subprocess_poll_seconds)
+                            break
+                        except subprocess.TimeoutExpired:
+                            continue
+                finally:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        proc.communicate()
+                if proc.returncode:
+                    tail = (stderr or stdout or "").strip().splitlines()[-8:]
+                    raise RuntimeError(f"Demucs falló en {device}: {' | '.join(tail)}")
+            produced = Path(work) / settings.demucs_model / source.stem
+            groups = []
+            for group in settings.groups:
+                src = produced / f"{group['id']}.wav"
+                if not src.is_file():
+                    raise RuntimeError(f"Demucs no produjo el grupo {group['id']}")
+                target = out_dir / f"{stem_name}-{group['id']}.wav"
+                shutil.copyfile(src, target)
+                audio = AudioSegment.from_file(target)
+                if len(audio) <= 0:
+                    raise RuntimeError(f"El grupo {group['id']} está vacío o corrupto")
+                groups.append({
+                    **group, "file_name": target.name,
+                    "duration_seconds": len(audio) / 1000,
+                    "rms_dbfs": round(audio.dBFS, 2) if audio.rms else None,
+                    "url": f"/music/audio/{target.name}",
+                })
+        return {"device": device, "groups": groups}
+
+    @staticmethod
     def separate(source: Path, out_dir: Path, stem_name: str) -> dict:
         """Separa `source` en voz y base usando demucs.
 
         Escribe `{stem_name}-voces.mp3` y `{stem_name}-base.mp3` en `out_dir`.
         Lanza RuntimeError con el motivo real si algo falla (nunca finge).
         """
-        if not is_available():
+        # Guard barato y sin cache: un negativo cacheado (bug 2026-10-10) no
+        # puede aquí bloquear un remix. Si el venv existe, demucs se lanza y
+        # su error real viaja; el chequeo pesado solo lo pide la UI de estado.
+        if not DEMUCS_PYTHON.exists():
             raise RuntimeError(
                 "El motor de separación no está instalado (backend/demucs-venv). "
                 "Instálalo o usa la mezcla con las pistas tal cual."
@@ -80,7 +217,7 @@ class SeparatorService:
         work = out_dir / "_separacion"
         work.mkdir(parents=True, exist_ok=True)
         cmd = [
-            str(DEMUCS_PYTHON), "-m", "demucs",
+            str(DEMUCS_PYTHON), str(Path(__file__).with_name("demucs_local.py")),
             "--two-stems=vocals",
             "-d", device,
             "-n", "htdemucs",
