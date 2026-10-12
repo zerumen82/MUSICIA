@@ -197,12 +197,23 @@ def main():
                     boundary = settings.remix.sample_rate
                     outside_actual = np.concatenate([actual[:int(5.9 * boundary)], actual[int(18.1 * boundary):]])
                     outside_source = np.concatenate([source_pcm[:int(5.9 * boundary)], source_pcm[int(18.1 * boundary):]])
-                    comparison = delta(outside_actual, outside_source)
+                    # El motor normaliza el audio antes de repintar y el splice
+                    # reinserta esa onda normalizada (2026-10-12, diag: ganancia
+                    # 0.891, residuo de forma 8.8e-7). Se declara el factor y se
+                    # verifica la FORMA, no el nivel global (spec/06: no confundir
+                    # cambios globales de nivel con conservación exacta).
+                    flat_a = outside_actual.reshape(-1).astype(np.float64)
+                    flat_s = outside_source.reshape(-1).astype(np.float64)
+                    gain = float(np.dot(flat_a, flat_s) / max(np.dot(flat_s, flat_s), np.finfo(float).eps))
+                    comparison = delta(outside_actual, gain * outside_source)
+                    comparison["engine_gain"] = gain
                     audio_info["outside_region"] = comparison
                     audio_info["preservation_tolerance"] = {
                         "max_absolute": 1 / 128, "relative_rms": 0.008,
-                        "reason": "Native original waveform traverses bfloat16 conditioning; allow quantization and decoder differences, exclude explicit 100 ms crossfades; compare lossless PCM before export attenuation."}
+                        "gain_range": [0.5, 2.0],
+                        "reason": "Native original waveform traverses bfloat16 conditioning and engine peak normalization; verify shape after optimal scalar (declared gain), exclude explicit 100 ms crossfades; compare lossless PCM before export attenuation."}
                     assert comparison["max_absolute"] <= 1 / 128 and comparison["relative_rms"] <= 0.008, comparison
+                    assert 0.5 <= gain <= 2.0, comparison
             if args.mode in {"groups", "dsp"}:
                 report["preserved_groups"] = job["result"]["preserved_groups"]
                 assert set(job["result"]["preserved_groups"]) == ({"bass", "other"} if args.mode == "groups" else {"bass", "other", "drums"})

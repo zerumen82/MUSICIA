@@ -31,7 +31,7 @@
 | ID | Bug | Estado |
 |----|-----|--------|
 | R9 | Comprensión/fidelidad general del prompt y REMIX integral más versátil | Abierto: usuario aclara que voz/guitarra son ejemplos. Diseñar operaciones reales sobre audio original y calidad; las correcciones de envío de XCIV tienen PASS técnico, sin veredicto de oído ni nueva arquitectura implementada |
-| R10 | Adiciones no pedidas y vista previa incompleta en CREAR y REMIX | Abierto y reproducido 2026-10-12: presets añaden instrumentos/caracteres; modificadores confunden alcance (bajo potente→voz potente en entrada directa sin glosa, batería al fondo→protagonista también desde UI). Ver logs/prompt-audit-tester-20261012.json y spec/02. No considerar resuelta la fidelidad general por el PASS técnico de XCIV |
+| R10 | Adiciones no pedidas y vista previa incompleta en CREAR y REMIX | Parcialmente abierto: el camino remix_project (nuevo R9) envía el prompt EXACTO al motor, verificado con sonda real 2026-10-12 (`memory.md` XCIX). Reproducido 2026-10-12 en CREAR: presets añaden instrumentos/caracteres; modificadores confunden alcance (bajo potente→voz potente en entrada directa sin glosa, batería al fondo→protagonista también desde UI). Ver logs/prompt-audit-tester-20261012.json y spec/02. Falta corregir/verificar el camino CREAR/MEJORAR (`style_caption`) |
 
 ## Puntos de vigilancia
 

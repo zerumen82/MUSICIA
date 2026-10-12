@@ -61,9 +61,16 @@ class SeparateGroupsRequest(BaseModel):
 
 
 def source_digest(source: Path) -> str:
-    """Identifica las muestras de origen, no solo un nombre reutilizable."""
+    """Identifica las muestras de origen, no solo un nombre reutilizable.
+
+    Lectura por chunks: `hashlib.file_digest` necesita Python 3.11 y la API
+    productiva corre en 3.10 (bug real 2026-10-12: un job remix falló en vivo).
+    """
+    digest = hashlib.sha256()
     with source.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def validate_project(request: RemixProjectRequest, duration: float, settings) -> None:
@@ -149,6 +156,10 @@ class RemixProjectRuntime:
                 "transformed_groups": "La separación es estimada; escucha la mezcla para valorar fugas y alineación.",
                 "voice": "Cover aproxima o resintetiza la voz; conservar reutiliza su grabación separada.",
                 "classification": "La clasificación de la fuente no cambia el prompt ni el plan elegido.",
+                "repaint_normalization": ("El motor normaliza el nivel del audio antes de repintar: en los "
+                                          "modos conservador y equilibrado la onda fuera del tramo se "
+                                          "conserva con su forma, pero el resultado puede llevar un cambio "
+                                          "global de nivel. La exportación final aplica el master configurado."),
             },
         }
 

@@ -1,6 +1,6 @@
 # R9 — REMIX integral: propuesta para aprobación
 
-Fecha: 2026-10-12. Estado: **APROBADO POR EL USUARIO, IMPLEMENTACIÓN EN CURSO**.
+Fecha: 2026-10-12. Estado: **APROBADO E IMPLEMENTADO; TESTER PASS (8 sondas reales) + REVIEWER APPROVE el 2026-10-12** (`memory.md` XCIX). Falta el veredicto de oído del usuario.
 
 Autorización explícita: «arreglas el problema del prompting e implementas el plan, teniendo en cuenta la autodetección de si es electrónica o no». Incluye R10 compartido con CREAR. La autodetección se ejecuta sobre audio real, informa su procedencia/incertidumbre y permite corrección manual; no añade instrumentos, voces, patrones o estilos al prompt ni sustituye decisiones explícitas. Sin nuevas instalaciones/modelos. Sus inferencias no son certificaciones artísticas.
 
@@ -101,4 +101,4 @@ Investigación de `sd_researcher`: `release_task_models.py`, `job_generation_set
 
 Las fuentes remotas orientan el diseño; el comportamiento del vendor instalado y las pruebas locales mandan ante discrepancias.
 
-Revisión independiente `sd_reviewer`: **APPROVE del plan**, sin bloqueantes; las capacidades integradas requieren prueba real y la calidad musical requiere comparación de oído. Pendiente de aprobación del usuario para implementar.
+Revisión independiente `sd_reviewer`: **APPROVE del plan**, sin bloqueantes; las capacidades integradas requieren prueba real y la calidad musical requiere comparación de oído. **Cierre 2026-10-12**: tester PASS con 8 sondas reales sobre GPU (evidencia en `memory.md` XCIX) y reviewer APPROVE de los archivos completos. El oído del usuario sigue pendiente.

@@ -104,6 +104,21 @@ class RemixContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "solo se aplica"):
             validate_project(self.request(region_start=3, region_end=5), 30, self.settings)
 
+    def test_source_digest_runs_on_this_python_and_identifies_content(self):
+        """Regresión 2026-10-12: `hashlib.file_digest` (3.11+) rompió un job real."""
+        import tempfile
+        from remix_project import source_digest
+
+        with tempfile.TemporaryDirectory() as folder:
+            first, second = Path(folder) / "a.wav", Path(folder) / "b.wav"
+            first.write_bytes(b"musicia-origen")
+            second.write_bytes(b"musicia-origen")
+            digest = source_digest(first)
+            self.assertEqual(len(digest), 64)
+            self.assertEqual(digest, source_digest(second))
+            second.write_bytes(b"musicia-distinto")
+            self.assertNotEqual(digest, source_digest(second))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,49 @@
+[32m2026-10-12 21:05:29.060[0m | [1mINFO    [0m | [36mconfig[0m:[36mget_settings[0m:[36m350[0m - [1mConfiguración activa | motor=http://127.0.0.1:8001 | outputs=D:\PROJECTS\MUSICIA\backend\outputs | modelo=acestep-v15-sft[0m
+[32m2026-10-12 21:05:29.194[0m | [1mINFO    [0m | [36mmain[0m:[36m<module>[0m:[36m2575[0m - [1mUI de escritorio servida desde D:\PROJECTS\MUSICIA\frontend\dist[0m
+[32m2026-10-12 21:05:29.316[0m | [1mINFO    [0m | [36mgenre_glossary[0m:[36m_vocab[0m:[36m54[0m - [1mGlosario cargado: 178572 géneros de genres_vocab.txt[0m
+..........[32m2026-10-12 21:05:30.597[0m | [1mINFO    [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2323[0m - [1mAudio borrado: normal.mp3[0m
+.[32m2026-10-12 21:05:30.612[0m | [31m[1mERROR   [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2321[0m - [31m[1mAudio «ficha-ocupada.mp3» borrado, pero no se pudo borrar su ficha: [WinError 32] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-fl0wgk_b\\ficha-ocupada.ficha.json'[0m
+.[32m2026-10-12 21:05:30.619[0m | [33m[1mWARNING [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2311[0m - [33m[1mNo se puede borrar «fallo.mp3»: acceso denegado. [Errno 13] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-d25osjfa\\fallo.mp3'[0m
+[32m2026-10-12 21:05:30.625[0m | [31m[1mERROR   [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2315[0m - [31m[1mNo se pudo borrar «fallo.mp3»: [Errno 5] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-d25osjfa\\fallo.mp3'[0m
+.[32m2026-10-12 21:05:30.637[0m | [33m[1mWARNING [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2311[0m - [33m[1mNo se puede borrar «ocupado.mp3»: otro proceso utiliza el archivo. [WinError 33] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ew42ofe5\\ocupado.mp3'[0m
+[32m2026-10-12 21:05:30.638[0m | [1mINFO    [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2323[0m - [1mAudio borrado: libre.mp3[0m
+[32m2026-10-12 21:05:30.640[0m | [33m[1mWARNING [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2311[0m - [33m[1mNo se puede borrar «denegado.mp3»: acceso denegado. [Errno 13] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ew42ofe5\\denegado.mp3'[0m
+[32m2026-10-12 21:05:30.641[0m | [31m[1mERROR   [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2315[0m - [31m[1mNo se pudo borrar «error-os.mp3»: [Errno 5] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ew42ofe5\\error-os.mp3'[0m
+[32m2026-10-12 21:05:30.641[0m | [1mINFO    [0m | [36mmain[0m:[36mdelete_many_audio[0m:[36m2350[0m - [1mBloque borrado: 1 ok, 1 no encontrados, 1 ocupados, 2 errores[0m
+.[32m2026-10-12 21:05:30.650[0m | [33m[1mWARNING [0m | [36mmain[0m:[36mdelete_audio[0m:[36m2311[0m - [33m[1mNo se puede borrar «ocupado.mp3»: otro proceso utiliza el archivo. [WinError 32] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-_jhmkg21\\ocupado.mp3'[0m
+..[32m2026-10-12 21:05:30.673[0m | [1mINFO    [0m | [36mmain[0m:[36mrename_audio[0m:[36m2557[0m - [1mAudio renombrado: origen.mp3 -> destino (2).mp3[0m
+.[32m2026-10-12 21:05:30.690[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa más que en el turbo).[0m
+[32m2026-10-12 21:05:30.699[0m | [1mINFO    [0m | [36mmain[0m:[36m_load_history[0m:[36m1742[0m - [1mHistorial recuperado de job_history.json[0m
+.[32m2026-10-12 21:05:30.702[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa más que en el turbo).[0m
+[32m2026-10-12 21:05:30.702[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Fuerza configurada 0.2.[0m
+[32m2026-10-12 21:05:30.703[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Sin letra nueva: no se añade una orden de eliminar la voz; cover puede resintetizarla.[0m
+[32m2026-10-12 21:05:30.703[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Reestilando «origen.mp3»: el motor oye tu pista, no una base nueva…[0m
+[32m2026-10-12 21:05:30.703[0m | [31m[1mERROR   [0m | [36mmain[0m:[36m_run_ai_remix[0m:[36m1334[0m - [31m[1mRemix IA falló (test-voz): fallo cover[0m
+[32m2026-10-12 21:05:30.711[0m | [1mINFO    [0m | [36mmain[0m:[36m_load_history[0m:[36m1742[0m - [1mHistorial recuperado de job_history.json[0m
+.[32m2026-10-12 21:05:30.715[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa más que en el turbo).[0m
+[32m2026-10-12 21:05:30.718[0m | [1mINFO    [0m | [36mmain[0m:[36m_load_history[0m:[36m1742[0m - [1mHistorial recuperado de job_history.json[0m
+.[32m2026-10-12 21:05:30.722[0m | [1mINFO    [0m | [36mmain[0m:[36mstep[0m:[36m1217[0m - [1m[remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa más que en el turbo).[0m
+[32m2026-10-12 21:05:30.722[0m | [31m[1mERROR   [0m | [36mmain[0m:[36m_run_ai_remix[0m:[36m1334[0m - [31m[1mRemix IA falló (test-voz): fallo real[0m
+[32m2026-10-12 21:05:30.725[0m | [1mINFO    [0m | [36mmain[0m:[36m_load_history[0m:[36m1742[0m - [1mHistorial recuperado de job_history.json[0m
+.......................................................[32m2026-10-12 21:05:32.115[0m | [1mINFO    [0m | [36mmain[0m:[36m_load_history[0m:[36m1742[0m - [1mHistorial recuperado de job_history.json[0m
+..........................................[32m2026-10-12 21:05:32.194[0m | [1mINFO    [0m | [36mseparator_service[0m:[36m_instalado[0m:[36m66[0m - [1mMotor de separación verificado (demucs+torch en 0.0 s)[0m
+.[32m2026-10-12 21:05:32.194[0m | [33m[1mWARNING [0m | [36mseparator_service[0m:[36m_instalado[0m:[36m44[0m - [33m[1mMotor de separación ausente: no existe no_existe_ningun.exe[0m
+.[32m2026-10-12 21:05:32.194[0m | [1mINFO    [0m | [36mseparator_service[0m:[36m_instalado[0m:[36m66[0m - [1mMotor de separación verificado (demucs+torch en 0.0 s)[0m
+.....[32m2026-10-12 21:05:32.517[0m | [1mINFO    [0m | [36mseparator_service[0m:[36mseparate[0m:[36m215[0m - [1mSeparando test_separator_status.py en cpu (VRAM libre: 0 MB)[0m
+....................[32m2026-10-12 21:05:32.712[0m | [33m[1mWARNING [0m | [36mmain[0m:[36m_measure_bpm[0m:[36m492[0m - [33m[1mSin BPM medido para no-existe.mp3: No existe el audio: C:\Users\INdaHouse\AppData\Local\Temp\musicia-ficha-m3-pmul6vgl\no-existe.mp3[0m
+.D:\PROJECTS\MUSICIA\backend\audio_analysis.py:103: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-ficha-m3-u9d08_9y\\silencio.wav'>
+  audio = AudioSegment.from_file(path)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+[32m2026-10-12 21:05:32.768[0m | [33m[1mWARNING [0m | [36mmain[0m:[36m_measure_bpm[0m:[36m492[0m - [33m[1mSin BPM medido para silencio.wav: No se ha detectado un tempo claro (sin periodicidad)[0m
+................D:\PROJECTS\MUSICIA\backend\music_service.py:635: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-verify-tqmlzme7\\corto.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.D:\PROJECTS\MUSICIA\backend\music_service.py:635: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-verify-bpzepkad\\ok.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+[32m2026-10-12 21:05:32.811[0m | [1mINFO    [0m | [36mmusic_service[0m:[36mverify_audio[0m:[36m639[0m - [1mAudio verificado: ok.wav (0.5 s)[0m
+.
+----------------------------------------------------------------------
+Ran 163 tests in 3.588s
+
+OK

@@ -619,9 +619,9 @@ Petición 2026-10-12: antes de decidir el plan, revisar las cosas que la app añ
 - No vender regex, catálogos ni traducción como un planificador semántico universal. La vía concreta de adaptación fiel del idioma sigue pendiente de acordar y validar con el modelo local, sin instalar dependencias o modelos.
 - Verificar el envío real de CREAR y REMIX, casos de contexto/negación y preview frente a payload; evaluar audio A/B por separado. Un MP3 válido o un término presente en el corpus no certifican cumplimiento artístico.
 
-**Diagnóstico confirmado, corrección general pendiente**. R9 debe incorporar este contrato compartido; no dar por resuelto el prompt al rediseñar solo REMIX.
+**Diagnóstico confirmado; corrección parcial verificada**. R9 incorpora este contrato compartido y el tester verificó con sonda real que el camino remix_project envía el prompt exacto al motor (`memory.md` XCIX, 2026-10-12). No dar por resuelto el prompt en CREAR/MEJORAR: `style_caption` sigue expandiendo allí y falta corrección/verificación de ese camino.
 
-## [R9] REMIX integral y fidelidad general del prompt — diseño en curso
+## [R9] REMIX integral y fidelidad general del prompt — implementada (verificación técnica PASS 2026-10-12, oído pendiente)
 
 El usuario aclara que conservar voz/guitarra era solo un ejemplo; quiere un remix real más versátil respecto al modelo y la calidad de las creaciones. Se retira la propuesta de convertir ese ejemplo en una función específica. No se aprobó ninguna descarga.
 
@@ -629,6 +629,5 @@ El usuario aclara que conservar voz/guitarra era solo un ejemplo; quiere un remi
 - Contrastar cada operación con capacidades efectivas del modelo local; no ofrecer éxito falso para operaciones incompatibles.
 - Prompts y parámetros en lenguaje/contratos del modelo, sin sustituir géneros ni añadir decisiones musicales ajenas al usuario; valores como configuración/datos.
 - Calidad verificable mediante archivos válidos, revisión de defectos técnicos, trazabilidad de petición/operación/resultado y escucha comparada del usuario.
-- Plan concreto y criterios por acordar antes de implementar; mantener las funciones existentes mientras se diseña y no instalar dependencias/modelos sin autorización.
-- Propuesta concreta, capacidades rastreadas y criterios en `spec/06-REMIX-INTEGRAL.md`; pendiente de aprobación del usuario.
+- Criterios de aceptación y límites en `spec/06-REMIX-INTEGRAL.md` (aprobado por el usuario). **Estado 2026-10-12**: implementada; tester PASS con 8 sondas reales (cover/repaint/grupos/dsp/análisis/recuperación sobre GPU) y reviewer APPROVE; hallazgos corregidos (hashlib en Python 3.10, declaración de normalización del repaint). Evidencia `memory.md` XCIX. Falta el veredicto de oído del usuario.
 
