@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
 
 /** Consulta el mismo preparador que usa la ejecución; nunca inventa defaults. */
-export default function EffectivePreview({ request, loadPreview, title = 'PARÁMETROS DEL MOTOR' }) {
+export default function EffectivePreview({ request, loadPreview, title = 'PARÁMETROS DEL MOTOR', why = '' }) {
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState(null);
   const encoded = JSON.stringify(request);
@@ -21,7 +21,7 @@ export default function EffectivePreview({ request, loadPreview, title = 'PARÁM
   }, [open, encoded, loadPreview]);
   const current = answer?.key === encoded ? answer : null;
   return <details onToggle={(event) => setOpen(event.currentTarget.open)} data-effective-preview>
-    <summary className="label cursor-pointer">{title}</summary>
+    <summary className="cursor-pointer"><span className="label">{title}</span>{why && <span className="ml-3 text-[13px] leading-snug text-[var(--muted)]">{why}</span>}</summary>
     {open && <div className="flex flex-col gap-2 py-2">
       {!current && <p role="status" className="mono text-[10px]">CONSULTANDO PARÁMETROS…</p>}
       {current?.error && <p role="alert" className="mono text-[11px] st-err">{current.error}</p>}

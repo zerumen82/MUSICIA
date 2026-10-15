@@ -40,10 +40,8 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
   };
   if (!createBacking) return <RemixActions fileName={fileName} sourceKind={sourceKind} onDone={onDone} />;
   return <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-3">
-    <span className="label">CREAR ACOMPAÑAMIENTO NUEVO</span>
-    <p className="mono text-[10px] text-[var(--faint)]">Genera una pieza instrumental nueva. Duración inicial: {defaultDuration ?? '…'} s. Puedes combinarla con tu grabación en MEZCLA.</p>
     <textarea aria-label="Prompt del acompañamiento" disabled={generating} value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} placeholder="Describe el acompañamiento que quieres crear" className="px-3 py-2 bg-transparent border border-[var(--line)] text-[13px]" />
-    <PromptTools prompt={prompt} setPrompt={setPrompt} bpm={request.bpm} disabled={generating} />
+    <PromptTools prompt={prompt} setPrompt={setPrompt} bpm={request.bpm} onBpm={(value) => setBpm(value == null || value === '' ? '' : String(value))} disabled={generating} />
     <div className="flex gap-3 flex-wrap">
       <label className="label">BPM <input aria-label="BPM del acompañamiento" type="number" min="1" value={bpm} disabled={generating} onChange={(event) => setBpm(event.target.value)} placeholder="Auto" className="w-24 px-2 py-1" /></label>
       <label className="label">DURACIÓN <input aria-label="Duración del acompañamiento" type="number" min="1" max={config?.max_duration_seconds} value={duration} disabled={generating} onChange={(event) => setDuration(event.target.value)} placeholder={String(defaultDuration ?? '')} className="w-24 px-2 py-1" /> s</label>
@@ -51,7 +49,7 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
     </div>
     <details><summary className="label cursor-pointer">TONO Y COMPÁS</summary><div className="flex gap-3 flex-wrap pt-2">
       <label className="label">TONO <input aria-label="Tono del acompañamiento" value={key} disabled={generating} onChange={(event) => setKey(event.target.value)} placeholder="Auto · C major / A minor" className="w-48 px-2 py-1" /></label>
-      <label className="label">COMPÁS <select aria-label="Compás del acompañamiento" value={timeSignature} disabled={generating} onChange={(event) => setTimeSignature(event.target.value)} className="px-2 py-1"><option value="">Auto</option>{['4/4', '3/4', '6/8'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Compás <select aria-label="Compás del acompañamiento" value={timeSignature} disabled={generating} onChange={(event) => setTimeSignature(event.target.value)} className="desk-select"><option value="">Auto</option>{['4/4', '3/4', '6/8'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
     </div></details>
     <input aria-label="Nombre del acompañamiento" value={name} disabled={generating} onChange={(event) => setName(event.target.value)} placeholder="Nombre opcional" className="px-3 py-2 bg-transparent border border-[var(--line)] text-[13px]" />
     <EffectivePreview request={request} loadPreview={api.generationPreview} title="ENVÍO EFECTIVO" />

@@ -73,15 +73,24 @@
     "scopes": [
       {
         "id": "full",
-        "label": "Canción completa"
+        "label": "Canción completa",
+        "why": "Rehace toda la canción a partir de esta. El texto dice qué cambia.",
+        "how": "Rehace toda la canción a partir de esta. El texto dice qué cambia.",
+        "placeholder": "Qué cambia y qué se queda."
       },
       {
         "id": "region",
-        "label": "Tramo"
+        "label": "Tramo",
+        "why": "Cambia solo el trozo que marques. El resto se queda.",
+        "how": "Cambia solo el trozo que marques. El resto se queda.",
+        "placeholder": "Qué debe sonar en el trozo marcado."
       },
       {
         "id": "groups",
-        "label": "Por pistas"
+        "label": "Por pistas",
+        "why": "Elige en cada pista si se queda, se rehace o se quita.",
+        "how": "Elige en cada pista si se queda, se rehace o se quita.",
+        "placeholder": "Qué debe sonar en las pistas que pongas en transformar."
       }
     ],
     "groups": [
@@ -134,6 +143,28 @@
     "export_bitrate": "192k",
     "peak_limit_dbfs": -1.0,
     "duration_tolerance_seconds": 0.25,
+    "single_transform_min_remaining_ratio": 0.25,
+    "timeline_min_duration_seconds": 1.0,
+    "timeline_min_repeat_seconds": 1.0,
+    "timeline_transition_seconds": 0.1,
+    "timeline_max_transition_seconds": 2.0,
+    "timeline_min_groove_confidence": 0.12,
+    "groove_octave_score_ratio": 0.9,
+    "groove_octave_lag_tolerance_frames": 1.0,
+    "groove_hit_preference_ratio": 2.0,
+    "groove_peak_evidence_ratio": 0.5,
+    "groove_shoulder_ratio": 1.25,
+    "groove_shoulder_period_fraction": 0.08,
+    "groove_shoulder_min_frames": 2.0,
+    "full_groove_retries": 2,
+    "groove_smooth_frames": 3,
+    "groove_refine_periods": 8,
+    "groove_refine_radius_frames": 3.0,
+    "groove_refine_step_frames": 0.025,
+    "groove_refine_max_periods": 16,
+    "groove_refine_max_candidates": 1000,
+    "tempo_verify_tolerance_bpm": 2.0,
+    "timeline_max_repetitions": 1200,
     "demucs_model": "htdemucs",
     "demucs_device": "auto",
     "demucs_shifts": 1,
@@ -180,6 +211,11 @@
         "min": -60.0,
         "max": 12.0,
         "step": 0.5
+      },
+      "timeline_nudge_seconds": {
+        "min": 0.0,
+        "max": 30.0,
+        "step": 1.0
       }
     }
   },

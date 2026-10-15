@@ -1,6 +1,6 @@
 # 01 · Arquitectura
 
-Estado contrastado el 2026-10-13. R9/R10 tienen implementación y correcciones autorizadas en curso; los contratos descritos no equivalen al PASS integral del producto. Evidencia y veredictos en `memory.md` CI/CII y entradas posteriores.
+Estado contrastado el 2026-10-13. R9/R10 tienen implementación y correcciones autorizadas en curso; los contratos descritos no equivalen al PASS integral del producto. Evidencia y veredictos en `memory.md` CI/CII y entradas posteriores. R11 quedó verificado técnicamente el 2026-10-14 (memory CXXXI) sin cerrar R9/R10.
 
 ## Procesos
 
@@ -16,6 +16,8 @@ FastAPI (backend/venv, Python 3.10 del equipo)
 ```
 
 La GPU verificada es RTX 3060 Ti de 8 GB. El perfil aprobado usa SFT en toda la app, 50 pasos/guidance 9/batch 2, LM 0.6B, `thinking` y `use_format` apagados; configuración y valores explícitos de la petición determinan los parámetros efectivos. No hay instalaciones nuevas en R9/R10. Generación, separación y análisis se coordinan para evitar solapamientos de GPU.
+
+El arranque local aplica `scripts/patches/acestep_vae_cpu_dtype.patch` mediante `scripts/apply_acestep_patches.py` antes de importar un motor ausente. El parche usa la política CPU del VAE para convertir modelo y latentes, y restaura dispositivo y dtype incluso tras error; no cambia el perfil de generación. El aplicador acepta bloques originales o ya corregidos, conserva saltos de línea, escribe de forma atómica y rechaza implementaciones desconocidas. Un motor presente no se modifica. Esto permite reproducir la corrección pese a que `vendor/` no se versiona. Réplica CPU y UI/CREAR verificadas con PASS/APPROVE en memory CXVII; no equivalen al cierre R9/R10 entero.
 
 ## Contratos
 
@@ -69,6 +71,16 @@ Los tres previews incorporados en la corrección CII comparten preparación con 
 ### Proyecto y fuente
 
 `RemixProjectRequest` identifica fuente y origen (upload/output), prompt literal, ámbito full/region/groups, referencia opcional, controles cover/repaint, BPM/semilla/letra/voz y acciones/ganancias por grupo. Región debe quedar dentro de la duración real; cada grupo tiene una acción. Clasificación y procedencia manual/análisis/unknown son datos revisables, no instrucciones implícitas.
+
+R11 (autorizado el 2026-10-14 y verificado técnicamente con PASS del tester y APPROVE del reviewer, memory CXXXI) añade `duration_seconds`, `source_bpm`, `repeat_start`, `repeat_end` y `transition_seconds`. En grupos, el BPM común usa un único filtro `atempo` de ocho canales sobre los cuatro grupos estéreo antes de transformar/recombinar; el original medido se puede revisar manualmente. La duración natural se deriva de la relación BPM objetivo/original y el cover opera sobre el material preparado, sin un segundo estiramiento. En full, el BPM conserva su contrato de condicionamiento del motor y se mide el resultado por separado.
+
+La ampliación full/groups ocurre después de cover o recombinación: repite el material o la parte elegida con fundidos hasta la duración objetivo, en PCM float; después exporta a MP3. Los tiempos de parte se expresan sobre el original y se mapean al tempo común. No se permite usar la ampliación como recorte ni dentro de repaint regional. Capacidades publica límites/defaults de timeline derivados de configuración. Preview, operaciones del job, variantes y ficha registran duración original/natural/final, relación y procedencia de tempo, sección y repeticiones. La duración cover nativa sigue siendo la de la fuente preparada.
+
+**Rectificación 2026-10-14 (memory CXXXII)**: comprobado con los audios reales del usuario, el BPM original automático falla de octava (363,64 BPM en `f6fc62fe-Arroja la bomba.mp3`; 99,2 en un MP3 generado a 199) y en full el BPM pedido no se cumple (pedido 199 → medido 104,7 y 250,5). El cambio común de tempo solo es fiable con el BPM original revisado a mano; el defecto queda abierto como B6 en `spec/03-PENDIENTES.md`.
+
+Los grupos de Demucs se validan como cuatro WAV float finitos, de duración y formato comunes; la caché requiere digest de fuente y firma de modelo/dispositivo/shifts/overlap/grupos/formato. Separación y preparación comprueban que la fuente no haya cambiado durante la operación. Estas validaciones técnicas no certifican la calidad de aislamiento ni el cumplimiento musical del cover.
+
+**Contrato B6 autorizado, 2026-10-14 (memory CXXXIII; implementación en curso)**: en full con BPM elegido, el condicionamiento del motor se acompaña de medición independiente y ajuste DSP posterior de cada variante, sin cambio de tono. El preview declara pendientes la medición, relación de tempo y duración natural; la ejecución calcula un plan individual antes de ampliar y exportar. Una medición incierta o duración pedida inferior a la natural efectiva produce un error con causa y mínimo concreto. Por pistas mantiene su tempo PCM común y expone medición original revisable. Region conserva el BPM orientativo del motor sin aplicar un estiramiento global. Este contrato no está verificado todavía; criterios y estado en spec02 B6.
 
 El análisis nativo devuelve metadatos, tramo analizado y base de clasificación; no inventa una probabilidad. Los grupos son únicamente voz, batería, bajo y acompañamiento restante (`other`). Transformar grupos mediante cover requiere separar el resultado antes de recombinar; no tratar una canción completa como un stem puro.
 

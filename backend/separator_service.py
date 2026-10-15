@@ -7,6 +7,8 @@ modelos requiere autorización explícita fuera de este servicio.
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -171,6 +173,43 @@ class SeparatorService:
     """Extrae la voz (y la base) de una pista real."""
 
     @staticmethod
+    def signature(settings) -> str:
+        contract = {key: getattr(settings, key) for key in
+                    ("demucs_model", "demucs_device", "demucs_shifts", "demucs_overlap")}
+        contract["groups"] = settings.groups
+        contract["format"] = "float32-unclipped"
+        return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def validate_groups(result: dict, directory: Path, duration: float, settings) -> dict[str, Path]:
+        from mixer_service import MixerService
+
+        entries = result.get("groups", [])
+        ids = [group["id"] for group in settings.groups]
+        if (not isinstance(entries, list)
+                or any(not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in entries)
+                or len(entries) != len(ids) or {item.get("id") for item in entries} != set(ids)
+                or result.get("separation_signature") != SeparatorService.signature(settings)):
+            raise ValueError("La separación no corresponde a los cuatro grupos y configuración actuales")
+        groups, format_pair = {}, None
+        for item in entries:
+            name = item.get("file_name", "")
+            if not isinstance(name, str) or not name or Path(name).name != name:
+                raise ValueError("Ruta de grupo inválida")
+            path = directory / name
+            if path.suffix.lower() != ".wav" or not path.is_file():
+                raise ValueError("Falta un WAV de separación válido")
+            pcm = MixerService.inspect_pcm(path)
+            pair = (pcm["sample_rate"], pcm["channels"])
+            if (pcm["codec_name"] != "pcm_f32le" or pcm["channels"] not in {1, 2}
+                    or abs(pcm["duration_seconds"] - duration) > settings.duration_tolerance_seconds
+                    or (format_pair is not None and pair != format_pair)):
+                raise ValueError("Los grupos no comparten formato PCM ni duración de la fuente")
+            format_pair = pair
+            groups[item["id"]] = path
+        return groups
+
+    @staticmethod
     def separate_groups(
         source: Path, out_dir: Path, stem_name: str, settings,
         cancelled: Callable[[], bool] | None = None,
@@ -214,7 +253,12 @@ class SeparatorService:
                     "rms_dbfs": round(audio.dBFS, 2) if audio.rms else None,
                     "url": f"/music/audio/{target.name}",
                 })
-        return {"device": device, "groups": groups}
+        result = {"device": device, "groups": groups,
+                  "separation_signature": SeparatorService.signature(settings)}
+        with source.open("rb") as stream:
+            duration = len(AudioSegment.from_file(stream, format=source.suffix.lstrip("."))) / 1000
+        SeparatorService.validate_groups(result, out_dir, duration, settings)
+        return result
 
     @staticmethod
     def separate(source: Path, out_dir: Path, stem_name: str,

@@ -10,6 +10,9 @@ import json
 import math
 import shutil
 import subprocess
+import struct
+import sys
+from array import array
 from pathlib import Path
 
 from loguru import logger
@@ -32,6 +35,30 @@ MIN_GROOVE_CONFIDENCE = 0.12
 # "cuadrar la bateria", es destrozar el audio.
 MIN_TEMPO_RATIO = 0.8
 MAX_TEMPO_RATIO = 1.25
+
+
+def stems_kept_out_of_single_transform(actions: dict[str, str], vocal_id: str = "vocals") -> tuple[str, tuple[str, ...]]:
+    """Qué stems generados se restan cuando solo una pista está en transformar.
+
+    Se quita la voz generada si la voz original se conserva, y el stem de cada
+    grupo quitado. No se quita el acompañamiento generado: el separador mete
+    ahí el cuerpo del estilo nuevo.
+    """
+    targets = [key for key, action in actions.items() if action == "transform"]
+    if len(targets) != 1:
+        raise ValueError("La pista única transformada no está definida")
+    target = targets[0]
+    peeled = tuple(
+        key for key, action in actions.items()
+        if key != target and (action == "remove" or (action == "keep" and key == vocal_id))
+    )
+    return target, peeled
+
+
+def _rms(samples) -> float:
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(value * value for value in samples) / len(samples))
 
 
 def _atempo_chain(ratio: float) -> str:
@@ -446,6 +473,183 @@ class MixerService:
     """Mezclas dos pistas alineando el groove y normalizando el volumen."""
 
     @staticmethod
+    def inspect_pcm(source: Path) -> dict:
+        """Comprueba las muestras float reales, incluso NaN que pydub oculta."""
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                                "-show_entries", "stream=sample_rate,channels,codec_name",
+                                "-of", "json", str(source)], capture_output=True, text=True)
+        if probe.returncode:
+            raise RuntimeError(f"Audio corrupto {source.name}: {probe.stderr}")
+        streams = json.loads(probe.stdout).get("streams", [])
+        if len(streams) != 1:
+            raise ValueError(f"Audio sin una pista válida: {source.name}")
+        info = streams[0]
+        proc = subprocess.run(["ffmpeg", "-v", "error", "-i", str(source),
+                               "-map", "0:a:0", "-f", "f32le", "-c:a", "pcm_f32le", "-"],
+                              capture_output=True)
+        if proc.returncode or not proc.stdout or len(proc.stdout) % 4:
+            raise ValueError(f"PCM vacío o corrupto: {source.name}")
+        samples = array("f")
+        samples.frombytes(proc.stdout)
+        if sys.byteorder != "little":
+            samples.byteswap()
+        if not all(math.isfinite(value) for value in samples):
+            raise ValueError(f"PCM con muestras no finitas: {source.name}")
+        channels, rate = int(info["channels"]), int(info["sample_rate"])
+        if channels <= 0 or rate <= 0 or len(samples) % channels:
+            raise ValueError(f"Formato PCM inválido: {source.name}")
+        return {"sample_rate": rate, "channels": channels, "codec_name": info["codec_name"],
+                "duration_seconds": len(samples) / channels / rate,
+                "samples": samples}
+
+    @staticmethod
+    def _write_float_wav(output: Path, samples: array, rate: int, channels: int) -> None:
+        """IEEE float WAV local sin añadir paquetes al backend."""
+        size = len(samples) * 4
+        with output.open("wb") as stream:
+            stream.write(struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", size + 36, b"WAVE",
+                                     b"fmt ", 16, 3, channels, rate, rate * channels * 4,
+                                     channels * 4, 32, b"data", size))
+            if sys.byteorder != "little":
+                samples = array("f", samples)
+                samples.byteswap()
+            samples.tofile(stream)
+
+    @staticmethod
+    def tempo_audio(source: Path, output: Path, ratio: float, duration: float, settings) -> dict:
+        """Atempo de una variante completa, con tono y duración verificables."""
+        if not math.isfinite(ratio) or ratio <= 0 or not math.isfinite(duration) or duration <= 0:
+            raise ValueError("La relación de BPM y duración deben ser positivas y finitas")
+        raw_output = output.with_name(f"{output.stem}-atempo-raw.wav")
+        run_ffmpeg(["-i", str(source), "-af",
+                    f"aresample={settings.sample_rate},aformat=sample_fmts=flt:channel_layouts=stereo,"
+                    f"{_atempo_chain(ratio)}", "-c:a", "pcm_f32le", "-f", "wav", str(raw_output)], raw_output)
+        raw = MixerService.inspect_pcm(raw_output)
+        correction = duration - raw["duration_seconds"]
+        if abs(correction) > settings.duration_tolerance_seconds:
+            raise ValueError("El procesamiento de tempo cambió la duración más allá de la tolerancia configurada")
+        run_ffmpeg(["-i", str(raw_output), "-af",
+                    f"apad=pad_dur={settings.duration_tolerance_seconds},atrim=duration={duration}",
+                    "-c:a", "pcm_f32le", "-f", "wav", str(output)], output)
+        actual = MixerService.inspect_pcm(output)
+        if abs(actual["duration_seconds"] - duration) > 1 / settings.sample_rate:
+            raise ValueError("El procesamiento de tempo no pudo conservar la duración de la variante")
+        return {"method": "measured_pcm_atempo", "ratio": ratio,
+                "duration_seconds": actual["duration_seconds"], "pitch_preserved": True,
+                "raw_duration_seconds": raw["duration_seconds"],
+                "boundary_duration_correction_seconds": correction, "raw_output_path": str(raw_output)}
+
+    @staticmethod
+    def tempo_groups(groups: dict[str, Path], directory: Path, ratio: float,
+                     duration: float, settings) -> dict[str, Path]:
+        """Un solo atempo multicanal comparte ventanas entre todos los grupos."""
+        if not math.isfinite(ratio) or ratio <= 0:
+            raise ValueError("La relación de BPM debe ser positiva y finita")
+        ids = list(groups)
+        if len(ids) != 4:
+            raise ValueError("El tempo común necesita los cuatro grupos reales")
+        positions = ["FL", "FR", "FC", "LFE", "BL", "BR", "SL", "SR"]
+        inputs, filters = [], []
+        for index, group in enumerate(ids):
+            inputs += ["-i", str(groups[group])]
+            filters.append(f"[{index}:a]aresample={settings.sample_rate},"
+                           f"aformat=sample_fmts=flt:channel_layouts=stereo[g{index}]")
+        mapping = "|".join(f"{index // 2}.{index % 2}-{position}"
+                           for index, position in enumerate(positions))
+        filters.append("".join(f"[g{index}]" for index in range(4)) +
+                       f"join=inputs=4:channel_layout=7.1:map={mapping},"
+                       f"{_atempo_chain(ratio)},asplit=4[t0][t1][t2][t3]")
+        outputs, result = [], {}
+        for index, group in enumerate(ids):
+            output = directory / f"tempo-{group}.wav"
+            filters.append(f"[t{index}]pan=stereo|c0=c{index * 2}|c1=c{index * 2 + 1},"
+                           f"apad=pad_dur={settings.duration_tolerance_seconds},"
+                           f"atrim=duration={duration}[out{index}]")
+            outputs += ["-map", f"[out{index}]", "-c:a", "pcm_f32le", "-f", "wav", str(output)]
+            result[group] = output
+        run_ffmpeg(inputs + ["-filter_complex", ";".join(filters)] + outputs, next(iter(result.values())))
+        for path in result.values():
+            actual = MixerService.inspect_pcm(path)
+            if abs(actual["duration_seconds"] - duration) > 1 / settings.sample_rate:
+                raise ValueError("El procesamiento de tempo no pudo conservar la duración común")
+        return result
+
+    @staticmethod
+    def extend_timeline(source: Path, output: Path, plan: dict, settings) -> dict:
+        """Repite material con fundidos lineales; nunca rellena la ampliación con silencio."""
+        pcm = MixerService.inspect_pcm(source)
+        samples, rate, channels = pcm["samples"], pcm["sample_rate"], pcm["channels"]
+        target_frames = round(plan["target_duration_seconds"] * rate)
+        initial_frames = len(samples) // channels
+        if target_frames < initial_frames - round(settings.duration_tolerance_seconds * rate):
+            raise ValueError("La duración objetivo debe conservar la canción y ampliarla")
+        if target_frames <= initial_frames:
+            result = samples[:target_frames * channels]
+            repetitions = 0
+            section_details = {}
+        else:
+            start = round(plan["mapped_repeat_start"] * rate) * channels
+            end = min(len(samples), round(plan["mapped_repeat_end"] * rate) * channels)
+            fade_frames = round(plan["transition_seconds"] * rate)
+            section_details = {"requested_repeat_start_seconds": plan["mapped_repeat_start"],
+                               "requested_repeat_end_seconds": plan["mapped_repeat_end"],
+                               "beat_clock_bpm": plan.get("beat_clock_bpm"),
+                               "beat_clock_origin": plan.get("beat_clock_origin", "not_required")}
+            if plan.get("target_bpm") is not None:
+                clock = plan.get("beat_clock_bpm")
+                if isinstance(clock, bool) or not isinstance(clock, (float, int)) or not math.isfinite(clock) or clock <= 0:
+                    raise ValueError("El arreglo con BPM necesita el reloj de tempo verificado o común")
+                period_frames = rate * 60 / clock
+                requested_start = math.ceil(plan["mapped_repeat_start"] * rate)
+                requested_end = min(initial_frames, math.floor(plan["mapped_repeat_end"] * rate))
+                tail_start = initial_frames - fade_frames
+                first = round(tail_start + math.ceil((requested_start - tail_start) / period_frames) * period_frames)
+                if first < requested_start:
+                    first = round(first + period_frames)
+                beats = math.floor((requested_end - first - fade_frames) / period_frames)
+                last = first + round(beats * period_frames) + fade_frames
+                if last > requested_end:
+                    beats -= 1
+                    last = first + round(beats * period_frames) + fade_frames
+                effective_frames = last - first
+                if (beats < 1 or effective_frames / rate < settings.timeline_min_repeat_seconds
+                        or effective_frames <= 2 * fade_frames):
+                    raise ValueError("La parte elegida no contiene una repetición al BPM elegido con "
+                                     "las transiciones y duración mínima configuradas; amplía el intervalo")
+                start, end = first * channels, last * channels
+                section_details.update(seam_method="beat_clock_aligned",
+                                       beats_per_repetition=beats,
+                                       first_join_start_seconds=tail_start / rate,
+                                       repetition_stride_seconds=(last - first - fade_frames) / rate)
+            else:
+                section_details["seam_method"] = "selected_interval_crossfade"
+            section = samples[start:end]
+            section_frames = len(section) // channels
+            if fade_frames <= 0 or section_frames <= 2 * fade_frames:
+                raise ValueError("La parte a repetir necesita espacio para ambas transiciones")
+            section_details.update(effective_repeat_start_seconds=start / channels / rate,
+                                   effective_repeat_end_seconds=end / channels / rate)
+            result = array("f", samples)
+            repetitions = 0
+            while len(result) // channels < target_frames:
+                if repetitions >= settings.timeline_max_repetitions:
+                    raise ValueError("Demasiadas repeticiones para el límite configurado")
+                tail_start = len(result) - fade_frames * channels
+                for frame in range(fade_frames):
+                    weight = (frame + 1) / (fade_frames + 1)
+                    for channel in range(channels):
+                        offset = frame * channels + channel
+                        result[tail_start + offset] = (result[tail_start + offset] * (1 - weight)
+                                                      + section[offset] * weight)
+                result.extend(section[fade_frames * channels:])
+                repetitions += 1
+            result = result[:target_frames * channels]
+        MixerService._write_float_wav(output, result, rate, channels)
+        return {"duration_seconds": len(result) / channels / rate,
+                "repetitions": repetitions, "method": plan["method"],
+                "transition_seconds": plan["transition_seconds"], **section_details}
+
+    @staticmethod
     def mix_groups(
         tracks: list[tuple[Path, float]], output: Path, duration_seconds: float,
         sample_rate: int,
@@ -474,6 +678,78 @@ class MixerService:
                             "-c:a", "pcm_f32le", "-f", "wav", str(output)], output)
         return {"duration_seconds": duration_seconds, "tracks": len(tracks),
                 "normalization": "none", "output_path": str(output)}
+
+    @staticmethod
+    def _matched_pcm(source: Path, rate: int, channels: int, frames: int) -> array:
+        """Lee PCM float ya alineado en frecuencia, canales y número de tramas."""
+        layout = "stereo" if channels == 2 else "mono"
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(source), "-af",
+             f"aresample={rate},aformat=sample_fmts=flt:channel_layouts={layout},"
+             f"apad=pad_dur=1,atrim=end_sample={frames}",
+             "-f", "f32le", "-ac", str(channels), "-ar", str(rate), "-"],
+            capture_output=True)
+        if proc.returncode or len(proc.stdout) != frames * channels * 4:
+            raise ValueError(f"No se pudo alinear {source.name} con la generación")
+        samples = array("f")
+        samples.frombytes(proc.stdout)
+        if sys.byteorder != "little":
+            samples.byteswap()
+        if not all(math.isfinite(value) for value in samples):
+            raise ValueError(f"PCM no finito al alinear {source.name}")
+        return samples
+
+    @staticmethod
+    def render_single_transform(
+        engine: Path, stems: dict[str, Path], actions: dict[str, str], replaced: Path,
+        output: Path, settings, vocal_id: str = "vocals",
+    ) -> dict:
+        """Audio de la única pista en transformar.
+
+        El separador archiva el estilo nuevo fuera de esa pista. Se resta la
+        voz generada si la original se conserva, y lo generado de cada grupo
+        quitado. El resto de la generación se queda en la pista transformada.
+        Si al restar no queda audio, se usa la generación entera.
+        """
+        target, peeled = stems_kept_out_of_single_transform(actions, vocal_id)
+        missing = [key for key in peeled if key not in stems]
+        if missing:
+            raise ValueError("Faltan grupos generados para montar la pista transformada")
+        engine_pcm = MixerService.inspect_pcm(engine)
+        rate, channels = engine_pcm["sample_rate"], engine_pcm["channels"]
+        frames = len(engine_pcm["samples"]) // channels
+        mixed = array("f", engine_pcm["samples"])
+        for key in peeled:
+            part = MixerService._matched_pcm(stems[key], rate, channels, frames)
+            for index, value in enumerate(part):
+                mixed[index] -= value
+        if not all(math.isfinite(value) for value in mixed):
+            raise ValueError("La resta de la pista transformada dejó muestras no finitas")
+        engine_rms = _rms(engine_pcm["samples"])
+        remaining = _rms(mixed)
+        used_full = engine_rms <= 0 or remaining / engine_rms < settings.single_transform_min_remaining_ratio
+        if used_full:
+            mixed = array("f", engine_pcm["samples"])
+        replaced_pcm = MixerService._matched_pcm(replaced, rate, channels, frames)
+        replaced_rms = _rms(replaced_pcm)
+        current_rms = _rms(mixed)
+        max_gain = 10 ** (float(settings.parameters["gain_db"]["max"]) / 20)
+        gain = 1.0
+        if current_rms > 0 and replaced_rms > current_rms:
+            gain = min(replaced_rms / current_rms, max_gain)
+            if gain != 1.0:
+                mixed = array("f", (value * gain for value in mixed))
+        MixerService._write_float_wav(output, mixed, rate, channels)
+        warning = None
+        if used_full:
+            warning = ("El separador se quedó con casi todo el audio nuevo. "
+                       "La pista transformada usa la generación entera.")
+        elif peeled:
+            warning = ("La pista transformada conserva el audio nuevo que el separador "
+                       "había archivado en otro grupo. La voz original no se dobla y lo quitado no vuelve.")
+        return {"target": target, "peeled": list(peeled), "used_full_generation": used_full,
+                "gain": gain, "remaining_ratio": 0.0 if engine_rms <= 0 else remaining / engine_rms,
+                "warning": warning, "output_path": str(output)}
 
     @staticmethod
     def export_remix(source: Path, output: Path, settings) -> dict:

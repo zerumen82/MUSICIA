@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import AppSettings
+from config import AppSettings, engine_launch_timeout_seconds
 from music_service import GenerationRequest, MusicService
 from remix_project import RemixProjectRequest, validate_project
 
@@ -21,6 +21,16 @@ class RemixContractTest(unittest.TestCase):
         actions = {group["id"]: "keep" for group in self.settings.remix.groups}
         actions.update(overrides)
         return actions
+
+    def test_engine_launch_timeout_outlasts_the_factory_600s_cut(self):
+        seconds = engine_launch_timeout_seconds(self.settings)
+        self.assertGreater(seconds, 600)
+        self.assertEqual(seconds, int(self.settings.acestep.job_timeout))
+
+    def test_timeline_keyboard_step_comes_from_configuration(self):
+        nudge = self.settings.remix.parameters["timeline_nudge_seconds"]
+        self.assertGreater(nudge["step"], 0)
+        self.assertLessEqual(nudge["step"], nudge["max"])
 
     def test_whole_prompt_and_absence_of_new_lyrics_do_not_order_instrumental(self):
         music = MusicService(self.settings)
@@ -78,10 +88,15 @@ class RemixContractTest(unittest.TestCase):
             with self.subTest(start=start, end=end), self.assertRaises(ValueError):
                 validate_project(self.request(scope="region", region_start=start, region_end=end), 30, self.settings)
 
-    def test_tempo_change_cannot_desynchronize_retained_groups(self):
+    def test_common_tempo_accepts_retained_groups_and_requires_reliable_source_bpm(self):
+        from remix_project import timeline_plan
         request = self.request(scope="groups", groups=self.groups(drums="transform"), bpm=180)
-        with self.assertRaisesRegex(ValueError, "desalinearlas"):
-            validate_project(request, 30, self.settings)
+        validate_project(request, 30, self.settings)
+        with self.assertRaisesRegex(ValueError, "BPM original fiable"):
+            timeline_plan(request, 30, self.settings)
+        plan = timeline_plan(request, 30, self.settings, {"bpm_measured": 120, "bpm_confidence": 0.9})
+        self.assertEqual(plan["tempo_ratio"], 1.5)
+        self.assertEqual(plan["natural_duration_seconds"], 20)
 
     def test_keep_voice_cannot_also_remove_voice_with_instrumental(self):
         request = self.request(scope="groups", groups=self.groups(drums="transform"), instrumental=True)

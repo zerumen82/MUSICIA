@@ -229,8 +229,18 @@ def main():
                     original_groups = {item["id"]: settings.outputs_dir / item["file_name"]
                                        for item in cached["result"]["groups"]}
                 for index, metadata in enumerate(job["result"]["metadata"], 1):
-                    parts = [(original_groups[key] if action == "keep" else work / f"transformada-{index}-{key}.wav", 0)
-                             for key, action in body["groups"].items() if action != "remove"]
+                    single = sum(action == "transform" for action in body["groups"].values()) == 1
+                    parts = []
+                    for key, action in body["groups"].items():
+                        if action == "remove":
+                            continue
+                        if action == "keep":
+                            source = original_groups[key]
+                        elif single:
+                            source = work / f"pista-transformada-{index}.wav"
+                        else:
+                            source = work / f"transformada-{index}-{key}.wav"
+                        parts.append((source, 0))
                     expected = work / f"tester-expected-{index}.wav"
                     MixerService.mix_groups(parts, expected, job["duration_seconds"], settings.remix.sample_rate)
                     comparison = delta(pcm(Path(metadata["intermediate_path"]), settings.remix.sample_rate),

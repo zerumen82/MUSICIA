@@ -86,12 +86,264 @@ def _estimate_bpm(envelope_rms: list[float], frames_per_second: float) -> int | 
 # Trama fina solo para el groove: a 40 ms el tempo se cuantiza demasiado
 # (~4 % de error) y la alineación arrastra ese error a la mezcla.
 GROOVE_FRAME_MS = 10
-# Un pico de autocorrelación que llega al 90 % del máximo ya cuenta como tempo
-# real: así se corrige el error de octava (medio/doble tiempo).
-OCTAVE_TOLERANCE = 0.9
+
+def _validate_octave_settings(settings) -> None:
+    if (not math.isfinite(settings.groove_octave_score_ratio)
+            or not 0 < settings.groove_octave_score_ratio <= 1
+            or not math.isfinite(settings.groove_octave_lag_tolerance_frames)
+            or settings.groove_octave_lag_tolerance_frames < 0):
+        raise ValueError("Configuración de octava de groove inválida")
 
 
-def detect_groove(path: Path) -> dict:
+def _select_groove_peak(scores: list[tuple[int, float]], settings) -> tuple[int, float]:
+    """Máximo local, con preferencia solo por sus octavas bien sustentadas.
+
+    La resolución es una trama: un pico próximo al periodo/2 puede representar
+    el pulso del compás. Un pico fuerte a cualquier otro periodo no es una
+    octava. Todos los candidatos se comparan con el máximo inicial para no
+    acumular pérdidas de evidencia al pasar por varias octavas.
+    """
+    if not scores:
+        raise ValueError("Sin periodicidad suficiente para detectar el groove")
+    _validate_octave_settings(settings)
+    # El primer y el último lag son el borde de la ventana de búsqueda.
+    # Una pendiente que se sale por ahí no es un pulso sustentado.
+    peaks = [(lag, score) for index, (lag, score) in enumerate(scores)
+             if 0 < index < len(scores) - 1
+             and score >= scores[index - 1][1]
+             and score > scores[index + 1][1]]
+    if not peaks:
+        raise ValueError("El groove es incierto: no hay un pico de período interior "
+                         "en la ventana de búsqueda")
+    anchor = max(peaks, key=lambda item: item[1])
+    chosen = anchor
+    octave_lag = anchor[0] / 2
+    while octave_lag >= scores[0][0]:
+        candidates = [peak for peak in peaks
+                      if abs(peak[0] - octave_lag) <= settings.groove_octave_lag_tolerance_frames
+                      and peak[1] >= anchor[1] * settings.groove_octave_score_ratio]
+        if candidates:
+            chosen = max(candidates, key=lambda item: item[1])
+        octave_lag /= 2
+    return chosen
+
+
+def _score_supported_grooves(supported: list[tuple[float, float, float]], settings) -> float:
+    """Elige el período cuyo golpe es más nítido entre los de evidencia cercana.
+
+    Una textura un poco más periódica, con el golpe borroso, no sustituye al
+    pulso. Un acento mucho menos periódico tampoco gana por tener el golpe
+    más marcado. La regla de octava desempata y no usa el BPM pedido.
+    """
+    if not supported:
+        raise ValueError("El groove es incierto: ningún período sostenido dentro del rango")
+    _validate_octave_settings(settings)
+    ratio = settings.groove_hit_preference_ratio
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or ratio <= 1:
+        raise ValueError("Configuración de preferencia de golpe inválida")
+    reliable = [item for item in supported if item[2] >= settings.timeline_min_groove_confidence]
+    pool = reliable or supported
+    # El golpe solo cambia la elección entre períodos de evidencia cercana,
+    # y solo si es claramente más nítido. Un acento con el pliegue un poco
+    # mayor no tapa al pulso que ya concentra la evidencia.
+    strongest = max(item[1] for item in pool)
+    close = [item for item in pool if item[1] >= strongest * settings.groove_octave_score_ratio]
+    ranked = [(period, evidence) for period, evidence, _confidence in close]
+    chosen = _prefer_supported_octave(ranked, settings)
+    chosen_fold = max(confidence for period, _evidence, confidence in close if period == chosen)
+    clearer = [item for item in close if item[2] >= chosen_fold * ratio]
+    if not clearer:
+        return chosen
+    return _prefer_supported_octave(
+        [(period, evidence) for period, evidence, _confidence in clearer], settings)
+
+
+def _prefer_supported_octave(periods: list[tuple[float, float]], settings) -> float:
+    """Elige el período sostenido y, si su octava rápida también lo está, esa.
+
+    `periods` son pares (tramas, peso) que ya sobrevivieron al refinado
+    interior. El peso es la evidencia sostenida, ponderada por el golpe en
+    la medición. No es el diente de una sola repetición, y cada octava se
+    compara con el máximo inicial.
+    """
+    if not periods:
+        raise ValueError("El groove es incierto: ningún período sostenido dentro del rango")
+    _validate_octave_settings(settings)
+    anchor = max(periods, key=lambda item: item[1])
+    chosen = anchor
+    # Mitades del ancla original. No se corta en la primera que falle
+    # ni se recentra: si no, un /2 débil tapa un /4 que sí cumple.
+    octave = anchor[0] / 2
+    while octave >= 1:
+        candidates = [item for item in periods
+                      if abs(item[0] - octave) <= settings.groove_octave_lag_tolerance_frames
+                      and item[1] >= anchor[1] * settings.groove_octave_score_ratio]
+        if candidates:
+            chosen = max(candidates, key=lambda item: item[1])
+        octave /= 2
+    return chosen[0]
+
+
+def _reject_unprominent_period(best: float, floor: float, settings) -> None:
+    """Rechaza un período interior que solo arruga la caída de la autocorrelación.
+
+    El lag legal más rápido concentra evidencia cuando la envolvente es suave
+    y no hay golpe. Un máximo local ahí debajo no es un tempo medible.
+    """
+    ratio = settings.groove_peak_evidence_ratio
+    if (isinstance(ratio, bool) or not isinstance(ratio, (int, float))
+            or not math.isfinite(ratio) or not 0 < ratio <= 1):
+        raise ValueError("Configuración de evidencia de pico de groove inválida")
+    if floor > 0 and best < floor * ratio:
+        raise ValueError("El groove es incierto: el período interior no destaca "
+                         "sobre la caída de la autocorrelación")
+
+
+def _reject_flat_shoulder(best: float, shoulder: float, settings) -> None:
+    """Rechaza un máximo que no destaca sobre el tempo de al lado.
+
+    Una meseta tiene algún lag un poco más alto que sus vecinos. Estirar ese
+    lag no lleva el audio al tempo pedido. Un hombro no positivo sí deja pasar
+    el periodo: el pico está por encima de esa zona.
+    """
+    ratio = settings.groove_shoulder_ratio
+    fraction = settings.groove_shoulder_period_fraction
+    minimum = settings.groove_shoulder_min_frames
+    if (isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or ratio <= 1
+            or isinstance(fraction, bool) or not isinstance(fraction, (int, float))
+            or not math.isfinite(fraction) or not 0 < fraction < 0.5
+            or isinstance(minimum, bool) or not isinstance(minimum, (int, float))
+            or not math.isfinite(minimum) or minimum <= 0):
+        raise ValueError("Configuración de hombro de groove inválida")
+    if shoulder > 0 and best < shoulder * ratio:
+        raise ValueError("El groove es incierto: el período elegido no destaca "
+                         "sobre los tempos vecinos")
+
+
+def _multi_period_evidence(rms: list[float], period: float, periods: int, width: int) -> float:
+    """Misma evidencia de varios períodos que el refinado, en un solo lag."""
+    if periods < 1 or width <= 0 or width % 2 == 0:
+        raise ValueError("Configuración de refinado de groove inválida")
+    n = len(rms)
+    half = width // 2
+    cumulative = [0.0]
+    for value in rms:
+        cumulative.append(cumulative[-1] + value)
+    smooth = [(cumulative[min(n, i + half + 1)] - cumulative[max(0, i - half)])
+              / (min(n, i + half + 1) - max(0, i - half)) for i in range(n)]
+    mean = sum(smooth) / n
+    centered = [value - mean for value in smooth]
+    denominator = sum(value * value for value in centered)
+    if denominator <= 0:
+        raise ValueError("No se ha detectado un tempo claro (sin periodicidad)")
+    max_lag = math.ceil(period * periods) + 1
+    correlations = [sum(centered[i] * centered[i + lag] for i in range(n - lag)) / denominator
+                    for lag in range(max_lag + 1)]
+    score = 0.0
+    for multiple in range(1, periods + 1):
+        lag = period * multiple
+        index = int(lag)
+        fraction = lag - index
+        score += (correlations[index] * (1 - fraction)
+                  + correlations[index + 1] * fraction) / multiple
+    return score
+
+
+def _refine_groove_period(rms: list[float], chosen_lag: int, settings) -> float:
+    """Periodo refinado. Los tests y la medición pública solo necesitan las tramas."""
+    return _refine_groove_detail(rms, chosen_lag, settings)[0]
+
+
+def _refine_groove_detail(rms: list[float], chosen_lag: int, settings) -> tuple[float, float]:
+    """Refina el pulso por su repetición a varios períodos, sin elegir otra octava.
+
+    La energía tonal introduce dientes cercanos en la autocorrelación de una
+    sola repetición. Suavizar y contrastar varios golpes permite estimar el
+    período sostenido en vez del diente más fuerte de esa textura.
+    """
+    width, periods = settings.groove_smooth_frames, settings.groove_refine_periods
+    radius, step = settings.groove_refine_radius_frames, settings.groove_refine_step_frames
+    if (isinstance(width, bool) or not isinstance(width, int) or width <= 0 or width % 2 == 0
+            or isinstance(periods, bool) or not isinstance(periods, int)
+            or isinstance(settings.groove_refine_max_periods, bool)
+            or not isinstance(settings.groove_refine_max_periods, int)
+            or isinstance(settings.groove_refine_max_candidates, bool)
+            or not isinstance(settings.groove_refine_max_candidates, int)
+            or settings.groove_refine_max_candidates <= 0
+            or not 2 <= periods <= settings.groove_refine_max_periods
+            or isinstance(radius, bool) or not isinstance(radius, (int, float))
+            or not math.isfinite(radius) or radius <= 0
+            or isinstance(step, bool) or not isinstance(step, (int, float))
+            or not math.isfinite(step) or step <= 0):
+        raise ValueError("Configuración de refinado de groove inválida")
+    # La vecindad nunca llega a otra octava, incluso con un override amplio.
+    radius = min(radius, chosen_lag / 4)
+    lo, hi = max(1.0, chosen_lag - radius), chosen_lag + radius
+    candidates = math.ceil((hi - lo) / step) + 1
+    if candidates > settings.groove_refine_max_candidates:
+        raise ValueError("La resolución de groove excede el límite configurado de candidatos")
+    n = len(rms)
+    periods = min(periods, int((n - 2) / hi))
+    if periods < 2:
+        raise ValueError("Audio insuficiente para contrastar varios períodos del groove")
+    cumulative = [0.0]
+    for value in rms:
+        cumulative.append(cumulative[-1] + value)
+    half = width // 2
+    smooth = [(cumulative[min(n, i + half + 1)] - cumulative[max(0, i - half)])
+              / (min(n, i + half + 1) - max(0, i - half)) for i in range(n)]
+    mean = sum(smooth) / n
+    centered = [value - mean for value in smooth]
+    denominator = sum(value * value for value in centered)
+    if denominator <= 0:
+        raise ValueError("No se ha detectado un tempo claro (sin periodicidad)")
+    max_lag = math.ceil(hi * periods) + 1
+    correlations = [sum(centered[i] * centered[i + lag] for i in range(n - lag)) / denominator
+                    for lag in range(max_lag + 1)]
+
+    def evidence(period):
+        score = 0.0
+        for multiple in range(1, periods + 1):
+            lag = period * multiple
+            index = int(lag)
+            fraction = lag - index
+            score += (correlations[index] * (1 - fraction)
+                      + correlations[index + 1] * fraction) / multiple
+        return score
+
+    grid = [min(hi, lo + index * step) for index in range(candidates)]
+    peak_index = max(range(len(grid)), key=lambda index: evidence(grid[index]))
+    if peak_index == 0 or peak_index == len(grid) - 1:
+        raise ValueError("El groove es incierto: el máximo del refinado está en el borde de la vecindad, "
+                         "sin un pico de período sustentado")
+    period = grid[peak_index]
+    return period, evidence(period)
+
+
+def _fold_groove(onset: list[float], period_frames: float, fps: float) -> tuple[float, float]:
+    """Fase y fuerza sobre el período fraccional realmente estimado."""
+    count = max(1, round(period_frames))
+    bins, visits = [0.0] * count, [0.0] * count
+    for i, value in enumerate(onset):
+        position = (i % period_frames) / period_frames * count
+        floor = math.floor(position)
+        left = floor % count
+        fraction = position - floor
+        right = (left + 1) % count
+        bins[left] += value * (1 - fraction)
+        bins[right] += value * fraction
+        visits[left] += 1 - fraction
+        visits[right] += fraction
+    bins = [value / visits[index] if visits[index] else 0.0 for index, value in enumerate(bins)]
+    peak = max(range(count), key=lambda index: bins[index])
+    phase = peak / count * period_frames
+    if phase > period_frames / 2:
+        phase -= period_frames
+    strength = (max(bins) - sum(bins) / count) / (max(bins) or 1)
+    return phase / fps * 1000, max(0.0, min(1.0, strength))
+
+
+def detect_groove(path: Path, *, include_periods: bool = False) -> dict:
     """Tempo + fase del golpe: lo que hace que dos pistas encajen.
 
     Devuelve {bpm, period_ms, phase_ms, confidence}. `phase_ms` es el instante
@@ -100,7 +352,8 @@ def detect_groove(path: Path) -> dict:
     """
     if not path.exists():
         raise FileNotFoundError(f"No existe el audio: {path}")
-    audio = AudioSegment.from_file(path)
+    with path.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=path.suffix.lstrip("."))
     if len(audio) < GROOVE_FRAME_MS * 8 * 20:  # menos de ~1.6 s no sirve
         raise ValueError("Audio demasiado corto para detectar el groove")
 
@@ -123,46 +376,98 @@ def detect_groove(path: Path) -> dict:
     mean = sum(rms) / len(rms)
     onset = [max(0.0, x - mean) for x in rms]
 
-    # Corrección de octava: la autocorrelación es fuerte también en el doble
-    # del periodo (p. ej. en medio tiempo) y devolvería el tempo equivocado.
-    # Se busca el LAG MÁS CORTO que alcanza el 90 % del mejor pico.
-    scores = _autocorr_scores(onset, fps, bpm)
-    best_score = max(score for _, score in scores)
-    chosen_lag, chosen_score = scores[-1]
-    for lag, score in scores:  # van de lag corto (tempo alto) a largo
-        if score >= best_score * OCTAVE_TOLERANCE:
-            chosen_lag, chosen_score = lag, score
-            break
+    from config import get_settings
 
-    # Fase: se pliega la envolvente sobre el periodo del golpe.
-    period_frames = float(chosen_lag)
-    period_int = max(1, int(round(period_frames)))
-    bins: list[float] = [0.0] * period_int
-    for i, value in enumerate(onset):
-        bins[i % period_int] += value
-    peak = max(range(len(bins)), key=lambda i: bins[i])
-    phase_frames = peak
-    if phase_frames > period_int / 2:  # cerca de 0: mejor al inicio
-        phase_frames -= period_int
-
-    # El pico global suele ser el compás (42 bpm), no el golpe. El refinado
-    # tiene que partir del lag que ya eligió la corrección de octava.
-    bpm = _refine_peak(scores, fps, chosen_lag) or (60.0 * fps / chosen_lag)
-
-    strength = (max(bins) - sum(bins) / len(bins)) / (max(bins) or 1)
-    return {
+    # Cada pico interior se contrasta en varios períodos. Un diente rápido
+    # cuyo refinado cae en el borde no tapa un pulso sostenido más lento.
+    # El estimado grueso solo sirve para saber que hay periodicidad: su
+    # ventana alrededor de un subarmónico (66 cuando el pulso es 199) no
+    # puede dejar fuera un BPM legal.
+    config = get_settings().remix
+    limits = config.parameters["bpm"]
+    scores = _autocorr_scores(onset, fps, limits["min"], limits["max"])
+    peaks = [(lag, score) for index, (lag, score) in enumerate(scores)
+             if 0 < index < len(scores) - 1
+             and score >= scores[index - 1][1]
+             and score > scores[index + 1][1]]
+    if not peaks:
+        raise ValueError("El groove es incierto: no hay un pico de período interior "
+                         "en la ventana de búsqueda")
+    supported: list[tuple[float, float]] = []
+    rejected: list[ValueError] = []
+    for lag, _score in peaks:
+        try:
+            period, evidence = _refine_groove_detail(rms, lag, config)
+        except ValueError as exc:
+            text = str(exc)
+            if text.startswith("Configuración") or "excede el límite" in text:
+                raise
+            rejected.append(exc)
+            continue
+        measured = 60.0 * fps / period
+        if limits["min"] <= measured <= limits["max"]:
+            _phase, confidence = _fold_groove(onset, period, fps)
+            supported.append((period, evidence, confidence))
+    if not supported:
+        if rejected:
+            raise rejected[-1]
+        raise ValueError("El groove es incierto: ningún período sostenido dentro del rango")
+    # El lag legal más rápido no es un candidato: en una envolvente suave
+    # su evidencia es la caída, y un pliegue lento no debe heredarla.
+    fastest = max(1, math.floor(fps * 60.0 / limits["max"]))
+    best_period = max(supported, key=lambda item: item[1])[0]
+    multiples = min(config.groove_refine_periods,
+                    int((len(rms) - 2) / max(fastest, best_period)))
+    if multiples >= 2:
+        floor = _multi_period_evidence(rms, fastest, multiples, config.groove_smooth_frames)
+        best = _multi_period_evidence(rms, best_period, multiples, config.groove_smooth_frames)
+        _reject_unprominent_period(best, floor, config)
+    # Una octava rápida con el golpe ya por debajo del mínimo no sustituye
+    # al pulso que sí se puede usar. Si ninguna llega, se conserva la medición
+    # débil para que el rechazo diga el BPM y la confianza reales.
+    period_frames = _score_supported_grooves(supported, config)
+    shoulder_offset = max(config.groove_shoulder_min_frames,
+                          period_frames * config.groove_shoulder_period_fraction)
+    shoulder_room = period_frames + shoulder_offset
+    shoulder_multiples = min(config.groove_refine_periods, int((len(rms) - 2) / shoulder_room))
+    if shoulder_multiples >= 2 and shoulder_offset < period_frames:
+        chosen_evidence = _multi_period_evidence(
+            rms, period_frames, shoulder_multiples, config.groove_smooth_frames)
+        neighbors = (
+            _multi_period_evidence(rms, period_frames - shoulder_offset, shoulder_multiples,
+                                   config.groove_smooth_frames),
+            _multi_period_evidence(rms, period_frames + shoulder_offset, shoulder_multiples,
+                                   config.groove_smooth_frames),
+        )
+        _reject_flat_shoulder(chosen_evidence, max(neighbors), config)
+    bpm = 60.0 * fps / period_frames
+    phase_ms, strength = _fold_groove(onset, period_frames, fps)
+    result = {
         "bpm": round(float(bpm), 2),
         "period_ms": round(60000.0 / float(bpm), 1),
-        "phase_ms": round(phase_frames / fps * 1000.0, 1),
-        "confidence": round(max(0.0, min(1.0, strength)), 3),
+        "phase_ms": round(phase_ms, 1),
+        "confidence": round(strength, 3),
         "duration_seconds": round(len(audio) / 1000.0, 2),
     }
+    if include_periods:
+        result["periods"] = [{"bpm": round(60.0 * fps / period, 2),
+                              "evidence": round(float(evidence), 4),
+                              "confidence": round(float(confidence), 3)}
+                             for period, evidence, confidence in supported]
+    return result
 
 
-def _autocorr_scores(onset: list[float], fps: float, bpm_guess: int) -> list[tuple[int, float]]:
-    """Autocorrelación normalizada alrededor del tempo estimado (lag, score)."""
-    period = fps * 60.0 / bpm_guess
-    lo, hi = max(1, int(period * 0.35)), int(period * 2.6) + 1
+def _autocorr_scores(onset: list[float], fps: float, bpm_min: float, bpm_max: float) -> list[tuple[int, float]]:
+    """Autocorrelación normalizada en el rango de BPM configurado (lag, score)."""
+    if (not math.isfinite(bpm_min) or not math.isfinite(bpm_max)
+            or bpm_min <= 0 or bpm_max < bpm_min):
+        raise ValueError("El rango de BPM del groove no es válido")
+    fastest = math.floor(fps * 60.0 / bpm_max)
+    slowest = math.ceil(fps * 60.0 / bpm_min)
+    # Un lag de margen deja que el BPM justo en el límite sea un pico interior.
+    # El límite medido se aplica después; el margen no amplía el rango legal.
+    # range() no incluye hi. El +2 deja dentro el lag de margen lento.
+    lo, hi = max(1, fastest - 1), slowest + 2
     n = len(onset)
     denom = sum(x * x for x in onset) or 1.0
     scores: list[tuple[int, float]] = []
@@ -172,22 +477,6 @@ def _autocorr_scores(onset: list[float], fps: float, bpm_guess: int) -> list[tup
             acc += onset[i] * onset[i + lag]
         scores.append((lag, acc / denom))
     return scores
-
-
-def _refine_peak(scores: list[tuple[int, float]], fps: float, chosen_lag: int) -> float | None:
-    """BPM decimal por interpolación parabólica alrededor del lag ya elegido."""
-    if not scores:
-        return None
-    peak_index = next((i for i, (lag, _) in enumerate(scores) if lag == chosen_lag), None)
-    if peak_index is None:
-        peak_index = max(range(len(scores)), key=lambda i: scores[i][1])
-    y0 = scores[peak_index - 1][1] if peak_index > 0 else scores[peak_index][1]
-    y1 = scores[peak_index][1]
-    y2 = scores[peak_index + 1][1] if peak_index + 1 < len(scores) else y1
-    denominator = y0 - 2 * y1 + y2
-    delta = 0.5 * (y0 - y2) / denominator if denominator != 0 else 0.0
-    delta = max(-1.0, min(1.0, delta))
-    return 60.0 * fps / (scores[peak_index][0] + delta)
 
 
 def analyze_audio(path: Path) -> dict:

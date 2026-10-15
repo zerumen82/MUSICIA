@@ -3,7 +3,7 @@ import { Loader2, AlertTriangle, Play, Pause, CheckCircle2, Layers, X } from 'lu
 import { api } from '../api';
 import AudioComparator from './AudioComparator';
 
-const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 const STATUS_UI = {
   queued: { label: 'EN COLA', cls: 'text-[var(--warn)]' },
@@ -23,16 +23,18 @@ export default function JobsPanel({ items = [] }) {
   const [playing, setPlaying] = useState(null); // job_id
   const [abMarks, setAbMarks] = useState([]); // hasta 2 job_ids marcados
   const [cancelling, setCancelling] = useState(null); // job_id en curso de parada
+  const [cancelError, setCancelError] = useState(null);
 
   // PARAR (spec/02 [Q2]): suelta el trabajo sin descargar nada. Si el motor
   // estaba trabajando se reinicia (recargar el modelo tarda minutos).
   const cancel = async (jobId) => {
     if (cancelling) return;
     setCancelling(jobId);
+    setCancelError(null);
     try {
       await api.cancelJob(jobId);
-    } catch {
-      /* el feed enseña el estado real en el siguiente tick */
+    } catch (error) {
+      setCancelError(error.message);
     } finally {
       setCancelling(null);
     }
@@ -48,7 +50,8 @@ export default function JobsPanel({ items = [] }) {
   };
 
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
-  const done = jobs.filter((j) => j.status === 'succeeded').slice(0, 8);
+  const done = jobs.filter((j) => j.status === 'succeeded' && j.output_name)
+    .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 8);
   const comparisonTracks = useMemo(() => abMarks.map((jobId, index) => {
     const job = jobs.find((item) => item.job_id === jobId);
     return job?.output_name ? { id: jobId, label: String.fromCharCode(65 + index), url: api.audioUrl(job.output_name), duration: job.duration_seconds } : null;
@@ -73,7 +76,7 @@ export default function JobsPanel({ items = [] }) {
             {STATUS_UI[job.status]?.label}
           </span>
           <span className="num text-[13px] shrink-0">
-            {Math.floor((job.elapsed_seconds ?? 0) / 60)}:{String(Math.round((job.elapsed_seconds ?? 0) % 60)).padStart(2, '0')}
+            {fmt(job.elapsed_seconds ?? 0)}
           </span>
           <span className="text-[12px] text-zinc-300 truncate flex-1 min-w-0">{job.phase || job.prompt}</span>
           <button onClick={() => void cancel(job.job_id)} disabled={cancelling === job.job_id}
@@ -83,6 +86,8 @@ export default function JobsPanel({ items = [] }) {
           </button>
         </div>
       ))}
+
+      {cancelError && <p role="alert" className="mono text-[10px] st-err">{cancelError}</p>}
 
       {done.length > 0 && (
         <div className="flex flex-col">
@@ -123,12 +128,20 @@ export default function JobsPanel({ items = [] }) {
       {comparisonTracks.length > 0 && <AudioComparator tracks={comparisonTracks} />}
 
       {jobs.some((j) => j.status === 'failed') && (
-        <div className="flex items-center gap-2">
+        <details>
+        <summary className="flex items-center gap-2 cursor-pointer">
           <AlertTriangle size={11} className="st-err" />
           <span className="mono text-[10px] st-err">
-            {jobs.filter((j) => j.status === 'failed').length} trabajo(s) fallaron — revisa el prompt o reintenta
+            {jobs.filter((j) => j.status === 'failed').length} trabajo(s) fallaron — ver errores
           </span>
-        </div>
+        </summary>
+        {jobs.filter((j) => j.status === 'failed')
+          .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).map((job) => (
+            <p key={job.job_id} className="mono text-[10px] st-err break-words py-1">
+              {job.output_name || job.prompt || job.job_id}: {job.error || job.phase || 'Error sin detalle del motor'}
+            </p>
+          ))}
+        </details>
       )}
     </div>
   );

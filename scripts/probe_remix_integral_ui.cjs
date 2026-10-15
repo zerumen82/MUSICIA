@@ -41,10 +41,19 @@ async function wait(label, condition) {
   }
   throw new Error(`Timeout: ${label}`);
 }
+async function choose(id) {
+  await wait(`Choose ${id}`, () => evaluate((value) => {
+    const select = document.querySelector('[aria-label="Qué hacer"]');
+    if (!select) return false;
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(select), 'value').set.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.value === value;
+  }, id));
+}
 async function click(label, panel = true) {
   await wait(`Click ${label}`, () => evaluate((text, inPanel) => {
     const parent = inPanel ? document.querySelector('[data-remix-project]') : document;
-    const target = [...(parent?.querySelectorAll('button') || [])].find((item) => item.textContent.trim() === text && !item.disabled);
+    const target = [...(parent?.querySelectorAll('button,summary') || [])].find((item) => !item.disabled && (item.textContent.trim() === text || [...item.querySelectorAll('span')].some((span) => span.textContent.trim() === text)));
     if (!target) return false;
     target.click(); return true;
   }, label, panel));
@@ -74,7 +83,7 @@ app.whenReady().then(async () => {
     if (!action) return false;
     action.click(); return true;
   }, source));
-  await wait('Three real scopes loaded', () => evaluate(() => document.querySelectorAll('[aria-label="Ámbito del remix"] button').length === 3));
+  await wait('Action menu loaded', () => evaluate(() => document.querySelector('[aria-label="Qué hacer"]')?.options.length >= 5));
   await wait('Automatic real analysis completed', () => evaluate(() => {
     const panel = document.querySelector('[data-remix-project]');
     if (panel.textContent.includes('Detección no disponible')) throw new Error(panel.textContent);
@@ -83,7 +92,7 @@ app.whenReady().then(async () => {
   const literal = 'Jazz con contrabajo; batería suave al fondo, sin añadir instrumentos';
   await set('[aria-label="Prompt del remix"]', literal);
   await set('[aria-label="Clasificación del audio original"]', 'electronic');
-  await click('REFERENCIA Y AVANZADOS +');
+  await click('REFERENCIA Y AVANZADOS');
   await evaluate(() => {
     const summary = [...document.querySelectorAll('[data-remix-project] summary')].find((item) => item.textContent === 'ENVÍO EFECTIVO');
     if (!summary) throw new Error('Missing effective payload'); summary.click();
@@ -95,7 +104,7 @@ app.whenReady().then(async () => {
     return payload.prompt === text && payload.source_classification === 'electronic' && payload.instrumental === undefined ? payload : false;
   }, literal));
   fs.writeFileSync(path.join(dir, 'full-1400x900.png'), (await window.webContents.capturePage()).toPNG());
-  await click('Tramo');
+  await choose('region');
   await set('[aria-label="Inicio del tramo"]', '6');
   await set('[aria-label="Final del tramo"]', '18');
   report.region_preview = await wait('Explicit regional payload', () => evaluate(() => {
@@ -103,7 +112,7 @@ app.whenReady().then(async () => {
     return payload.scope === 'region' && payload.region_start === 6 && payload.region_end === 18 ? payload : false;
   }));
   fs.writeFileSync(path.join(dir, 'region-1400x900.png'), (await window.webContents.capturePage()).toPNG());
-  await click('Por pistas');
+  await choose('groups');
   await click('SEPARAR PISTAS DEL ORIGINAL');
   await wait('Four actual separated groups', () => evaluate(() => document.querySelectorAll('[data-remix-project] select[aria-label^="Acción de"]').length === 4));
   report.group_labels = await evaluate(() => [...document.querySelectorAll('[data-remix-project] select[aria-label^="Acción de"]')].map((item) => item.getAttribute('aria-label')));

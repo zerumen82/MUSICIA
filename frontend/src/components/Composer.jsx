@@ -14,7 +14,9 @@ import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
 } from '../vocal';
+import { CONVERT_PHASES, deskPhase } from '../desk_phase';
 import { glossPrompt } from '../prompt_gloss';
+import { applyModelTerm, ensureModelTerm, modelTerms, sinBpmEnFrase } from '../glossary_pick';
 import { CATALOG_GENRES, findGenre } from '../genres';
 
 const UI = {
@@ -106,8 +108,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [vocalLang, setVocalLang] = useState('es'); // vocal_language que viaja al motor (A3)
   const [writingLyrics, setWritingLyrics] = useState(false);
   const [lyricsWarning, setLyricsWarning] = useState(null);
-  const [showLyricPreview, setShowLyricPreview] = useState(false);
-  const [styleInfo, setStyleInfo] = useState(null); // capas + chips (del backend)
+  const [styleInfo, setStyleInfo] = useState(null); // chips del catálogo (del backend)
   const aliveRef = useRef(true);
   const durationTouched = useRef(false);
 
@@ -128,23 +129,21 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   /** Cualquier texto (chip o entrada del glosario) se añade al prompt:
       un solo cuadro, todo editable. */
-  const addTexto = (text) => {
-    const base = prompt.trim();
-    setPrompt(base ? `${base} ${text}` : text);
-  };
+  const addTexto = (text) => setPrompt(applyModelTerm(prompt, text));
   const addChip = (chip) => addTexto(chip.clause ?? chip.text);
 
-  /** La selección añade solo el género visible; el BPM sigue siendo una elección aparte. */
+  /** El género es la palabra que el modelo escribe. Entra en la misma caption. */
   const onSelectGenre = (id) => {
     setGenre(id || null);
     if (!id) return;
     const item = findGenre(id);
-    if (!item) return;
-    const p = prompt.trim();
-    const target = item.genre;
-    if (!p.toLowerCase().includes(target.toLowerCase())) {
-      setPrompt(p ? `${p} ${target}` : target);
-    }
+    if (!item?.genre) return;
+    const before = prompt.trim();
+    const framed = before.toLowerCase().startsWith('a track with ');
+    const next = applyModelTerm(prompt, item.genre);
+    setPrompt(next);
+    const quitado = framed && !modelTerms(next).some((part) => part.toLowerCase() === item.genre.toLowerCase());
+    if (!quitado && (bpm == null || bpm === '') && item.bpm) setBpm(item.bpm);
   };
 
   useEffect(() => {
@@ -162,20 +161,19 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     return () => { active = false; };
   }, []);
 
-  /** Compone el prompt final: género + mood + texto libre + voz. */
+  /** Lo que se envía es el cuadro. El mood en español no entra: el modelo no lo escribe. */
   const buildPrompt = () => {
     const parts = [];
-    const m = MOODS.find((x) => x.id === mood);
-    if (m) parts.push(m.text);
-    const free = prompt.trim();
-    if (free) parts.push(free);
-    // En modo voz, los descriptores elegidos forman parte del prompt (A3).
+    let free = prompt.trim();
+    // En modo voz, cada descriptor elegido es vocabulario del modelo y entra
+    // en la misma caption. No se cuelga una segunda frase.
     if (mode === 'voice') {
-      const voiceTags = buildVocalTags(vocal);
-      if (voiceTags) parts.push(voiceTags);
+      for (const tag of buildVocalTags(vocal).split(',').map((item) => item.trim()).filter(Boolean)) {
+        free = ensureModelTerm(free, tag);
+      }
     }
-    // Caption literal: vista previa y envío usan esta misma función.
-    return glossPrompt(parts.join(', '));
+    if (free) parts.push(free);
+    return glossPrompt(parts.join(' · '));
   };
 
   /** Prompt final tal y como se enviará (para la vista de transparencia). */
@@ -372,7 +370,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   /** Aplica la especificación del asistente de calidad a los selectores. */
   const applyWizard = (spec) => {
     setWizardOpen(false);
-    setPrompt(spec.prompt);
+    const elegido = findGenre(spec.genre);
+    setPrompt(elegido?.genre ? applyModelTerm('', elegido.genre) : '');
     if (spec.bpm) setBpm(spec.bpm);
     if (spec.key_scale) setKey(spec.key_scale);
     if (spec.duration) {
@@ -416,11 +415,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     const chip = chipsSugeribles.find((c) => c.label === id);
     if (chip) addChip(chip);
   };
-
-  /** Género seleccionado o detectado en el texto por el analizador del backend. */
-  const selectedGenre = genre || (
-    styleInfo?.detected_genre ? (findGenre(styleInfo.detected_genre)?.id ?? '') : ''
-  );
+  const createConverting = CONVERT_PHASES.includes(deskPhase(job?.phase, ''));
 
   return (
     <div className="min-h-full w-full flex flex-col px-6 py-6 gap-6 xl:px-10">
@@ -452,9 +447,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         <div className="flex items-center gap-2 flex-wrap">
           <SelectBox label="GÉNERO" placeholder="AUTO"
             options={GENRES.map(({ id, label }) => ({ id, label }))}
-            value={selectedGenre} onChange={onSelectGenre} />
+            value={genre ?? ''} onChange={onSelectGenre} />
           <SelectBox label="MOOD" placeholder="AUTO"
-            options={MOODS.map(({ id, tag, text }) => ({ id, label: tag, title: `Se añade: «${text}»` }))}
+            options={MOODS.map(({ id, tag }) => ({ id, label: tag, title: 'No se añade al prompt: el modelo no escribe esta palabra' }))}
             value={mood ?? ''} onChange={(id) => setMood(id || null)} />
           <SelectBox label="BPM" placeholder="AUTO"
             options={BPM_PRESETS.filter((p) => p.value != null).map(({ value, tag }) => ({ id: String(value), label: tag }))}
@@ -479,7 +474,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                 <span key={warning} className="mono text-[10px] text-[var(--warn)]">{warning}</span>
               ))}
               <div className="flex gap-3">
-                <button onClick={() => { setPrompt(enhanceInfo.enhanced); setGenre(null); setEnhanceInfo(null); }}
+                <button onClick={() => { setPrompt(sinBpmEnFrase(enhanceInfo.enhanced)); setGenre(null); setEnhanceInfo(null); }}
                   className="btn btn-ghost h-7 px-3">APLICAR BORRADOR</button>
                 <button onClick={() => setEnhanceInfo(null)} className="mono text-[9.5px] text-[var(--faint)] hover:text-red-300">DESCARTAR</button>
               </div>
@@ -489,7 +484,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             aria-label="Prompt de crear"
             value={prompt}
             onChange={(e) => { setPrompt(e.target.value); setGenre(null); if (enhanceInfo) setEnhanceInfo(null); }}
-            placeholder="Describe: estilo + ritmo + detalles. Ej.: «techno oscuro en 4x4, sin melodías». Di qué quieres que haga (doble bombo, percusiones, voz…) — el motor no adivina."
+            placeholder="Escribe el estilo y lo que quieres oír. Solo se envía este texto y lo que elijas."
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
           {/* AÑADIR en lista (igual que en remix), GLOSARIO al lado y
@@ -506,29 +501,13 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                 {styleInfo === null ? 'AÑADIR · SIN DATOS DEL MOTOR' : 'AÑADIR · SIN SUGERENCIAS'}
               </span>
             )}
-            <Glossary prompt={prompt} setPrompt={setPrompt} />
+            <Glossary prompt={prompt} setPrompt={setPrompt} onBpm={setBpm} bpm={bpm} />
           </div>
-          <VariantChips prompt={prompt} setPrompt={setPrompt} />
-          {/* Previsualización de capas: tu frase / estilo detectado /
-              detalles. Solo lectura: el prompt sigue siendo UN texto. */}
-          {styleInfo && ((styleInfo.detected_genres?.length || styleInfo.detected_genre) || styleInfo.modifiers?.length > 0) && (
-            <div className="flex items-center gap-4 flex-wrap pl-5">
-              {(styleInfo.detected_genres?.length || styleInfo.detected_genre) && (
-                <span className="mono text-[10.5px] text-[var(--acc)]">
-                  ESTILO{(styleInfo.detected_genres?.length || 0) > 1 ? 'S' : ''} DEL CATÁLOGO: {(styleInfo.detected_genres?.length ? styleInfo.detected_genres : [styleInfo.detected_genre]).join(' + ')}{styleInfo.suggested_bpm ? ` · BPM sugerido: ${styleInfo.suggested_bpm} (sin aplicar)` : ''}
-                </span>
-              )}
-              {styleInfo.modifiers?.length > 0 && (
-                <span className="mono text-[10.5px] text-[var(--muted)]">
-                  FRASES DEL CATÁLOGO: {styleInfo.modifiers.join(', ')}
-                </span>
-              )}
-            </div>
-          )}
-          <div className="border border-[var(--line)] px-4 py-3">
-            <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />
-            <p className="mono text-[10px] text-[var(--faint)] mt-1">El texto libre y las selecciones explícitas componen la petición. Si se contradicen, corrige el texto o el control antes de generar.</p>
-          </div>
+          <details>
+            <summary className="label cursor-pointer">VARIANTES</summary>
+            <div className="py-2"><VariantChips prompt={prompt} setPrompt={setPrompt} /></div>
+          </details>
+          <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
@@ -554,60 +533,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="label shrink-0">ELIGIDO</span>
                 <span className={`mono text-[11px] ${vocalSummary ? 'text-[var(--acc)]' : 'text-[var(--faint)]'}`}>
-                  {vocalSummary || 'AUTO · el motor decide la voz'}
+                  {vocalSummary || 'AUTO'}
                 </span>
-                <button onClick={() => setShowLyricPreview((s) => !s)} className="btn btn-ghost h-7 px-2.5"
-                  title="Ver exactamente lo que recibe el motor: prompt, idioma y letra">
-                  {showLyricPreview ? 'OCULTAR DETALLE' : 'VER LO QUE SE ENVÍA'}
-                </button>
               </div>
-
-              {showLyricPreview && (
-                <div className="flex flex-col gap-1.5 bg-[var(--surface-2)] border border-[var(--line)] p-4">
-                  <span className="label">TEXTO Y CONTROLES ELEGIDOS</span>
-                  <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} />
-                  <dl className="mono text-[10.5px] text-[var(--muted)] flex flex-col gap-1">
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">DESCRIPCIÓN</dt>
-                      <dd className="text-zinc-200">{finalPrompt || '(vacía)'}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">ESTILO</dt>
-                      <dd className="text-[var(--faint)]">Texto y selecciones explícitas; sin recetas de estilo añadidas al enviar.</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">MODELO</dt>
-                      <dd className="text-zinc-200">{config?.model ?? '(consultando configuración)'}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">FORMATO</dt>
-                      <dd className="text-zinc-200">{config?.use_format ? 'SÍ · el motor puede reformular el texto' : 'NO · texto literal'}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">VARIANTES</dt>
-                      <dd className="text-zinc-200">{config?.batch_size ?? '…'} por tirada · salen todas en BIBLIOTECA y eliges tú</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">IDIOMA VOZ</dt>
-                      <dd className="text-zinc-200">{vocalLang}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">VOCALES</dt>
-                      <dd className="text-zinc-200">{buildVocalTags(vocal) || 'AUTO · el motor elige la voz'}</dd>
-                    </div>
-                    <div className="flex gap-2">
-                      <dt className="text-[var(--faint)] shrink-0 w-[110px]">TIPO</dt>
-                      <dd className="text-zinc-200">CON VOZ · letra necesaria antes de generar</dd>
-                    </div>
-                    {lyrics.trim() !== '' && (
-                      <div className="flex gap-2">
-                        <dt className="text-[var(--faint)] shrink-0 w-[110px]">LETRA</dt>
-                        <dd className="text-zinc-200 whitespace-pre-wrap">{lyrics.trim()}</dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
-              )}
 
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -627,19 +555,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                 <textarea
                   value={lyrics}
                   onChange={(e) => { setLyrics(e.target.value); if (lyricsWarning) setLyricsWarning(null); }}
-                  placeholder="Con dos frases basta: la canción se construye con ellas. Pulsa ESCRIBIRLA POR MÍ y las convierto en [Verse] y [Chorus]."
+                  placeholder="Letra que se canta. ESTRUCTURAR LETRA añade marcas si lo eliges."
                   className="bg-transparent outline-none resize-none text-[15px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[96px] font-medium border-l-2 border-[var(--acc-line)] pl-5 py-1.5"
                 />
 
-                <p className="mono text-[10px] text-[var(--faint)]">
-                  {lyricsWarning
-                    ? <span className="text-[var(--warn)]">{lyricsWarning}</span>
-                    : lyrics.trim() === ''
-                      ? 'Escribe una letra o pide un borrador antes de generar con voz.'
-                      : hasLyricStructure(lyrics)
-                        ? 'Ya tiene marcas de estructura: se canta tal cual.'
-                        : 'Se envía tal cual. ESTRUCTURAR LETRA añade marcas si lo eliges.'}
-                </p>
+                {lyricsWarning && <p className="mono text-[10px] text-[var(--warn)]">{lyricsWarning}</p>}
               </div>
             </div>
           )}
@@ -676,11 +596,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <Layers size={13} /> VARIAR
             </button>
           </div>
-          <span className="mono text-[10px] text-[var(--faint)]">Modelo: {config?.model ?? 'consultando configuración'} · compara las variantes para comprobar el resultado musical.</span>
         </div>
-
-        {/* Cola de trabajos + comparador A/B (tick compartido desde App) */}
-        <JobsPanel items={jobs} />
 
         {/* Estado del job: línea fina, sin caja */}
         {(busy || error || job?.status === 'failed') && (
@@ -691,7 +607,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               <span className={`mono text-[11px] tracking-[0.1em] shrink-0 ${statusInfo?.cls ?? ''}`}>{statusInfo?.label}</span>
               {busy && (
                 <span className="num text-[15px] shrink-0">
-                  {Math.floor((job?.elapsed_seconds ?? 0) / 60)}:{String((job?.elapsed_seconds ?? 0) % 60).padStart(2, '0')}
+                  {fmt(Math.floor(job?.elapsed_seconds ?? 0))}
                 </span>
               )}
               {error && <span className="mono text-[10.5px] st-err truncate flex-1">{error}</span>}
@@ -704,13 +620,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             </div>
             {busy && (
               <div className="flex flex-col gap-2 pl-1">
-                {/* Barra con el porcentaje REAL del motor */}
-                <div className="vu w-full" style={{ height: 8 }}>
-                  <i style={{ width: `${Math.round((job?.progress_ratio ?? 0) * 100)}%` }} />
-                </div>
+                {createConverting
+                  ? <progress className="w-full" />
+                  : <div className="vu w-full" style={{ height: 8 }}>
+                    <i style={{ width: `${Math.round((Number(job?.progress_ratio) || 0) * 100)}%` }} />
+                  </div>}
                 <p className="text-[13px] text-zinc-300">
                   {job?.phase ?? 'Trabajando en el motor…'}
-                  {job?.progress_ratio > 0 && (
+                  {!createConverting && job?.progress_ratio > 0 && (
                     <span className="num ml-3">{Math.round(job.progress_ratio * 100)}%</span>
                   )}
                 </p>
@@ -757,6 +674,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             </div>
           </div>
         )}
+
+        {/* Cola de trabajos + comparador A/B, después del progreso y resultado. */}
+        <JobsPanel items={jobs} />
 
       </section>
 

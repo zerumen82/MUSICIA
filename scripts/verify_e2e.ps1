@@ -34,8 +34,38 @@ function Test-Endpoint([string]$url) {
     catch { return $false }
 }
 
+function Test-Port([int]$puerto) {
+    $cliente = New-Object System.Net.Sockets.TcpClient
+    try {
+        $espera = $cliente.BeginConnect('127.0.0.1', $puerto, $null, $null)
+        if (-not $espera.AsyncWaitHandle.WaitOne(400)) { return $false }
+        $cliente.EndConnect($espera)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $cliente.Close()
+    }
+}
+
 Write-Host "== 1/5 motor ACE-Step =="
 if (-not (Test-Endpoint 'http://127.0.0.1:8001/health')) {
+    # Si aún carga, no modificar vendor ni lanzar otro motor en paralelo.
+    $motorPresente = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*acestep.api_server*' }).Count -gt 0 -or (Test-Port 8001)
+    if ($motorPresente) {
+        Write-Host '   motor arrancando: esperar health antes de repetir la prueba'
+        exit 1
+    }
+    $backend = Join-Path $raiz 'backend'
+    & (Join-Path $backend 'venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'apply_acestep_patches.py')
+    if ($LASTEXITCODE -ne 0) { Write-Host '   correccion del motor no aplicable'; exit 1 }
+    $topeLineas = & (Join-Path $backend 'venv\Scripts\python.exe') -c "import sys; sys.path.insert(0, r'$backend'); from config import engine_launch_timeout_seconds; print(engine_launch_timeout_seconds())"
+    $tope = @($topeLineas) | Where-Object { "$_" -match '^\d+$' } | Select-Object -Last 1
+    if (-not $tope) { Write-Host '   no se pudo leer el tiempo de generacion'; exit 1 }
+    $env:ACESTEP_GENERATION_TIMEOUT = "$tope"
+    $env:ACESTEP_LM_BACKEND = 'pt'
+    $env:ACESTEP_ON_DEMAND_MODEL_LOAD = 'true'
     Start-Process -FilePath (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
         -ArgumentList '-m', 'acestep.api_server' `
         -WorkingDirectory (Join-Path $raiz 'vendor\ACE-Step-1.5') `

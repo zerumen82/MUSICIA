@@ -50,6 +50,9 @@ class AcestepSettings:
     poll_interval: float = 3.0
     # Cortes seguidos del sondeo. Si el motor sigue vivo, se sigue esperando.
     poll_max_misses: int = 8
+    # Espera de Musicia y, al arrancar el motor, ACESTEP_GENERATION_TIMEOUT.
+    # El motor trae 600 s. Con SFT, 50 pasos y batch 2, un original de 81 s
+    # llegó al paso 49 y la UI mostró «sin audio válido» (2026-10-13).
     job_timeout: float = 1800.0
     api_key: str | None = None
 
@@ -172,9 +175,9 @@ class RemixSettings:
     """Contrato de edición del material original, independiente del género."""
 
     scopes: list[dict[str, str]] = field(default_factory=lambda: [
-        {"id": "full", "label": "Canción completa"},
-        {"id": "region", "label": "Tramo"},
-        {"id": "groups", "label": "Por pistas"},
+        {"id": "full", "label": "Canción completa", "why": "Rehace toda la canción a partir de esta. El texto dice qué cambia.", "how": "Rehace toda la canción a partir de esta. El texto dice qué cambia.", "placeholder": "Qué cambia y qué se queda."},
+        {"id": "region", "label": "Tramo", "why": "Cambia solo el trozo que marques. El resto se queda.", "how": "Cambia solo el trozo que marques. El resto se queda.", "placeholder": "Qué debe sonar en el trozo marcado."},
+        {"id": "groups", "label": "Por pistas", "why": "Elige en cada pista si se queda, se rehace o se quita.", "how": "Elige en cada pista si se queda, se rehace o se quita.", "placeholder": "Qué debe sonar en las pistas que pongas en transformar."},
     ])
     groups: list[dict[str, str]] = field(default_factory=lambda: [
         {"id": "vocals", "label": "Voz"},
@@ -202,6 +205,49 @@ class RemixSettings:
     export_bitrate: str = "192k"
     peak_limit_dbfs: float = -1.0
     duration_tolerance_seconds: float = 0.25
+    # Si al quitar la voz generada y los grupos quitados queda menos que esta
+    # fracción del audio nuevo, la pista transformada usa la generación entera.
+    single_transform_min_remaining_ratio: float = 0.25
+    timeline_min_duration_seconds: float = 1.0
+    timeline_min_repeat_seconds: float = 1.0
+    timeline_transition_seconds: float = 0.1
+    timeline_max_transition_seconds: float = 2.0
+    timeline_min_groove_confidence: float = 0.12
+    groove_octave_score_ratio: float = 0.9
+    groove_octave_lag_tolerance_frames: float = 1.0
+    # Un golpe solo desempata a otro período de evidencia cercana si es al
+    # menos este múltiplo más nítido. Así una textura borrosa no gana por
+    # unas milésimas de evidencia, ni un acento lento gana por un pliegue
+    # apenas mayor.
+    groove_hit_preference_ratio: float = 2.0
+    # Un período interior solo cuenta como pulso si su evidencia, medida
+    # con los mismos múltiplos, alcanza esta fracción de la evidencia del
+    # lag legal más rápido. Por debajo es un pliegue sobre la caída de la
+    # autocorrelación, no un golpe. Los pulsos reales revisados superan
+    # tres cuartos; el pliegue falso de un audio sin golpe queda en un octavo.
+    groove_peak_evidence_ratio: float = 0.5
+    # El periodo elegido tiene que superar esta vez la evidencia de un tempo
+    # un poco más lento o más rápido. Por debajo, la autocorrelación es una
+    # meseta: el máximo es un número, no un golpe. Los pulsos ya revisados
+    # quedan por encima de 1,39; la meseta que el ajuste convirtió en 226
+    # queda en 1,15.
+    groove_shoulder_ratio: float = 1.25
+    groove_shoulder_period_fraction: float = 0.08
+    groove_shoulder_min_frames: float = 2.0
+    # Generaciones extra de una variante de canción completa cuando el audio
+    # no se puede medir: no hay pulso, o el ajuste lo deja por debajo del
+    # mínimo del detector. No recalibra el tempo ni usa el BPM pedido. Un
+    # BPM medido fuera de tolerancia no gasta estos intentos. Si se agotan,
+    # el error del detector sigue siendo el del trabajo.
+    full_groove_retries: int = 2
+    groove_smooth_frames: int = 3
+    groove_refine_periods: int = 8
+    groove_refine_radius_frames: float = 3.0
+    groove_refine_step_frames: float = 0.025
+    groove_refine_max_periods: int = 16
+    groove_refine_max_candidates: int = 1000
+    tempo_verify_tolerance_bpm: float = 2.0
+    timeline_max_repetitions: int = 1200
     demucs_model: str = "htdemucs"
     demucs_device: str = "auto"
     demucs_shifts: int = 1
@@ -218,6 +264,8 @@ class RemixSettings:
         "bpm": {"min": 30, "max": 300, "step": 1},
         "seed": {"min": 0, "max": 2147483647, "step": 1},
         "gain_db": {"min": -60.0, "max": 12.0, "step": 0.5},
+        # Segundos que avanzan las flechas del teclado en onda, tramo y comparación.
+        "timeline_nudge_seconds": {"min": 0.0, "max": 30.0, "step": 1.0},
     })
 
 
@@ -337,6 +385,16 @@ def _load_config_file() -> dict[str, Any]:
         return {}
     logger.info(f"Configuración cargada desde {config_path}")
     return data if isinstance(data, dict) else {}
+
+
+def engine_launch_timeout_seconds(settings: AppSettings | None = None) -> int:
+    """Segundos que el proceso del motor puede usar en una generación.
+
+    Hay que exportarlo como ACESTEP_GENERATION_TIMEOUT antes de arrancar.
+    Si no, el motor corta a los 600 s aunque esta espera sea más larga.
+    """
+    chosen = settings or get_settings()
+    return max(1, int(chosen.acestep.job_timeout))
 
 
 def build_settings() -> AppSettings:

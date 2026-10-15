@@ -115,6 +115,16 @@ class GeneratedTrack:
     seed_origin: str = "unknown"
 
 
+def engine_is_converting(stage: str = "", progress_text: str = "") -> bool:
+    """True mientras el motor convierte a audio.
+
+    «decod» cubre decode, Decoding y tiled_decode. Mencionar VAE o tiled
+    también ocurre al cargar, descargar y codificar antes de la difusión.
+    """
+    blob = f"{stage}\n{progress_text}".lower()
+    return "decod" in blob
+
+
 @dataclass
 class EngineStatus:
     """Estado de una tarea según el motor."""
@@ -138,6 +148,12 @@ class EngineStatus:
     @property
     def pending(self) -> bool:
         return self.status == STATUS_PENDING
+
+    def moving_progress(self) -> float | None:
+        """Porcentaje que se puede pintar. Al convertir, el motor deja el número quieto."""
+        if engine_is_converting(self.stage, self.progress_text):
+            return None
+        return float(self.progress)
 
 
 class MusicService:

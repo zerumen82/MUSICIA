@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unittest
 
-from source_understanding import classify_metadata
+from source_understanding import classify_metadata, visible_analysis_phase
 
 
 class SourceUnderstandingTest(unittest.TestCase):
@@ -32,6 +32,14 @@ class SourceUnderstandingTest(unittest.TestCase):
 
     def test_unmapped_ambiguous_genre_is_unknown(self):
         self.assertEqual(classify_metadata({"genre": "pop"}, self.catalog)["classification"], "unknown")
+
+    def test_analysis_phase_hides_engine_log(self):
+        raw = "12:04:01 | INFO | Extracting Audio Codes...\nStarting Deep Analysis..."
+        shown = visible_analysis_phase(raw)
+        self.assertEqual(shown, "El modelo local analiza el audio")
+        self.assertNotIn("INFO", shown)
+        self.assertNotIn("|", shown)
+        self.assertEqual(visible_analysis_phase("Extracting Audio Codes..."), shown)
 
     def test_analysis_does_not_mutate_model_metadata(self):
         metadata = {"genre": "techno", "prompt": "a description", "metas": {"bpm": 40}}

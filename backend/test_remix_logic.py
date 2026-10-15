@@ -191,6 +191,67 @@ class ModeloRemixTest(unittest.TestCase):
             )
 
 
+class DecodeProgressTest(unittest.TestCase):
+    """El 0,8 de la conversión no es un avance y el sondeo no lo repone."""
+
+    def test_vae_loading_offloading_and_encoding_are_not_conversion(self):
+        from music_service import EngineStatus, engine_is_converting
+        from remix_project import _visible_phase
+
+        for message in (
+            "Loading vae to cuda",
+            "Offloading vae to CPU",
+            "Encoding audio with VAE...",
+            "[tiled_encode] Encoding audio chunks",
+        ):
+            with self.subTest(message=message):
+                state = EngineStatus(task_id="t", status=0, progress=0.78973,
+                                     stage="running", progress_text=message)
+                self.assertFalse(engine_is_converting(state.stage, state.progress_text))
+                self.assertEqual(state.moving_progress(), 0.78973)
+                self.assertNotEqual(_visible_phase(state), "Convirtiendo a audio")
+                self.assertNotEqual(main._human_phase(0, "running", message), "Convirtiendo a audio final")
+
+    def test_decoding_variants_are_conversion(self):
+        from music_service import EngineStatus, engine_is_converting
+
+        for message in (
+            "Decoding audio...",
+            "VAE decode",
+            "[tiled_decode] chunk_size=128",
+            "tiledDecode",
+        ):
+            for field in ("stage", "progress_text"):
+                with self.subTest(message=message, field=field):
+                    state = EngineStatus(task_id="t", status=0, progress=0.8, **{field: message})
+                    self.assertTrue(engine_is_converting(state.stage, state.progress_text))
+                    self.assertIsNone(state.moving_progress())
+
+    def test_la_conversion_no_tiene_porcentaje(self):
+        from music_service import EngineStatus
+
+        quiet = EngineStatus(
+            task_id="t", status=0, progress=0.8,
+            stage="Decoding audio...", progress_text="Decoding audio...",
+        )
+        self.assertIsNone(quiet.moving_progress())
+        from remix_project import _visible_phase
+        self.assertEqual(_visible_phase(quiet), "Convirtiendo a audio")
+        self.assertEqual(main._human_phase(0, "", "Decoding audio..."), "Convirtiendo a audio final")
+        moving = EngineStatus(
+            task_id="t", status=0, progress=0.4,
+            stage="Diffusion", progress_text="Sampling 12/50",
+        )
+        self.assertEqual(moving.moving_progress(), 0.4)
+
+    def test_el_sondeo_no_repone_el_numero_quieto(self):
+        self.assertIsNone(main._painted_ratio(
+            {"progress_ratio": None, "engine_progress": 0.8, "phase": "Convirtiendo a audio"}
+        ))
+        self.assertEqual(main._painted_ratio({"progress_ratio": 0.4, "engine_progress": 0.4}), 0.4)
+        self.assertEqual(main._painted_ratio({"engine_progress": 0.2}), 0.2)
+
+
 class RememberJobsTest(unittest.TestCase):
     """_remember: el historial no crece sin límite; los activos no se tocan."""
 
@@ -282,22 +343,23 @@ class CancelAndHistoryTest(unittest.TestCase):
 class LibraryVersionTest(unittest.TestCase):
     """_library_version (spec/02 [R1]): huella del mismo glob que /music/library."""
 
-    def test_vacia_es_cero_y_un_mp3_la_mueve(self):
+    def test_huella_detecta_altas_y_borrados(self):
         import tempfile
         from unittest.mock import PropertyMock, patch
         tmp = Path(tempfile.mkdtemp(prefix="musicia-libver-"))
         with patch.object(type(main.settings), "outputs_dir", new_callable=PropertyMock) as mock_dir:
             mock_dir.return_value = tmp
-            self.assertEqual(main._library_version(), 0.0)
+            empty = main._library_version()
             first = tmp / "a.mp3"
             first.write_bytes(b"x")
             v1 = main._library_version()
-            self.assertGreater(v1, 0.0)
+            self.assertNotEqual(v1, empty)
             second = tmp / "b.mp3"
             second.write_bytes(b"y")
-            os.utime(second, (v1 + 10, v1 + 10))
+            timestamp = first.stat().st_mtime + 10
+            os.utime(second, (timestamp, timestamp))
             v2 = main._library_version()
-            self.assertGreater(v2, v1)
+            self.assertNotEqual(v2, v1)
             second.unlink()
             self.assertEqual(main._library_version(), v1)
 
@@ -306,7 +368,36 @@ class LibraryVersionTest(unittest.TestCase):
         client = TestClient(main.app)
         data = client.get("/music/jobs").json()
         self.assertIn("library_version", data)
-        self.assertIsInstance(data["library_version"], float)
+        self.assertIsInstance(data["library_version"], str)
+        self.assertIsInstance(data["uploads_version"], str)
+
+    def test_borrar_o_renombrar_pista_antigua_cambia_huella(self):
+        import tempfile
+        from unittest.mock import PropertyMock, patch
+        with tempfile.TemporaryDirectory(prefix="musicia-old-list-") as directory:
+            tmp = Path(directory)
+            old = tmp / "antigua.mp3"
+            newest = tmp / "reciente.mp3"
+            old.write_bytes(b"old")
+            newest.write_bytes(b"new")
+            timestamp = old.stat().st_mtime + 10
+            os.utime(newest, (timestamp, timestamp))
+            with patch.object(type(main.settings), "outputs_dir", new_callable=PropertyMock) as mock_dir:
+                mock_dir.return_value = tmp
+                initial = main._library_version()
+                renamed = old.rename(tmp / "renombrada.mp3")
+                after_rename = main._library_version()
+                self.assertNotEqual(after_rename, initial)
+                renamed.unlink()
+                self.assertNotEqual(main._library_version(), after_rename)
+
+    def test_tarea_auxiliar_conserva_fecha_y_no_inventa_audio(self):
+        view = main._side_job_view({"job_id": "groups", "status": "succeeded",
+                                    "created_at": "2026-10-13T20:00:00+00:00",
+                                    "result": {"groups": {"vocals": "voz.wav"}}})
+        self.assertEqual(view["created_at"], "2026-10-13T20:00:00+00:00")
+        self.assertIsNone(view["audio_url"])
+        self.assertIsNone(view["output_name"])
 
 
 class CoverNativoTest(unittest.TestCase):

@@ -5,6 +5,7 @@ import Library from './components/Library';
 import Uploads from './components/Uploads';
 import MixLab from './components/MixLab';
 import { api, JOB_POLL_INTERVAL_MS } from './api';
+import { movingPercent } from './desk_phase';
 
 // Nota: el Mixer decorativo original se sustituye por MixLab (mezcla real
 // vía POST /audio/mix). Sequencer sigue retirado (deuda T2 de spec/03).
@@ -31,6 +32,18 @@ function App() {
   // DSP síncronas y borrados, que no pasan por la cola de jobs).
   const [libraryTick, setLibraryTick] = useState(0);
   const libraryVersionRef = useRef(null);
+  const uploadsVersionRef = useRef(null);
+
+  useEffect(() => {
+    const coordinatePlayback = (event) => {
+      if (!(event.target instanceof HTMLMediaElement)) return;
+      document.querySelectorAll('audio').forEach((player) => {
+        if (player !== event.target) player.pause();
+      });
+    };
+    document.addEventListener('play', coordinatePlayback, true);
+    return () => document.removeEventListener('play', coordinatePlayback, true);
+  }, []);
 
   useEffect(() => {
     activeJobRef.current = activeJob;
@@ -77,10 +90,14 @@ function App() {
         // Un MP3 nuevo o borrado cambia la huella: avisar a BIBLIOTECA.
         const version = data.library_version ?? null;
         const prevVersion = libraryVersionRef.current;
+        const uploadsVersion = data.uploads_version ?? null;
+        const prevUploadsVersion = uploadsVersionRef.current;
         libraryVersionRef.current = version;
+        uploadsVersionRef.current = uploadsVersion;
         setJobsFeed(feed);
         setActiveJob(active ?? null);
-        if (prevVersion !== null && version !== prevVersion) setLibraryTick((t) => t + 1);
+        if ((prevVersion !== null && version !== prevVersion)
+          || (prevUploadsVersion !== null && uploadsVersion !== prevUploadsVersion)) setLibraryTick((t) => t + 1);
       } catch {
         // Un fallo de red no borra la fase que ya se estaba viendo.
       }
@@ -89,6 +106,8 @@ function App() {
     const timer = setInterval(tick, JOB_POLL_INTERVAL_MS);
     return () => { alive = false; clearInterval(timer); };
   }, []);
+
+  const headerPercent = movingPercent(activeJob?.phase, activeJob?.progress_ratio);
 
   return (
     <div className="app-container">
@@ -108,7 +127,7 @@ function App() {
         {/* Canales */}
         <nav className="space-y-1">
           {TABS.map(({ id, icon: Icon, label, hint }) => (
-            <button key={id} onClick={() => setTab(id)} className={`nav-item ${tab === id ? 'active' : ''}`}>
+            <button key={id} type="button" data-nav={id} aria-pressed={tab === id} onClick={() => setTab(id)} className={`nav-item ${tab === id ? 'active' : ''}`}>
               <Icon size={14} strokeWidth={2.2} />
               <span className="flex flex-col leading-tight flex-1">
                 <span>{label}</span>
@@ -177,8 +196,7 @@ function App() {
             {activeJob && (
               <span className="mono text-[10.5px] text-[var(--acc)] truncate max-w-[420px]">
                 {(activeJob.output_name || (activeJob.prompt ?? '').slice(0, 40) || 'Trabajando…')}
-                {Number(activeJob.progress_ratio) > 0 ? ` · ${Math.round(Number(activeJob.progress_ratio) * 100)}%` : ''}
-                {activeJob.phase ? ` · ${activeJob.phase}` : ''}
+                {headerPercent != null ? ` · ${headerPercent}%` : ''}
               </span>
             )}
           </div>
@@ -198,10 +216,10 @@ function App() {
 
         <main className="flex-1 min-h-0 overflow-hidden">
           {/* Montadas siempre: cambiar de pestaña no borra la letra ni el sondeo. */}
-          <div className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} jobs={jobsFeed} /></div>
-          <div className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads /></div>
-          <div className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab externalRefresh={libraryTick} /></div>
-          <div className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library externalRefresh={libraryTick} /></div>
+          <div data-panel="composer" data-active={tab === 'composer'} className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} jobs={jobsFeed} /></div>
+          <div data-panel="uploads" data-active={tab === 'uploads'} className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads onChanged={() => setLibraryTick((t) => t + 1)} /></div>
+          <div data-panel="mix" data-active={tab === 'mix'} className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab externalRefresh={libraryTick} /></div>
+          <div data-panel="library" data-active={tab === 'library'} className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library externalRefresh={libraryTick} /></div>
         </main>
       </div>
     </div>

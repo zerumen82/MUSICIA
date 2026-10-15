@@ -8,6 +8,8 @@
    datos siempre en mono, cero ornamento.
    ============================================================ */
 
+/* La base no debe imponerse a las utilidades de espaciado y tamaño. */
+@layer base {
 :root {
   /* Superficie: neutra, sin tinte */
   --bg: #0a0a0c;
@@ -49,6 +51,10 @@ body {
 }
 
 textarea, input { user-select: text; }
+}
+
+/* Los componentes admiten los ajustes declarados en cada vista. */
+@layer components {
 
 /* ===================== GRID DE ESTUDIO ===================== */
 .app-container {
@@ -121,14 +127,16 @@ textarea, input { user-select: text; }
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding: 0 20px;
-  height: 46px;
   border-radius: 5px;
   cursor: pointer;
   border: 1px solid var(--line-strong);
   background: var(--surface-3);
-  color: var(--acc);
+  color: var(--text);
   transition: border-color .15s, background .15s, color .15s, box-shadow .15s;
+}
+/* El alto y el relleno por defecto ceden a h-* y px-* de cada botón. */
+@layer components {
+  .btn { height: 46px; padding: 0 20px; }
 }
 .btn:hover:not(:disabled) { border-color: var(--acc); background: #1a2a10; color: var(--acc); box-shadow: 0 0 12px rgba(212, 255, 74, 0.15); }
 .btn:active { transform: translateY(1px); }
@@ -277,7 +285,15 @@ input:focus, textarea:focus, select:focus {
 }
 ::placeholder { color: var(--muted); opacity: 0.85; }
 
-select { padding: 6px 10px; cursor: pointer; }
+select { padding: 8px 10px; cursor: pointer; color-scheme: dark; font-size: 14px; line-height: 1.35; min-height: 36px; }
+select option { background-color: #16161a; color: #ffffff; }
+select option:checked { background-color: #d4ff4a; color: #0c0f04; }
+.desk-select { width: 100%; color-scheme: dark; background-color: #16161a; color: #ffffff; }
+.desk-menu { background: #16161a; color: #ffffff; border: 1px solid #34343c; }
+.desk-menu button { color: #ffffff; background: transparent; font-size: 14px; line-height: 1.4; text-align: left; }
+.desk-menu button:hover,
+.desk-menu button[aria-selected='true'] { background: #2a2a32; color: #ffffff; }
+.stem-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(11rem, 14rem) auto; gap: 8px; align-items: center; }
 
 /* ===================== REPRODUCTOR ===================== */
 .player {
@@ -350,3 +366,4 @@ select { padding: 6px 10px; cursor: pointer; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--surface-3); border: 1px solid var(--line); }
 ::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+}

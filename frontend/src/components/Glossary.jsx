@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Shuffle, X } from 'lucide-react';
 import { api } from '../api';
-import { removeTexto } from '../variants';
+import { applyModelTerm, modelTerms, stylesForQuery } from '../glossary_pick';
 
 /** Alto máximo del panel. Si no cabe debajo del botón, se abre hacia arriba. */
 const PANEL_MAX_PX = 360;
@@ -13,15 +13,16 @@ const LIMIT = 50;
  * otra versión). Todo lo que se añade está en inglés, que es el idioma de
  * las captions de entrenamiento: ver y enviar, el mismo idioma.
  *
- * - Estilos de Musicia (caption real de cada uno) y entradas del vocabulario
- *   del motor (`genres_vocab.txt`, la whitelist con la que escribe el campo
- *   genres): lo que ves es lo que el modelo puede decir.
+ * - El vocabulario del modelo (`genres_vocab.txt`) sigue siendo la lista.
+ *   Cada elección es una línea del vocabulario del modelo. Varias quedan en
+ *   una sola caption: «A track with gabber · medieval». El BPM, si el cuadro
+ *   iba vacío, pasa a su control y no se escribe en la frase.
  * - Combinar: eliges dos y solo aparecen combinaciones que existen en ese
  *   vocabulario (techno + hardcore -> «hardcore techno»). Si no existe la
  *   mezcla, no se ofrece nada.
  * - Lo que ya está en tu frase se marca ELEGIDO y vuelve a pulsarlo lo quita.
  */
-export default function Glossary({ prompt = '', setPrompt }) {
+export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = null }) {
   const [open, setOpen] = useState(false);
   const [box, setBox] = useState(null);
   const [q, setQ] = useState('');
@@ -92,8 +93,8 @@ export default function Glossary({ prompt = '', setPrompt }) {
     return () => { alive = false; };
   }, [pick]);
 
-  const texto = (prompt ?? '').trim();
-  const elegido = (text) => texto.toLowerCase().includes(text.toLowerCase());
+  const enCaption = (prompt ?? '').trim().toLowerCase().startsWith('a track with ');
+  const elegido = (text) => enCaption && modelTerms(prompt).some((part) => part.toLowerCase() === String(text).trim().toLowerCase());
 
   const cerrar = () => {
     setOpen(false);
@@ -102,15 +103,18 @@ export default function Glossary({ prompt = '', setPrompt }) {
     setCombos(null);
   };
 
-  const add = (text) => {
-    setPrompt((prev) => {
-      const base = (prev ?? '').trim();
-      return base ? `${base} ${text}` : text;
-    });
+  const meter = (termino, tempo = null) => {
+    const before = (prompt ?? '').trim();
+    const framed = before.toLowerCase().startsWith('a track with ');
+    const next = applyModelTerm(prompt, termino);
+    setPrompt(next);
+    const quitado = framed && !modelTerms(next).some((part) => part.toLowerCase() === String(termino).trim().toLowerCase());
+    if (onBpm && !next) onBpm(null);
+    else if (onBpm && next && !quitado && (!before || bpm == null || bpm === '')) onBpm(tempo);
     cerrar();
   };
 
-  const quitar = (text) => setPrompt((prev) => removeTexto(prev ?? '', text));
+  const add = (text) => meter(text);
 
   const togglePick = (name) => {
     setCombos(null);
@@ -122,7 +126,7 @@ export default function Glossary({ prompt = '', setPrompt }) {
     const on = elegido(text);
     return (
       <div key={k} className="flex items-center gap-1 pr-1 hover:bg-[var(--acc-dim)]">
-        <button onClick={() => (on ? quitar(text) : add(text))}
+        <button onClick={() => add(text)}
           title={on ? `Quitar «${text}» de tu frase` : `Añade al prompt: «${text}»${hint}`}
           className={`flex-1 text-left px-2 py-1 text-[11.5px] truncate ${on ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
           {text}
@@ -142,13 +146,8 @@ export default function Glossary({ prompt = '', setPrompt }) {
   );
 
   const items = data?.items ?? [];
-  const styles = data?.styles ?? [];
   const query = q.trim();
-  /** Buscador completo: el catálogo también se filtra mientras escribes,
-      no solo el vocabulario del motor. */
-  const stylesMatching = query
-    ? styles.filter((s) => `${s.name} ${s.genre ?? ''} ${s.text ?? ''}`.toLowerCase().includes(query.toLowerCase()))
-    : styles;
+  const frases = stylesForQuery(data?.styles, query);
 
   return (
     <span className="relative inline-flex" ref={ref}>
@@ -200,24 +199,28 @@ export default function Glossary({ prompt = '', setPrompt }) {
             </div>
           )}
 
-          {stylesMatching.length > 0 && (
-            <div className="flex flex-col">
-              <span className="label">ESTILOS DE MUSICIA</span>
-              <div className="max-h-[110px] overflow-y-auto">
-                {stylesMatching.map((s) => {
-                  /* Solo el GÉNERO, que es lo que se añade al prompt: la
-                     caption completa («definición») es lo que rellena el
-                     motor por su cuenta con style_caption. */
-                  const genre = s.genre || s.name;
-                  return row(s.name, genre, pickBtn(genre), ` · ${s.name} · ${s.bpm} bpm`);
-                })}
-              </div>
+          {frases.length > 0 && (
+            <div className="flex flex-col gap-1 border border-[var(--line)] p-1.5">
+              <span className="label">SE ENVÍA</span>
+              {frases.map((style) => {
+                const termino = String(style.genre || '').trim();
+                if (!termino) return null;
+                const on = elegido(termino);
+                return (
+                  <button key={style.name} type="button" onClick={() => meter(termino, style.bpm ?? null)}
+                    title={on ? `Quitar «${termino}»` : `El modelo escribe «${termino}»`}
+                    className={`text-left px-1 py-1 ${on ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
+                    <span className="label">{style.name}{style.bpm ? ` · ${style.bpm}` : ''}</span>
+                    <span className="block text-[12px] leading-snug">{termino}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
           <div className="flex flex-col">
             <span className="label">{query ? 'RESULTADOS' : 'DEL VOCABULARIO DEL MODELO'}</span>
-            <div className="max-h-[190px] overflow-y-auto">
+            <div className="max-h-[280px] overflow-y-auto">
               {items.map((item) => row(item, item, pickBtn(item)))}
               {!busy && items.length === 0 && (
                 <span className="text-[10px] text-[var(--faint)] px-1">nada por aquí</span>

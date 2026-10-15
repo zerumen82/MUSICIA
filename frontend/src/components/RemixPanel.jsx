@@ -6,7 +6,7 @@ import Waveform from './Waveform';
  * Panel de remix DSP compartido (tempo/tono/volumen/fundidos/invertir +
  * recorte visual). onRun recibe los parámetros y hace la llamada.
  */
-export default function RemixPanel({ onRun, result, fileName, sourceKind = null }) {
+export default function RemixPanel({ onRun, result, fileName, sourceKind = null, nudgeStep = null, busy = false }) {
   const [tempo, setTempo] = useState(1.0);
   const [pitch, setPitch] = useState(0);
   const [gain, setGain] = useState(0);
@@ -16,14 +16,18 @@ export default function RemixPanel({ onRun, result, fileName, sourceKind = null 
   const [trim, setTrim] = useState({ trim_start_s: 0, trim_end_s: null });
   const [name, setName] = useState(''); // nombre del resultado; vacío = hereda + '-remix'
   const [running, setRunning] = useState(false);
+  const [error, setError] = useState(null);
+  const blocked = busy || running;
 
   const onSelection = (sel) => {
     setTrim({ trim_start_s: sel.trim_start_s, trim_end_s: sel.trim_end_s });
   };
 
   const run = async () => {
+    if (blocked) return;
     setRunning(true);
-    await onRun({
+    setError(null);
+    try { await onRun({
       tempo,
       pitch_semitones: pitch,
       gain_db: gain,
@@ -33,19 +37,20 @@ export default function RemixPanel({ onRun, result, fileName, sourceKind = null 
       trim_start_s: trim.trim_start_s,
       trim_end_s: trim.trim_end_s === '' || trim.trim_end_s === null ? null : Number(trim.trim_end_s),
       output_name: name.trim() ? name.trim() : null,
-    });
-    setRunning(false);
+    }); }
+    catch (failure) { setError(failure.message); }
+    finally { setRunning(false); }
   };
 
   const dirty = tempo !== 1.0 || pitch !== 0 || gain !== 0 || reverse || fadeIn > 0 || fadeOut > 0
     || trim.trim_start_s > 0 || (trim.trim_end_s !== null && trim.trim_end_s !== '');
 
   return (
-    <div className="flex flex-col gap-4 pt-4">
-      {fileName && <Waveform key={fileName} fileName={fileName} sourceKind={sourceKind} onSelection={onSelection} />}
+    <fieldset disabled={blocked} className="flex flex-col min-w-0 gap-4 pt-4" aria-label="Ajustes del audio">
+      {fileName && <Waveform key={fileName} fileName={fileName} sourceKind={sourceKind} onSelection={onSelection} nudgeStep={nudgeStep} disabled={blocked} />}
       <div className="flex items-center gap-3">
         <span className="label shrink-0">VELOCIDAD</span>
-        <input type="range" min={0.5} max={2} step={0.05} value={tempo}
+        <input aria-label="Velocidad del ajuste" type="range" min={0.5} max={2} step={0.05} value={tempo}
           onChange={(e) => setTempo(Number(e.target.value))} className="flex-1 min-w-0" />
         <span className="num w-14 text-right">{tempo.toFixed(2)}×</span>
       </div>
@@ -81,13 +86,14 @@ export default function RemixPanel({ onRun, result, fileName, sourceKind = null 
           className="px-3 py-2 text-[13px] bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)] flex-1 min-w-0" />
       </div>
       <div className="flex items-center gap-3">
-        <button onClick={run} disabled={!dirty || running} className="btn btn-signal h-10 px-6">
+        <button onClick={run} disabled={!dirty || blocked} className="btn btn-signal h-10 px-6">
           {running ? <><Loader2 size={13} className="animate-spin" /> PROCESANDO…</> : <><SlidersHorizontal size={13} /> APLICAR REMIX</>}
         </button>
         {!dirty && !running && <span className="mono text-[10px] text-[var(--faint)]">ajusta algún control para poder aplicar</span>}
         {running && <span className="mono text-[10px] text-[var(--muted)]">procesando en local (puede tardar según la duración)…</span>}
       </div>
       {result?.ok === false && <p className="mono text-[10.5px] st-err">{result.error}</p>}
-    </div>
+      {error && <p role="alert" className="mono text-[10.5px] st-err">{error}</p>}
+    </fieldset>
   );
 }

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { comparisonBounds, comparisonPosition, switchComparisonSource } from '../audio_comparison';
+import { arrowDirection, nudgePosition } from '../timeline_nudge';
 
 const field = 'px-2 py-1 bg-transparent border border-[var(--line)] w-24 text-[12px]';
 
 /** One media element guarantees that changing A/B never overlaps playback. */
-export default function AudioComparator({ tracks, interval = null }) {
+export default function AudioComparator({ tracks, interval = null, nudgeStep = null }) {
   const [selected, setSelected] = useState(null);
   const [metadata, setMetadata] = useState({});
   const [customRange, setCustomRange] = useState(null);
@@ -115,7 +116,13 @@ export default function AudioComparator({ tracks, interval = null }) {
       onEnded={() => { resume.current = false; setPlaying(false); }} onError={() => setError(`No se puede reproducir ${active.label}`)} aria-label="Reproductor de comparación" />
     <div className="flex items-center gap-3 flex-wrap">
       <button type="button" disabled={!ready || !bounds.valid} onClick={toggle} className="btn btn-ghost h-8 px-3" aria-label={playing ? 'Pausar comparación' : 'Reproducir comparación'}>{playing ? 'PAUSAR' : 'ESCUCHAR'}</button>
-      <input type="range" aria-label="Posición compartida A/B" disabled={!ready || !bounds.valid} min={bounds.start} max={bounds.end ?? bounds.start} step="any" value={comparisonPosition(time, bounds)} onChange={(event) => seek(event.target.value)} className="flex-1 min-w-28" />
+      <input type="range" aria-label="Posición compartida A/B" disabled={!ready || !bounds.valid} min={bounds.start} max={bounds.end ?? bounds.start} step={Number(nudgeStep) > 0 ? nudgeStep : undefined} value={comparisonPosition(time, bounds)} onKeyDown={(event) => {
+        const direction = arrowDirection(event.key);
+        const next = direction ? nudgePosition(audio.current?.currentTime ?? time, bounds, direction, nudgeStep) : null;
+        if (next == null) return;
+        event.preventDefault();
+        seek(next);
+      }} onChange={(event) => seek(event.target.value)} className="flex-1 min-w-28" />
       <span className="mono text-[10px]">{comparisonPosition(time, bounds).toFixed(1)} s</span>
     </div>
     <div className="flex gap-3 flex-wrap">

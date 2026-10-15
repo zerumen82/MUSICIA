@@ -93,6 +93,11 @@ def _make_clip(source: Path, destination: Path, seconds: float) -> dict:
             "source_duration": len(audio) / 1000}
 
 
+def visible_analysis_phase(_progress_text: str) -> str:
+    """El sondeo del motor trae su último log. La mesa solo enseña esta frase."""
+    return "El modelo local analiza el audio"
+
+
 async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSettings,
                          update: Callable[[str], None]) -> dict:
     """Invoke native audio-to-codes + local LM and read its raw analysis result."""
@@ -122,7 +127,7 @@ async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSetti
             if isinstance(item, dict):
                 state = int(item.get("status", 0))
                 if item.get("progress_text"):
-                    update(str(item["progress_text"]))
+                    update(visible_analysis_phase(str(item["progress_text"])))
                 result = item.get("result")
                 if isinstance(result, str):
                     result = json.loads(result) if result else []

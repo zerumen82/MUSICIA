@@ -9,6 +9,8 @@
  * dispara un estilo o un modificador del catálogo. Así lo que ves en el
  * botón y lo que se añade a tu frase es el mismo idioma que viaja al motor.
  */
+import { applyModelTerm } from './glossary_pick.js';
+
 export const VARIANTS = [
   { id: 'energia', label: 'MORE ENERGY', add: 'high energy driving rhythm, fast and relentless tempo' },
   { id: 'calma', label: 'CALMER', add: 'quiet and spacious, slow tempo, ambient' },
@@ -32,9 +34,5 @@ export const removeTexto = (prompt, text) => {
   return p.replace(re, '').replace(/,\s*,/g, ',').replace(/^[\s,]+|[\s,]+$/g, '');
 };
 
-/** Conmutador: si la variante ya está en el prompt, la quita; si no, la añade. */
-export const toggleVariantText = (prompt, add) => {
-  const p = (prompt ?? '').trim();
-  if (p.toLowerCase().includes(add.toLowerCase())) return removeTexto(p, add);
-  return p ? `${p}, ${add}` : add;
-};
+/** La variante entra o sale de la misma caption que el glosario. */
+export const toggleVariantText = (prompt, add) => applyModelTerm(prompt, add);

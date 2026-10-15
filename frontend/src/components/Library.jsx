@@ -430,8 +430,7 @@ export default function Library({ externalRefresh = 0 }) {
 
               {/* Re-creación IA de esta pista (encadenable: cada versión vuelve a la biblioteca) */}
               {iaName === item.name && (
-                <div className="px-3 pb-5 pt-1 bg-[var(--surface-2)] border-y border-[var(--line)]">
-                  <span className="label block mb-1">REMIX SOBRE EL ORIGINAL · {item.name}</span>
+                <div className="py-3 border-y border-[var(--line)]">
                   <RemixActions fileName={item.name} ficha={item} sourceKind="output" onDone={() => refresh()} />
                 </div>
               )}

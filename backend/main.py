@@ -16,6 +16,7 @@ Nada aquí es simulado: cada endpoint hace el trabajo real y devuelve error si f
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import mimetypes
 import os
@@ -71,6 +72,7 @@ from music_service import (
     GenerationRequest,
     MusicEngineError,
     MusicService,
+    engine_is_converting,
     lyrics_are_song,
 )
 from remix_project import RemixProjectRuntime
@@ -496,9 +498,10 @@ def _read_ficha(audio_path: Path) -> dict[str, Any] | None:
 def _measure_bpm(path: Path) -> dict[str, Any] | None:
     """BPM real del MP3 (spec/02 [M3]). None si no hay tempo claro.
 
-    La medición es auxiliar: un fallo aquí NO puede tumbar una generación
-    ya verificada. Si no se puede medir, no se escribe nada en la ficha
-    (nunca se maquilla).
+    La medición es auxiliar en las rutas de generación habituales: si no se
+    puede medir, no se inventa un BPM en la ficha. Canción completa con BPM
+    exige esta medición y su confianza antes y después del ajuste DSP; allí
+    una ausencia o discrepancia produce un error explícito.
     """
     try:
         groove = detect_groove(path)
@@ -506,7 +509,7 @@ def _measure_bpm(path: Path) -> dict[str, Any] | None:
         logger.warning(f"Sin BPM medido para {path.name}: {exc}")
         return None
     return {
-        "bpm_measured": round(float(groove["bpm"]), 1),
+        "bpm_measured": round(float(groove["bpm"]), 2),
         "bpm_confidence": round(float(groove.get("confidence") or 0), 3),
     }
 
@@ -525,15 +528,13 @@ def _human_phase(engine_status: int, progress_text: str, stage: str = "") -> str
         return "En cola del motor (esperando turno en la GPU)"
     if "start" in stage_low or "infer" in stage_low or "diffus" in stage_low:
         return "Sintetizando el audio (difusión por pasos)"
-    if "vae" in stage_low or "decode" in stage_low or "tiled" in stage_low:
+    if engine_is_converting(stage, progress_text):
         return "Convirtiendo a audio final"
     text = (progress_text or "").lower()
     if "load" in text or "carg" in text:
         return "Cargando el modelo en la GPU (la primera vez tarda varios minutos)"
     if "infer" in text or "step" in text or "diffus" in text:
         return "Sintetizando el audio (difusión por pasos)"
-    if "vae" in text or "decode" in text:
-        return "Convirtiendo a audio final"
     if "text" in text or "lm" in text or "lyric" in text:
         return "Preparando la estructura musical"
     return "Trabajando en el motor (esto tarda 1-3 min con la GPU)"
@@ -574,7 +575,8 @@ async def _finalize_generation(job_id: str) -> None:
         prev_text = job.get("engine_progress_text", "")
         job["engine_status"] = status.status
         job["engine_progress_text"] = status.progress_text or prev_text
-        job["progress_ratio"] = status.progress
+        job["engine_progress"] = status.progress
+        job["progress_ratio"] = status.moving_progress()
         job["stage"] = status.stage
         job["phase"] = _human_phase(status.status, status.progress_text, status.stage)
         job["elapsed_seconds"] = round(time.monotonic() - started, 1)
@@ -1340,7 +1342,7 @@ async def _run_ai_remix(
             _throw_if_cancelled(job)
             prev = job.get("engine_phase") or ""
             job["engine_progress"] = status.progress
-            job["progress_ratio"] = status.progress
+            job["progress_ratio"] = status.moving_progress()
             text = (status.progress_text or status.stage or "").strip()
             job["engine_phase"] = text
             # La UI pinta `phase`. Un corte del sondeo no puede dejarla en Error.
@@ -1491,8 +1493,8 @@ _GPU_ACTIVE = {"queued", "running"}
 
 def _gpu_busy() -> str | None:
     """En 8 GB solo cabe un trabajo pesado. El segundo espera."""
-    if reason := active_analysis():
-        return reason
+    if active_analysis():
+        return "El audio original se está analizando. Espera a que termine antes de remezclar."
     if any(job.get("status") in _GPU_ACTIVE or job.get("compute_active") for job in jobs.values()):
         return "Hay una generación en la GPU. Espera a que termine: en 8 GB no caben dos a la vez."
     if any(job.get("status") in _GPU_ACTIVE or job.get("compute_active") for job in remix_jobs.values()):
@@ -1857,14 +1859,24 @@ def _load_history() -> None:
     logger.info(f"Historial recuperado de {HISTORY_FILE.name}")
 
 
+def _painted_ratio(job: dict[str, Any]) -> float | None:
+    """None si el número guardado no es un avance. No se repone desde el motor."""
+    if "progress_ratio" in job and job["progress_ratio"] is None:
+        return None
+    ratio = job.get("progress_ratio")
+    if ratio is None:
+        ratio = job.get("engine_progress") or 0.0
+    try:
+        return float(ratio or 0.0)
+    except (TypeError, ValueError):
+        return None
+
+
 def _public_side_job(job: dict[str, Any]) -> dict[str, Any]:
     """El sondeo ve el mismo reloj y el mismo porcentaje que la cola."""
     view = dict(job)
     view["elapsed_seconds"] = _live_elapsed(job)
-    ratio = job.get("progress_ratio")
-    if ratio is None:
-        ratio = job.get("engine_progress") or 0.0
-    view["progress_ratio"] = float(ratio or 0.0)
+    view["progress_ratio"] = _painted_ratio(job)
     view["events"] = list((job.get("events") or [])[-5:])
     return view
 
@@ -1879,7 +1891,7 @@ def _side_job_view(job: dict[str, Any]) -> dict[str, Any]:
         "status": status,
         "prompt": job.get("prompt") or job.get("source") or "",
         "progress": "",
-        "progress_ratio": job.get("engine_progress") or 0.0,
+        "progress_ratio": _painted_ratio(job),
         "stage": job.get("source") or "",
         "phase": job.get("phase") or "",
         "elapsed_seconds": _live_elapsed(job),
@@ -1887,7 +1899,7 @@ def _side_job_view(job: dict[str, Any]) -> dict[str, Any]:
         "output_name": output_name,
         "duration_seconds": None,
         "error": job.get("error"),
-        "created_at": "",
+        "created_at": job.get("created_at"),
         "audio_url": f"/music/audio/{output_name}" if status == "succeeded" and output_name else None,
     }
 
@@ -1899,7 +1911,7 @@ def _job_view(job: dict[str, Any]) -> dict[str, Any]:
         "status": job["status"],
         "prompt": job.get("prompt", ""),
         "progress": job.get("progress", ""),
-        "progress_ratio": job.get("progress_ratio", 0.0),
+        "progress_ratio": _painted_ratio(job),
         "stage": job.get("stage", ""),
         "phase": job.get("phase", ""),
         "elapsed_seconds": job.get("elapsed_seconds", 0.0),
@@ -1927,28 +1939,32 @@ async def music_jobs() -> dict[str, Any]:
         views,
         key=lambda j: (order.get(j["status"], 4), j.get("created_at") or ""),
     )
-    return {"items": items, "library_version": _library_version()}
+    return {"items": items, "library_version": _library_version(),
+            "uploads_version": _audio_list_version(_uploads_dir(), ALLOWED_UPLOAD_SUFFIXES)}
 
 
-def _library_version() -> float:
-    """Huella de lo que enseña BIBLIOTECA: el mtime más nuevo de outputs/*.mp3
-    (el mismo glob que /music/library). Cualquier alta, mezcla, versión o
-    borrado que cambie lo visible cambia la huella, y la UI refresca al
-    verla cambiar: no depende de transiciones de la cola (que fallan con
-    trabajos encadenados o endpoints síncronos sin job, spec/02 [R1])."""
-    newest = 0.0
+def _audio_list_version(directory: Path, suffixes: set[str]) -> str:
+    """Huella de nombres y metadata: detecta cambios también en pistas antiguas."""
+    entries = []
     try:
-        paths = settings.outputs_dir.glob("*.mp3")
+        paths = list(directory.iterdir())
     except OSError:
-        return newest
+        paths = []
     for path in paths:
+        if path.suffix.lower() not in suffixes:
+            continue
         try:
-            mtime = path.stat().st_mtime
+            stat = path.stat()
         except OSError:
             continue
-        if mtime > newest:
-            newest = mtime
-    return newest
+        if path.is_file():
+            entries.append((path.name, stat.st_size, stat.st_mtime_ns))
+    return hashlib.sha256(json.dumps(sorted(entries), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _library_version() -> str:
+    """Mismo listado MP3 que BIBLIOTECA, incluyendo borrados y renombrados."""
+    return _audio_list_version(settings.outputs_dir, {".mp3"})
 
 
 def _job_uses_motor(job: dict[str, Any], store: str) -> bool:

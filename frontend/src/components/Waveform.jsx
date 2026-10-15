@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 
 /**
  * Forma de onda interactiva: pinta los picos reales (GET /audio/peaks)
  * y permite seleccionar el tramo útil arrastrando (trim inicio/fin).
  */
-export default function Waveform({ fileName, onSelection, sourceKind = null, selection = null, disabled = false }) {
+export default function Waveform({ fileName, onSelection, sourceKind = null, selection = null, disabled = false, nudgeStep = null, scales = true }) {
   const [peaks, setPeaks] = useState(null);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
@@ -100,6 +101,22 @@ export default function Waveform({ fileName, onSelection, sourceKind = null, sel
     else change('end', Math.max(r, selStart) * duration);
   };
   const onUp = () => { dragRef.current = null; };
+  const onKey = (edge) => (event) => {
+    const direction = arrowDirection(event.key);
+    if (!direction || disabled) return;
+    event.preventDefault();
+    const next = nudgeInterval({
+      start: selStart * duration,
+      end: chosen.end,
+      duration,
+      edge,
+      direction,
+      step: nudgeStep,
+    });
+    if (!next) return;
+    if (!selection) setLocalSelection({ start: next.start, end: next.end });
+    onSelection?.({ trim_start_s: next.start, trim_end_s: next.end });
+  };
 
   if (error) return <p className="mono text-[10px] st-err">{error}</p>;
   if (!peaks) return <p className="mono text-[10px] text-[var(--faint)] animate-pulse">CARGANDO ONDA…</p>;
@@ -116,17 +133,14 @@ export default function Waveform({ fileName, onSelection, sourceKind = null, sel
         onPointerCancel={onUp}
         style={{ touchAction: 'none' }}
       />
-      <label className="sr-only focus-within:not-sr-only">Inicio de la selección en la onda
-        <input aria-label="Inicio de la selección en la onda" type="range" min="0" max={selEnd * duration} step="any" value={selStart * duration} disabled={disabled} onChange={(event) => change('start', event.target.value)} />
-      </label>
-      <label className="sr-only focus-within:not-sr-only">Final de la selección en la onda
-        <input aria-label="Final de la selección en la onda" type="range" min={selStart * duration} max={duration} step="any" value={selEnd * duration} disabled={disabled} onChange={(event) => change('end', event.target.value)} />
-      </label>
-      <div className="flex items-center justify-between mono text-[9.5px] text-[var(--faint)]">
-        <span>INICIO {duration ? (selStart * duration).toFixed(1) : '—'}s</span>
-        <span>arrastra los marcadores para recortar</span>
-        <span>FIN {duration ? (selEnd * duration).toFixed(1) : '—'}s</span>
-      </div>
+      {scales && <>
+        <label className="label">INICIO ONDA
+          <input aria-label="Inicio de la selección en la onda" type="range" min="0" max={selEnd * duration} step={Number(nudgeStep) > 0 ? nudgeStep : undefined} value={selStart * duration} disabled={disabled} onKeyDown={onKey('start')} onChange={(event) => change('start', event.target.value)} className="block w-full min-w-0" />
+        </label>
+        <label className="label">FIN ONDA
+          <input aria-label="Final de la selección en la onda" type="range" min={selStart * duration} max={duration} step={Number(nudgeStep) > 0 ? nudgeStep : undefined} value={selEnd * duration} disabled={disabled} onKeyDown={onKey('end')} onChange={(event) => change('end', event.target.value)} className="block w-full min-w-0" />
+        </label>
+      </>}
     </div>
   );
 }

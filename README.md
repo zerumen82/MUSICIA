@@ -5,11 +5,11 @@ Estudio musical local para Windows: crea canciones instrumentales o con voz cant
 ## Qué puede hacer
 
 - **CREAR** — Prompt editable, letra e idioma opcionales; BPM, tono, compás, semilla y variantes. MEJORAR propone un borrador optativo.
-- **SUBIR** — MP3/WAV, análisis DSP y análisis local revisable de la fuente. REMIX trabaja sobre el original mediante cover, repaint o separación de voz, batería, bajo y acompañamiento restante.
+- **SUBIR** — MP3/WAV, análisis DSP y análisis local revisable de la fuente. REMIX trabaja sobre el original mediante cover, repaint o separación de voz, batería, bajo y acompañamiento restante, con BPM común para las pistas y duración mayor por repetición de partes con transiciones.
 - **MEZCLA** — Pistas de biblioteca y subidas, volúmenes, fundidos, cuadre cuando el tempo es fiable y normalización con ffmpeg.
 - **BIBLIOTECA** — Audios, fichas de generación, renombrado, descarga y herramientas por pista. Los trabajos muestran fase y errores reales.
 
-El plan R9/R10 está en corrección tras la auditoría del 2026-10-13. La implementación existente y las pruebas parciales no acreditan su cierre completo: consulta [pendientes](spec/03-PENDIENTES.md), [criterios del plan](spec/06-REMIX-INTEGRAL.md) y [bitácora](memory.md). La adecuación musical requiere escucha del usuario.
+El plan R9/R10 está en corrección tras la auditoría del 2026-10-13. La implementación existente y las pruebas parciales no acreditan su cierre completo: consulta [pendientes](spec/03-PENDIENTES.md), [criterios del plan](spec/06-REMIX-INTEGRAL.md) y [bitácora](memory.md). La ampliación R11 (BPM común por pistas y duración mayor por repetición de partes) quedó cerrada a nivel técnico el 2026-10-14 con PASS del tester y APPROVE del reviewer, sin cerrar R9/R10. El 2026-10-14 se comprobó además, con los dos audios reales del usuario, que el BPM común todavía no es fiable en uso general (octava del BPM original y BPM no cumplido en canción completa): está abierto como [B6](spec/03-PENDIENTES.md). La adecuación musical requiere escucha del usuario.
 
 ## Arquitectura
 
@@ -43,7 +43,7 @@ Requisitos del entorno: Windows, ffmpeg/ffprobe en PATH, los venv del backend y 
 
 ## Verificación
 
-Hay suites backend `backend/test_*.py` (unittest) y frontend `frontend/src/*.test.js` (Node). La auditoría del 2026-10-13 registró lint/build verdes, 164 tests backend y 8 frontend; son una referencia fechada, no el resultado de las correcciones en curso.
+Hay suites backend `backend/test_*.py` (unittest) y frontend `frontend/src/*.test.js` (Node). La auditoría del 2026-10-13 registró lint/build verdes, 164 tests backend y 8 frontend, y la revisión del 2026-10-14, 203 backend y 42 frontend con lint/build verdes; son referencias fechadas, no el cierre de R9/R10.
 
 ```powershell
 # Prueba oficial: genera música local y valida el MP3 con ffprobe

@@ -5,6 +5,12 @@ import {
 import { api, isTransportBlip } from '../api';
 import SelectBox from './SelectBox';
 
+const trackId = (kind, name) => JSON.stringify([kind, name]);
+const trackSource = (id) => {
+  const [kind, name] = JSON.parse(id);
+  return { kind, name };
+};
+
 /**
  * MIX en una sola línea (el usuario pidió no saturar la pantalla):
  * BASE ▾ · VOZ ▾ · volumen · CUADRAR ▾ · -14 LUFS · MEZCLAR.
@@ -24,6 +30,7 @@ export default function MixLab({ externalRefresh = 0 }) {
   const [arrange, setArrange] = useState(null);  // trozos, si la base es más larga
   const [planNote, setPlanNote] = useState(null);
   const [planning, setPlanning] = useState(false);
+  const [planReady, setPlanReady] = useState(false);
   const [align, setAlign] = useState('si');      // si | no  (decidir antes de mezclar)
   const [normalize, setNormalize] = useState(true);
   const [separator, setSeparator] = useState(null); // {available, device}
@@ -40,6 +47,13 @@ export default function MixLab({ externalRefresh = 0 }) {
       setLibrary(lib.items ?? []);
       setUploads(ups.items ?? []);
       setSeparator(sep);
+      const available = new Set([
+        ...(lib.items ?? []).map((item) => trackId('output', item.name)),
+        ...(ups.items ?? []).map((item) => trackId('upload', item.name)),
+      ]);
+      setBase((current) => available.has(current) ? current : '');
+      setVocal((current) => available.has(current) ? current : '');
+      setFadeTracks((current) => current.filter((id) => available.has(id)));
     } catch (e) {
       if (!isTransportBlip(e.message)) setError(e.message);
     }
@@ -55,36 +69,37 @@ export default function MixLab({ externalRefresh = 0 }) {
     void refresh();
   }, [externalRefresh, refresh]);
 
-  const canMix = base && vocal && !mixing;
-
-  // La UI sabe de qué lista viene cada pista: la mezcla no toca homónimos.
-  const kindOf = useCallback(
-    (name) => (library.some((i) => i.name === name) ? 'output' : 'upload'),
-    [library],
-  );
+  const busy = mixing || separating || fading;
+  const canMix = base && vocal && !busy && !planning && planReady;
 
   // Al elegir base y voz se pide la propuesta de cuadre (no se mezcla nada).
   useEffect(() => {
-    if (!base || !vocal) { setPlan(null); setArrange(null); setPlanNote(null); return undefined; }
+    setPlan(null); setArrange(null); setPlanNote(null); setPlanReady(false);
+    if (!base || !vocal) { setPlanning(false); return undefined; }
+    const baseSource = trackSource(base);
+    const vocalSource = trackSource(vocal);
     let active = true;
     setPlanning(true);
-    api.mixPlan({ base_track: base, vocal_track: vocal, base_kind: kindOf(base), vocal_kind: kindOf(vocal) })
-      .then((d) => { if (active) { setPlan(d.plan); setArrange(d.arrange ?? null); setPlanNote(d.explanation); } })
+    api.mixPlan({ base_track: baseSource.name, vocal_track: vocalSource.name, base_kind: baseSource.kind, vocal_kind: vocalSource.kind })
+      .then((d) => { if (active) { setPlan(d.plan); setArrange(d.arrange ?? null); setPlanNote(d.explanation); setPlanReady(true); } })
       .catch((e) => { if (active) { setPlan(null); setArrange(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
       .finally(() => { if (active) setPlanning(false); });
     return () => { active = false; };
-  }, [base, vocal, kindOf]);
+  }, [base, vocal]);
 
   const doMix = async () => {
+    if (!canMix) return;
+    const baseSource = trackSource(base);
+    const vocalSource = trackSource(vocal);
     setError(null);
     setResult(null);
     setMixing(true);
     try {
       const res = await api.mixTracks({
-        base_track: base,
-        vocal_track: vocal,
-        base_kind: kindOf(base),
-        vocal_kind: kindOf(vocal),
+        base_track: baseSource.name,
+        vocal_track: vocalSource.name,
+        base_kind: baseSource.kind,
+        vocal_kind: vocalSource.kind,
         output_name: mixName.trim() ? mixName.trim() : null,
         base_volume: baseVol,
         vocal_volume: vocalVol,
@@ -101,13 +116,15 @@ export default function MixLab({ externalRefresh = 0 }) {
   };
 
   const doSeparate = async () => {
+    if (!base || busy) return;
+    const source = trackSource(base);
     setError(null);
     setSeparating(true);
     try {
-      const res = await api.separate({ file_name: base, source_kind: kindOf(base), output_name: `${base.replace(/\.[^.]+$/, '')}-separado` });
+      const res = await api.separate({ file_name: source.name, source_kind: source.kind, output_name: `${source.name.replace(/\.[^.]+$/, '')}-separado` });
       setStems(res);
-      setBase(res.base);
-      setVocal(res.vocals);
+      setBase(trackId('output', res.base));
+      setVocal(trackId('output', res.vocals));
       await refresh();
     } catch (e) {
       setError(e.message);
@@ -117,11 +134,8 @@ export default function MixLab({ externalRefresh = 0 }) {
   };
 
   const trackOptions = () => {
-    const libNames = new Set(library.map((i) => i.name));
-    const fromLib = library.map((i) => ({ id: i.name, label: `${i.name} · bib`, title: `biblioteca · ${i.name}` }));
-    const fromUp = uploads
-      .filter((i) => !libNames.has(i.name))
-      .map((i) => ({ id: i.name, label: `${i.name} · sub`, title: `subida · ${i.name}` }));
+    const fromLib = library.map((i) => ({ id: trackId('output', i.name), label: `${i.name} · bib`, title: `biblioteca · ${i.name}` }));
+    const fromUp = uploads.map((i) => ({ id: trackId('upload', i.name), label: `${i.name} · sub`, title: `subida · ${i.name}` }));
     return [...fromLib, ...fromUp];
   };
 
@@ -132,10 +146,12 @@ export default function MixLab({ externalRefresh = 0 }) {
   };
 
   const doCrossfade = async () => {
+    if (fadeTracks.length < 2 || busy) return;
     setError(null);
     setFading(true);
     try {
-      const res = await api.crossfade({ tracks: fadeTracks, track_kinds: fadeTracks.map(kindOf) });
+      const sources = fadeTracks.map(trackSource);
+      const res = await api.crossfade({ tracks: sources.map((source) => source.name), track_kinds: sources.map((source) => source.kind) });
       setFadeNote(res.note ?? null);
       setResult(res.file_name);
       await refresh();
@@ -166,28 +182,28 @@ export default function MixLab({ externalRefresh = 0 }) {
 
         {/* TODO EN UNA LÍNEA */}
         <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
-          <SelectBox label="BASE" options={trackOptions()} value={base}
+          <SelectBox label="BASE" options={trackOptions()} value={base} disabled={busy}
             onChange={setBase} placeholder="elige la base" />
-          <SelectBox label="VOZ" options={trackOptions()} value={vocal}
+          <SelectBox label="VOZ" options={trackOptions()} value={vocal} disabled={busy}
             onChange={setVocal} placeholder="elige la voz cantada" />
-          <input value={mixName} onChange={(e) => setMixName(e.target.value)} placeholder="nombre del mp3" aria-label="Nombre de la mezcla"
+          <input disabled={busy} value={mixName} onChange={(e) => setMixName(e.target.value)} placeholder="nombre del mp3" aria-label="Nombre de la mezcla"
             className="px-2 py-1.5 w-36 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
 
           <div className="flex items-center gap-2">
             <span className="label">BASE</span>
-            <input type="range" min={-24} max={12} step={1} value={baseVol}
+            <input disabled={busy} aria-label="Volumen de la base" type="range" min={-24} max={12} step={1} value={baseVol}
               onChange={(e) => setBaseVol(Number(e.target.value))} className="w-20" />
             <span className="num w-12 text-right">{baseVol > 0 ? '+' : ''}{baseVol} dB</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="label">VOZ</span>
-            <input type="range" min={-24} max={12} step={1} value={vocalVol}
+            <input disabled={busy} aria-label="Volumen de la voz" type="range" min={-24} max={12} step={1} value={vocalVol}
               onChange={(e) => setVocalVol(Number(e.target.value))} className="w-20" />
             <span className="num w-12 text-right">{vocalVol > 0 ? '+' : ''}{vocalVol} dB</span>
           </div>
 
-          <SelectBox options={ALIGN_OPTIONS} value={align} onChange={setAlign} clearable={false} />
-          <button onClick={() => setNormalize((v) => !v)}
+          <SelectBox disabled={busy} options={ALIGN_OPTIONS} value={align} onChange={setAlign} clearable={false} />
+          <button disabled={busy} onClick={() => setNormalize((v) => !v)}
             className={`btn btn-ghost h-8 px-2.5 gap-1.5 ${normalize ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
             title="Normaliza el volumen final a -14 LUFS con pico máximo -1 dBTP">
             {normalize ? <Check size={12} /> : null} -14 LUFS
@@ -201,7 +217,7 @@ export default function MixLab({ externalRefresh = 0 }) {
 
         {/* Segunda línea: acciones de estudio */}
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={doSeparate} disabled={!base || separating || !separator?.available}
+          <button onClick={doSeparate} disabled={!base || busy || !separator?.available}
             className="btn btn-ghost h-8 px-3 gap-1.5"
             title={separator?.available
               ? 'Separa la voz de la base con el motor local (1-3 min la primera vez)'
@@ -226,22 +242,15 @@ export default function MixLab({ externalRefresh = 0 }) {
         <div className="flex items-start gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
           <span className="label shrink-0 pt-2">FUNDIR</span>
           <div className="flex flex-wrap gap-2 flex-1 min-w-0 max-h-28 overflow-y-auto">
-            {(() => {
-              const seen = new Set();
-              return [...library, ...uploads].filter((item) => {
-                if (seen.has(item.name)) return false;
-                seen.add(item.name);
-                return true;
-              });
-            })().map((item) => (
-              <button key={item.name} onClick={() => toggleFadeTrack(item.name)}
-                className={`btn btn-ghost h-7 px-2 ${fadeTracks.includes(item.name) ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
-                title={item.name}>
-                <span className="mono text-[10.5px]">{item.name.replace(/\.[^.]+$/, '').slice(0, 28)}</span>
+            {trackOptions().map((item) => (
+              <button disabled={busy} key={item.id} onClick={() => toggleFadeTrack(item.id)}
+                className={`btn btn-ghost h-7 px-2 min-w-0 max-w-full ${fadeTracks.includes(item.id) ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+                title={item.title}>
+                <span className="mono text-[10.5px] truncate">{item.label}</span>
               </button>
             ))}
           </div>
-          <button onClick={doCrossfade} disabled={fadeTracks.length < 2 || fading}
+          <button onClick={doCrossfade} disabled={fadeTracks.length < 2 || busy}
             className="btn btn-signal h-8 px-4 ml-auto">
             {fading ? <><Loader2 size={13} className="animate-spin" /> FUNDIENDO…</>
               : <><Play size={12} /> FUNDIR {fadeTracks.length || ''}</>}

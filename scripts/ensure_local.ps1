@@ -98,16 +98,32 @@ try {
         } elseif ($motorPresente) {
             Write-Output 'MOTOR=starting'
         } else {
+            # vendor no se versiona: aplicar la corrección revisada antes de
+            # importar el motor, nunca editar un motor que ya está ejecutándose.
+            & (Join-Path $raiz 'backend\venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'apply_acestep_patches.py')
+            if ($LASTEXITCODE -ne 0) {
+                Write-Output 'MOTOR=patch-failed'
+                exit 1
+            }
             $env:ACESTEP_LM_BACKEND = 'pt'
             # Cambio de modelo por trabajo (spec/02 [M1]): sin esto el motor
             # ignora en silencio el modelo pedido y usa el primario.
             $env:ACESTEP_ON_DEMAND_MODEL_LOAD = 'true'
-            Start-Servicio 'MOTOR' `
-                (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
-                @('-m', 'acestep.api_server') `
-                (Join-Path $raiz 'vendor\ACE-Step-1.5') `
-                (Join-Path $logs 'acestep-api.log') `
-                (Join-Path $logs 'acestep-api.err.log')
+            # Sin esto el motor corta a los 600 s y la UI dice que no hubo audio.
+            $backend = Join-Path $raiz 'backend'
+            $topeLineas = & (Join-Path $backend 'venv\Scripts\python.exe') -c "import sys; sys.path.insert(0, r'$backend'); from config import engine_launch_timeout_seconds; print(engine_launch_timeout_seconds())"
+            $tope = @($topeLineas) | Where-Object { "$_" -match '^\d+$' } | Select-Object -Last 1
+            if (-not $tope) {
+                Write-Output 'MOTOR=timeout-unread'
+            } else {
+                $env:ACESTEP_GENERATION_TIMEOUT = "$tope"
+                Start-Servicio 'MOTOR' `
+                    (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
+                    @('-m', 'acestep.api_server') `
+                    (Join-Path $raiz 'vendor\ACE-Step-1.5') `
+                    (Join-Path $logs 'acestep-api.log') `
+                    (Join-Path $logs 'acestep-api.err.log')
+            }
         }
     }
 

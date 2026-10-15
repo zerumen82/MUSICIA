@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause,
-  Music, Mic2, Sparkles, CheckCircle2, HelpCircle, Pencil, Check,
+  Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
 import { api, isTransportBlip } from '../api';
 import RemixIAPanel from './RemixIAPanel';
@@ -9,40 +8,13 @@ import RemixActions from './RemixActions';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
-const KIND_OPTIONS = [
-  { id: 'musica', label: 'Solo música', icon: Music },
-  { id: 'voz', label: 'Solo voz', icon: Mic2 },
-  { id: 'mixta', label: 'Música + voz', icon: Sparkles },
-  { id: 'otro', label: 'Otro / ambienta', icon: HelpCircle },
-];
-
-/* Acciones que la app ofrece según lo que el usuario confirma que es el audio. */
-const ACTIONS_BY_KIND = {
-  musica: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Transforma la canción completa, un tramo o grupos de pistas del original.' },
-    { id: 'extend', title: 'Rehacer un tramo', desc: 'Regenera un trozo de esta pista. El resto se queda.' },
-  ],
-  voz: [
-    { id: 'remix', title: 'Procesar la voz', desc: 'Abre el remixer sobre esta voz.' },
-    { id: 'backing', title: 'Crear base para la voz', desc: 'Base nueva, de la misma duración que este audio, con el prompt que escribas.' },
-  ],
-  mixta: [
-    { id: 'remix', title: 'Remix del audio', desc: 'Transforma la canción completa, un tramo o grupos de pistas del original.' },
-  ],
-  otro: [
-    { id: 'remix', title: 'Efectos sobre el audio', desc: 'Abre el remixer sobre este audio.' },
-  ],
-};
-
-export default function Uploads() {
+export default function Uploads({ onChanged }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lastAnalysis, setLastAnalysis] = useState(null); // {file_name, analysis}
-  const [confirmKind, setConfirmKind] = useState(null); // tipo confirmado por el usuario
-  const [chosenAction, setChosenAction] = useState(null);
   const [playing, setPlaying] = useState(null);
   const [remixState, setRemixState] = useState(null); // resultado o error del remix
   const [generating, setGenerating] = useState(false);
@@ -69,8 +41,6 @@ export default function Uploads() {
     setError(null);
     setRemixState(null);
     setLastAnalysis(null);
-    setConfirmKind(null);
-    setChosenAction(null);
     setUploading(true);
     setProgress(0);
     try {
@@ -78,16 +48,14 @@ export default function Uploads() {
         if (evt.total) setProgress(Math.round((evt.loaded / evt.total) * 100));
       });
       setLastAnalysis(res);
+      setRemixName(res.file_name);
+      await refresh();
+      onChanged?.();
     } catch (e) {
       setError(e.message);
     } finally {
       setUploading(false);
     }
-  };
-
-  const confirmType = (kind) => {
-    setConfirmKind(kind);
-    setChosenAction(null);
   };
 
   // El formulario prepara una sola petición para preview y envío, sin recomponerla.
@@ -123,6 +91,7 @@ export default function Uploads() {
       if (remixName === oldName) setRemixName(res.name);
       if (playing === oldName) setPlaying(null);
       await refresh();
+      onChanged?.();
     } catch (e) {
       setError(e.message);
     }
@@ -133,8 +102,10 @@ export default function Uploads() {
       await api.deleteUpload(name);
       if (playing === name) setPlaying(null);
       if (remixName === name) setRemixName(null);
+      if (lastAnalysis?.file_name === name) setLastAnalysis(null);
       setConfirmDelete(null);
       await refresh();
+      onChanged?.();
     } catch (e) {
       setError(e.message);
     }
@@ -151,12 +122,19 @@ export default function Uploads() {
         </div>
 
         <div
+          role="button" tabIndex={uploading ? -1 : 0} aria-label="Subir archivo MP3 o WAV" aria-disabled={uploading}
           className={`border border-dashed border-[var(--line-strong)] flex flex-col items-center cursor-pointer hover:border-[var(--acc-line)] transition-colors ${lastAnalysis ? 'py-4 gap-2' : 'py-14 gap-4'}`}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => { if (!uploading) inputRef.current?.click(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (!uploading) inputRef.current?.click();
+            }
+          }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
-            if (e.dataTransfer.files?.[0]) doUpload(e.dataTransfer.files[0]);
+            if (!uploading && e.dataTransfer.files?.[0]) doUpload(e.dataTransfer.files[0]);
           }}
         >
           <input
@@ -189,79 +167,17 @@ export default function Uploads() {
         {/* ===== Análisis + preguntas ===== */}
         {lastAnalysis && (
           <div className="border border-[var(--acc-line)] bg-[var(--acc-dim)] p-5 flex flex-col gap-4 fade-up">
-            <div className="flex items-center gap-3">
-              <CheckCircle2 size={16} className="text-[var(--acc)]" />
-              <span className="mono text-[11px] tracking-[0.1em] text-[var(--acc)]">
-                ANÁLISIS DE {lastAnalysis.file_name.toUpperCase()}
-              </span>
-            </div>
-
-            {/* Features reales */}
+            <span className="mono text-[11px] tracking-[0.1em] text-[var(--acc)]">{lastAnalysis.file_name}</span>
             <div className="flex flex-wrap gap-x-8 gap-y-2 mono text-[11px]">
               <span>duración <b className="text-[var(--acc)]">{lastAnalysis.analysis.duration_seconds}s</b></span>
               <span>bpm <b className="text-[var(--acc)]">{lastAnalysis.analysis.bpm ?? '—'}</b></span>
-              <span>graves <b className="text-[var(--acc)]">{Math.round(lastAnalysis.analysis.bass_ratio * 100)}%</b></span>
               <span>loudness <b className="text-[var(--acc)]">{lastAnalysis.analysis.mean_loudness_dbfs} dBFS</b></span>
-              <span>dinámica <b className="text-[var(--acc)]">±{lastAnalysis.analysis.dynamics_std_db} dB</b></span>
-              <span>pausas <b className="text-[var(--acc)]">{Math.round(lastAnalysis.analysis.silence_ratio * 100)}%</b></span>
             </div>
-
-            {/* Hipótesis del sistema */}
-            <div className="flex flex-col gap-1.5">
-              <span className="label">MI HIPÓTESIS · {lastAnalysis.analysis.hypothesis.kind.toUpperCase()} (confianza {lastAnalysis.analysis.hypothesis.confidence})</span>
-              <div className="flex flex-wrap gap-1.5">
-                {lastAnalysis.analysis.hypothesis.signals.map((s) => (
-                  <span key={s} className="btn-chip">{s}</span>
-                ))}
-              </div>
-            </div>
-
-            {/* PREGUNTA 1: ¿qué es? */}
-            <div className="flex flex-col gap-2">
-              <span className="label">¿QUÉ ES ESTE AUDIO? (corrígeme si me equivoco)</span>
-              <div className="flex flex-wrap gap-1.5">
-                {KIND_OPTIONS.map(({ id, label, icon: Icon }) => (
-                  <button key={id} onClick={() => confirmType(id)}
-                    className={`btn btn-ghost h-8 px-3 ${confirmKind === id ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}>
-                    <Icon size={12} /> {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* PREGUNTA 2: ¿qué hacemos? (aparece al confirmar) */}
-            {confirmKind && (
-              <div className="flex flex-col gap-2 border-t border-[var(--line)] pt-4">
-                <span className="label">¿QUÉ QUEREMOS HACER CON ÉL?</span>
-                <div className="flex flex-col gap-1.5">
-                  {ACTIONS_BY_KIND[confirmKind].map(({ id, title, desc }) => (
-                    <button key={id} onClick={() => setChosenAction(id)}
-                      className={`text-left px-4 py-2.5 border transition-colors ${chosenAction === id ? 'border-[var(--acc-line)] bg-[var(--acc-dim)]' : 'border-[var(--line)] hover:border-[var(--line-strong)]'}`}>
-                      <span className="block text-[13px] font-semibold text-zinc-200">{title}</span>
-                      <span className="block mono text-[10px] text-[var(--faint)] mt-0.5">{desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Acción elegida: panel específico */}
-            {(chosenAction === 'remix' || chosenAction === 'recreate') && (
-              <RemixActions fileName={lastAnalysis.file_name} sourceKind="upload" onDone={async () => {
-                await refresh();
-                setRemixState(null);
-              }} />
-            )}
-            {chosenAction === 'extend' && (
-              <RemixActions fileName={lastAnalysis.file_name} sourceKind="upload" initialAction="tramo" onDone={async () => {
-                await refresh();
-              }} />
-            )}
-
-            {chosenAction === 'backing' && (
+            <details data-new-backing>
+              <summary className="label cursor-pointer">ACOMPAÑAMIENTO NUEVO</summary>
               <RemixIAPanel fileName={lastAnalysis.file_name} sourceKind="upload" sourceDuration={lastAnalysis.analysis.duration_seconds}
                 createBacking onLaunch={runAIGeneration} generating={generating} jobNote={remixState?.job ? remixState.note : null} />
-            )}
+            </details>
 
             {remixState?.ok && !remixState.job && (
               <div className="border-t border-[var(--line)] pt-3 flex items-center gap-3">
@@ -274,6 +190,12 @@ export default function Uploads() {
             {remixState?.ok === false && (
               <p className="mono text-[10.5px] st-err">{remixState.error}</p>
             )}
+          </div>
+        )}
+
+        {remixName && (
+          <div className="border border-[var(--line)] bg-[var(--surface)] p-4">
+            <RemixActions fileName={remixName} sourceKind="upload" onDone={() => { void refresh(); }} />
           </div>
         )}
 
@@ -336,11 +258,6 @@ export default function Uploads() {
                   <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
                 )}
               </div>
-              {remixName === item.name && (
-                <div className="px-3 pb-4 pt-1 bg-[var(--surface-2)]">
-                  <RemixActions fileName={item.name} sourceKind="upload" onDone={() => { void refresh(); }} />
-                </div>
-              )}
             </div>
           ))}
         </div>

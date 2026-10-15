@@ -1,0 +1,42 @@
+--- a/acestep/core/generation/handler/generate_music_decode.py
++++ b/acestep/core/generation/handler/generate_music_decode.py
+@@ -141,6 +141,7 @@
+                 using_mlx_vae = self.use_mlx_vae and self.mlx_vae is not None
+                 vae_cpu = False
+                 vae_device = None
++                vae_dtype = None
+                 if not using_mlx_vae:
+                     vae_cpu = os.environ.get("ACESTEP_VAE_ON_CPU", "0").lower() in ("1", "true", "yes")
+                     if not vae_cpu:
+@@ -161,13 +162,15 @@
+                                     f"{effective_free:.2f} GB free VRAM; auto-enabling CPU VAE decode"
+                                 )
+                                 vae_cpu = True
++                try:
+                     if vae_cpu:
+-                        logger.info("[generate_music] Moving VAE to CPU for decode (ACESTEP_VAE_ON_CPU=1)...")
+-                        vae_device = next(self.vae.parameters()).device
+-                        self.vae = self.vae.cpu()
+-                        pred_latents_for_decode = pred_latents_for_decode.cpu()
++                        logger.info("[generate_music] Moving VAE to CPU with CPU-safe dtype for decode...")
++                        vae_parameter = next(self.vae.parameters())
++                        vae_device, vae_dtype = vae_parameter.device, vae_parameter.dtype
++                        cpu_dtype = self._get_vae_dtype("cpu")
++                        self.vae = self.vae.to(device="cpu", dtype=cpu_dtype)
++                        pred_latents_for_decode = pred_latents_for_decode.to(device="cpu", dtype=cpu_dtype)
+                         self._empty_cache()
+-                try:
+                     if use_tiled_decode:
+                         logger.info("[generate_music] Using tiled VAE decode to reduce VRAM usage...")
+                         pred_wavs = self.tiled_decode(pred_latents_for_decode)
+@@ -187,8 +190,8 @@
+                         del decoder_output
+                 finally:
+                     if vae_cpu and vae_device is not None:
+-                        logger.info("[generate_music] Restoring VAE to original device after CPU decode path...")
+-                        self.vae = self.vae.to(vae_device)
++                        logger.info("[generate_music] Restoring VAE device and dtype after CPU decode path...")
++                        self.vae = self.vae.to(device=vae_device, dtype=vae_dtype)
+                     self._empty_cache()
+                 logger.debug(
+                     "[generate_music] After VAE decode: "

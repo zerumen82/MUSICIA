@@ -226,6 +226,32 @@ class FichaMedidaTest(unittest.TestCase):
         # El fallo de medición no puede tumbar nada: devuelve None y ya.
         self.assertIsNone(self.main._measure_bpm(self.dir / "no-existe.mp3"))
 
+    def test_original_measurement_preserves_groove_precision_for_tempo_duration(self):
+        from audio_analysis import detect_groove
+        from config import AppSettings
+        from remix_project import RemixProjectRequest, timeline_plan
+        path = self.dir / "fractional-pulse.wav"
+        rate, bpm, seconds = 8000, 166.25, 20
+        period = 60 / bpm
+        with wave.open(str(path), "wb") as stream:
+            stream.setnchannels(1)
+            stream.setsampwidth(2)
+            stream.setframerate(rate)
+            stream.writeframes(b"".join(struct.pack("<h", int(
+                (20000 if (index / rate) % period < 0.08 else 500)
+                * math.sin(2 * math.pi * 220 * index / rate)))
+                for index in range(rate * seconds)))
+        groove = detect_groove(path)
+        measured = self.main._measure_bpm(path)
+        self.assertEqual(measured["bpm_measured"], groove["bpm"])
+        self.assertNotEqual(measured["bpm_measured"], round(groove["bpm"], 1))
+        settings = AppSettings()
+        groups = {group["id"]: "keep" for group in settings.remix.groups}
+        automatic = RemixProjectRequest(source_name=path.name, scope="groups", groups=groups, bpm=199)
+        manual = automatic.model_copy(update={"source_bpm": groove["bpm"]})
+        self.assertEqual(timeline_plan(automatic, seconds, settings, measured)["natural_duration_seconds"],
+                         timeline_plan(manual, seconds, settings)["natural_duration_seconds"])
+
 
 if __name__ == "__main__":
     unittest.main()
