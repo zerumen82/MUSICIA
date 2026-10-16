@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
-import { api, isTransportBlip } from '../api';
+import { api, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
+import { identifyReading } from '../identify_reading';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 
@@ -22,7 +23,9 @@ export default function Uploads({ onChanged }) {
   const [renameValue, setRenameValue] = useState('');
   const [remixName, setRemixName] = useState(null); // subida abierta en la mesa de remix
   const [confirmDelete, setConfirmDelete] = useState(null); // subida pendiente de confirmar
+  const [identify, setIdentify] = useState({});
   const inputRef = useRef(null);
+  const alive = useRef(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -35,7 +38,43 @@ export default function Uploads({ onChanged }) {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    alive.current = true;
+    void refresh();
+    return () => { alive.current = false; };
+  }, [refresh]);
+
+  const identifyBusy = Object.values(identify).some((item) => item.status === 'running');
+
+  const identifyFile = async (name) => {
+    setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: 'Esperando análisis', message: '' } }));
+    try {
+      const started = await api.remixAnalyze({ source_name: name, source_kind: 'upload' });
+      let misses = 0;
+      for (;;) {
+        if (!alive.current) return;
+        let job;
+        try {
+          job = await api.remixAnalyzeStatus(started.job_id);
+          misses = 0;
+        } catch (err) {
+          if (++misses >= JOB_POLL_MAX_MISSES) throw err;
+          await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+          continue;
+        }
+        if (!alive.current) return;
+        if (job.status === 'failed') throw new Error(job.error || 'El análisis falló');
+        if (job.status === 'succeeded') {
+          setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result) } }));
+          return;
+        }
+        setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: job.phase || 'El modelo local analiza el audio', message: '' } }));
+        await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+      }
+    } catch (err) {
+      if (alive.current) setIdentify((current) => ({ ...current, [name]: { status: 'failed', phase: '', message: err.message } }));
+    }
+  };
 
   const doUpload = async (file) => {
     setError(null);
@@ -239,13 +278,24 @@ export default function Uploads({ onChanged }) {
                   </>
                 )}
                 {renameName !== item.name && (
-                  <button
-                    type="button"
-                    onClick={() => setRemixName(remixName === item.name ? null : item.name)}
-                    className={`btn btn-ghost h-7 px-2.5 shrink-0 ${remixName === item.name ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
-                  >
-                    REMIX
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setRemixName(remixName === item.name ? null : item.name)}
+                      className={`btn btn-ghost h-7 px-2.5 shrink-0 ${remixName === item.name ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+                    >
+                      REMIX
+                    </button>
+                    <button
+                      type="button"
+                      disabled={identifyBusy}
+                      onClick={() => void identifyFile(item.name)}
+                      className="btn btn-ghost h-7 px-2.5 shrink-0"
+                    >
+                      {identify[item.name]?.status === 'running' ? <Loader2 size={11} className="animate-spin" /> : null}
+                      IDENTIFY
+                    </button>
+                  </>
                 )}
                 <span className="mono text-[10px] text-[var(--faint)] shrink-0">{fmtBytes(item.size_bytes)}</span>
                 <a href={api.uploadUrl(item.name)} download className="btn btn-ghost h-7 px-2 shrink-0"><Download size={11} /></a>
@@ -258,6 +308,12 @@ export default function Uploads({ onChanged }) {
                   <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
                 )}
               </div>
+              {identify[item.name]?.status === 'running' && (
+                <p role="status" className="mono text-[11px] text-[var(--muted)] px-3 pb-2">{identify[item.name].phase}</p>
+              )}
+              {identify[item.name]?.message && (
+                <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] px-3 pb-2 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('No está') || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
+              )}
             </div>
           ))}
         </div>

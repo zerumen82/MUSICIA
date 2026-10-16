@@ -20,7 +20,7 @@ node --test src/prompt_gloss.test.js src/audio_player.test.js src/audio_comparis
 - `Composer.jsx`: prompt, controles de canción y letra; no añade recetas musicales automáticamente.
 - `Uploads.jsx` y `Library.jsx`: fuentes y acceso a REMIX; `RemixActions.jsx` abre `RemixWorkspace.jsx` para canción completa, tramo y grupos reales.
 - `Waveform.jsx`: onda y selección regional; `MixLab.jsx`: mezcla real mediante ffmpeg.
-- `JobsPanel.jsx` y `App.jsx`: trabajos, fase, errores, PARAR y estado local del motor.
+- `App.jsx`: sondeo del trabajo activo, fase en la cabecera y estado local del motor. CREAR no lista la cola; la pista terminada está en BIBLIOTECA. PARAR está en el progreso de la generación.
 
 `Mixer.jsx` no se monta y `Sequencer.jsx` sigue retirado de la navegación. La locución fue eliminada; el canto se genera con ACE-Step en CREAR.
 

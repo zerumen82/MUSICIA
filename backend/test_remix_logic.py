@@ -399,6 +399,19 @@ class LibraryVersionTest(unittest.TestCase):
         self.assertIsNone(view["audio_url"])
         self.assertIsNone(view["output_name"])
 
+    def test_el_nombre_pedido_se_ve_mientras_el_remix_sigue(self):
+        view = main._side_job_view({
+            "job_id": "named", "status": "running", "output_name": "Gabber nuevo",
+            "prompt": "A track with gabber hardcore · kicks contundentes",
+        })
+        self.assertEqual(view["output_name"], "Gabber nuevo")
+        self.assertIsNone(view["audio_url"])
+        done = main._side_job_view({
+            "job_id": "named", "status": "succeeded", "output_name": "Gabber nuevo",
+            "result": {"mix": "Gabber nuevo.mp3"},
+        })
+        self.assertEqual(done["output_name"], "Gabber nuevo.mp3")
+
 
 class CoverNativoTest(unittest.TestCase):
     """Cover nativo del remix (spec/02 [R2][R3]): la fuerza viaja y el

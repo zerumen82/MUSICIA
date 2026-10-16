@@ -77,6 +77,11 @@ class Busqueda(unittest.TestCase):
         self.assertEqual(res["items"][: len(res["exact"])], res["exact"])
 
     @unittest.skipUnless(DISPONIBLE, "falta vendor/ACE-Step-1.5 (vocabulario del motor)")
+    def test_una_linea_entera_es_genero_y_un_texto_ajeno_no(self) -> None:
+        self.assertEqual(genre_glossary.glossary_line("  Gabber,   hardstyle, hardcore "), "gabber, hardstyle, hardcore")
+        self.assertIsNone(genre_glossary.glossary_line("esto no es una linea del glosario"))
+        self.assertIsNone(genre_glossary.glossary_line(""))
+
     def test_no_inventa_formas_imposibles(self) -> None:
         self.assertEqual(genre_glossary.combine("zzqq", "wxyz")["total"], 0)
         self.assertEqual(genre_glossary.combine("techno", "techno")["total"], 0)

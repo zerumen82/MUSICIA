@@ -101,6 +101,9 @@ class GenerationRequest:
     repaint_wav_crossfade_sec: float | None = None
     repaint_latent_crossfade_frames: int | None = None
     external_voice: bool = False
+    # Texto del usuario para las contradicciones. No viaja al motor:
+    # el prompt ya es el inglés del estilo.
+    constraint_prompt: str | None = None
 
 
 @dataclass
@@ -320,7 +323,8 @@ class MusicService:
         )
         try:
             validate_explicit_constraints(
-                request.prompt, bpm=defaults.bpm if request.bpm is None else request.bpm,
+                request.constraint_prompt or request.prompt,
+                bpm=defaults.bpm if request.bpm is None else request.bpm,
                 time_signature=defaults.time_signature if request.time_signature is None else request.time_signature,
                 instrumental=(False if request.external_voice else instrumental if task == "text2music" else request.instrumental),
                 lyrics=request.lyrics, marker=defaults.instrumental_marker,

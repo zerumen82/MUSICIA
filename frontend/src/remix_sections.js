@@ -26,7 +26,7 @@ export const SCOPE_BUSY = {
 export const CONVERTING = 'Convirtiendo el audio a archivo';
 
 export const SECTIONS = {
-  advanced: { title: 'REFERENCIA Y AVANZADOS', why: 'Opcional. Timbre de otra pista, voz, nombre y semilla.' },
+  advanced: { title: 'REFERENCIA Y AVANZADOS', why: 'Opcional. Timbre de otra pista, voz y semilla.' },
   compare: { title: 'COMPARAR CON EL ORIGINAL', why: 'Escucha el resultado al lado del archivo de partida.' },
   detected: { title: 'AUDIO DETECTADO', why: 'Lo que se oyó en el archivo. Corregirlo no cambia el remix.' },
   engine: { title: 'PARÁMETROS DEL MOTOR', why: 'Lo que se enviará al pulsar REMIX.' },

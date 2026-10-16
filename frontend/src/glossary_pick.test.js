@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyGlossaryPick, applyModelTerm, ensureModelTerm, findStyle, sinBpmEnFrase, stylesForQuery } from './glossary_pick.js';
+import { applyGlossaryPick, applyModelTerm, ensureModelTerm, findStyle, joinStyleAndTracks, joinTrackPrompts, sinBpmEnFrase, stylesForQuery } from './glossary_pick.js';
 
 const GABBER = {
   genre: 'gabber',
@@ -33,6 +33,22 @@ test('una línea con comas entra entera y al pulsarla otra vez sale entera', () 
   assert.equal(once, `A track with ${line}`);
   assert.equal(applyModelTerm(once, 'medieval'), `A track with ${line} · medieval`);
   assert.equal(applyModelTerm(once, line), '');
+});
+
+test('las pistas en transformar se juntan y una vacía no inventa texto', () => {
+  const drums = applyModelTerm('', 'gabber, hardstyle, hardcore');
+  const bass = 'distorted kicks';
+  assert.equal(
+    joinTrackPrompts([drums, '', '   ', bass]),
+    'A track with gabber, hardstyle, hardcore · distorted kicks',
+  );
+  assert.equal(joinTrackPrompts(['', '  ']), '');
+  assert.equal(joinStyleAndTracks('A track with gabber', ['', 'distorted kicks']), 'A track with gabber · distorted kicks');
+  assert.equal(joinStyleAndTracks('hardstyle with distorted kicks', ['']), 'hardstyle with distorted kicks');
+  assert.equal(
+    joinTrackPrompts([drums, 'A track with gabber, hardstyle, hardcore · fast double kick']),
+    'A track with gabber, hardstyle, hardcore · fast double kick',
+  );
 });
 
 test('volver a pulsarlo quita solo ese término', () => {

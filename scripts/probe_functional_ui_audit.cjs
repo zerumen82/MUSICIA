@@ -262,17 +262,17 @@ app.whenReady().then(async () => {
   await win.loadURL(api);
   await wait('real app shell', () => ev(() => document.querySelectorAll('nav button').length >= 4));
   await check('Global declared spacing matches rendered CSS', padding);
-  await check('CREAR: recent completed queue matches real newest playable jobs', async () => {
+  await check('CREAR no lista la cola; BIBLIOTECA muestra los MP3', async () => {
     await tab('CREAR', 'composer');
-    await wait('real polled job feed mounted', () => ev(() => document.querySelector('[data-active="true"]')?.innerText.includes('COLA DE TRABAJOS')));
-    const jobs = await ev(async (base) => (await (await fetch(base + '/music/jobs')).json()).items, api);
-    const newest = jobs.filter((job) => job.status === 'succeeded' && job.output_name).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 8);
-    const visible = await ev(() => [...document.querySelectorAll('[data-active="true"] a[download]')].map((link) => ({ text: link.innerText, href: link.href })));
-    report.jobs_queue = { newest, actual_downloads: visible }; save();
-    const invalid = visible.filter((item) => /\/(?:undefined|null)$/.test(new URL(item.href).pathname));
-    if (invalid.length) throw new Error(`Invalid completed audio link: ${JSON.stringify(invalid)}`);
-    if (newest.some((job) => !visible.some((item) => decodeURIComponent(new URL(item.href).pathname).endsWith('/' + job.output_name)))) throw new Error('Newest playable completed jobs absent from queue');
-    return report.jobs_queue;
+    const crear = await ev(() => document.querySelector('[data-panel="composer"]')?.innerText ?? '');
+    if (crear.includes('COLA DE TRABAJOS')) throw new Error('La cola de CREAR sigue visible');
+    await tab('BIBLIOTECA', 'library');
+    const library = await ev(async (base) => (await (await fetch(base + '/music/library')).json()).items, api);
+    const visible = await ev(() => document.querySelector('[data-panel="library"]')?.innerText ?? '');
+    report.library_instead_of_queue = { count: library.length, names: library.map((item) => item.name) };
+    save();
+    if (library.some((item) => !visible.includes(item.name))) throw new Error('Un MP3 de la biblioteca no se ve');
+    return report.library_instead_of_queue;
   });
   for (const [label, panel] of [['CREAR', 'composer'], ['SUBIR', 'uploads'], ['MEZCLA', 'mix'], ['BIBLIOTECA', 'library']]) {
     await check(`${label}: actual visible layout at both requested sizes`, async () => {

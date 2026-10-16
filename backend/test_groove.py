@@ -1,4 +1,5 @@
 """Regresión B6: picos armónicos y detección sobre WAV reales."""
+import array as array_module
 import math
 import random
 import struct
@@ -8,7 +9,8 @@ import wave
 from pathlib import Path
 
 from audio_analysis import (
-    _autocorr_scores, _fold_groove, _multi_period_evidence, _prefer_supported_octave,
+    _autocorr_scores, _fold_groove, _multi_period_evidence, _prefer_onset_beat,
+    _prefer_supported_octave,
     _refine_groove_detail, _refine_groove_period, _reject_flat_shoulder,
     _reject_unprominent_period,
     _score_supported_grooves, _select_groove_peak, detect_groove,
@@ -159,6 +161,48 @@ class GrooveTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaisesRegex(ValueError, "evidencia de pico"):
                     _reject_unprominent_period(1.0, 1.0, invalid)
+
+    def _write_clicks(self, path, bpm, seconds, accent_every=0):
+        rate = 8000
+        count = int(rate * seconds)
+        samples = array_module.array("h", bytes(count * 2))
+        step = rate * 60.0 / bpm
+        index = 0
+        position = 0.0
+        while position < count - 8:
+            amplitude = 24000 if accent_every and index % accent_every == 0 else 8000
+            start = int(position)
+            for offset in range(6):
+                samples[start + offset] = int(amplitude * (1 - offset / 6))
+            index += 1
+            position += step
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(samples.tobytes())
+
+    def test_bar_accent_does_not_hide_the_kick_grid(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "kicks.wav"
+            self._write_clicks(path, 170, 16, accent_every=4)
+            groove = detect_groove(path)
+        self.assertGreater(groove["bpm"], 160)
+        self.assertLess(groove["bpm"], 180)
+
+    def test_plain_pulse_without_a_faster_grid_stays_on_that_pulse(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "slow.wav"
+            self._write_clicks(path, 72, 16)
+            groove = detect_groove(path)
+        self.assertGreater(groove["bpm"], 68)
+        self.assertLess(groove["bpm"], 76)
+
+    def test_onset_beat_rejects_an_invalid_ratio(self):
+        settings = AppSettings().remix
+        settings.groove_onset_spectrum_ratio = 1
+        with self.assertRaisesRegex(ValueError, "octava"):
+            _prefer_onset_beat([0.0, 1.0], 100, 40, [(40, 1.0, 0.5)], settings)
 
     def test_flat_shoulder_is_not_a_measurable_tempo(self):
         # 0,286 frente a 0,248 es la meseta que el ajuste llevó a 226.

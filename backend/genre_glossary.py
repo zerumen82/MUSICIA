@@ -60,6 +60,22 @@ def _norm(value: str) -> str:
     return " ".join((value or "").lower().split())
 
 
+def glossary_line(text: str) -> str | None:
+    """La línea entera del glosario igual a `text`, o None.
+
+    No recorta ni elige una subfrase. Si el modelo escribió otra cosa, no es
+    un género del glosario.
+    """
+    needle = _norm(text)
+    if not needle:
+        return None
+    items, _lower = _vocab()
+    for item in items:
+        if _norm(item) == needle:
+            return item
+    return None
+
+
 def _clamp(limit: Any) -> int:
     """Límite de resultados dentro de [1, MAX_LIMIT] (nunca se sirve el archivo entero)."""
     try:

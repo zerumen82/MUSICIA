@@ -92,6 +92,38 @@ export function applyGlossaryPick(prompt, { genre = '' } = {}) {
   return applyModelTerm(prompt, genre);
 }
 
+/**
+ * Junta el texto de las pistas en transformar en una sola caption.
+ * Una pista vacía no aporta términos. No se inventa ninguno.
+ * El mismo término en dos pistas queda una vez, en el orden de las pistas.
+ */
+export function joinTrackPrompts(texts) {
+  const terms = [];
+  for (const text of texts ?? []) {
+    for (const term of modelTerms(text)) {
+      if (!terms.some((item) => norm(item) === norm(term))) terms.push(term);
+    }
+  }
+  return terms.length ? `${FRAME}${terms.join(JOIN)}` : '';
+}
+
+/**
+ * El estilo del prompt se conserva. Los textos de pista se suman.
+ * Si el prompt ya es una caption del modelo, todo queda en una sola.
+ * Una pista vacía no añade términos.
+ */
+export function joinStyleAndTracks(style, tracks) {
+  const styleText = String(style ?? '').trim();
+  const trackPhrase = joinTrackPrompts(tracks);
+  if (!trackPhrase) return styleText;
+  if (!styleText) return trackPhrase;
+  if (styleText.toLowerCase().startsWith(FRAME.toLowerCase())) {
+    return joinTrackPrompts([styleText, ...(tracks ?? [])]);
+  }
+  const extra = modelTerms(trackPhrase).join(JOIN);
+  return extra ? `${styleText} · ${extra}` : styleText;
+}
+
 /** Añade un término si falta. No lo quita: sirve para la voz, que ya está elegida. */
 export function ensureModelTerm(prompt, term) {
   const token = String(term ?? '').trim();

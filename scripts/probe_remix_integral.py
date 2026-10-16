@@ -21,6 +21,7 @@ from config import get_settings
 from mixer_service import MixerService
 from music_service import GenerationRequest, MusicService
 from prompt_style import style_caption
+from style_translator import style_for_engine
 
 
 def request(api, method, route, body=None):
@@ -102,11 +103,13 @@ def main():
             rows = []
             for original, preview in zip(prompts, previews):
                 for task in ("text2music", "cover", "repaint"):
+                    engine = style_for_engine(style_caption(preview), settings)
                     payload = service.build_payload(GenerationRequest(
-                        prompt=style_caption(preview), task_type=task,
+                        prompt=engine, constraint_prompt=style_caption(preview), task_type=task,
                         source_path=None if task == "text2music" else str(settings.outputs_dir / args.source),
                         instrumental=None))
-                    assert payload["prompt"] == original == preview
+                    assert style_caption(preview) == original == preview
+                    assert payload["prompt"] == engine
                     assert not payload["thinking"] and not payload["use_format"]
                     rows.append({"original": original, "preview": preview, "task": task,
                                  "effective_prompt": payload["prompt"], "lyrics": payload["lyrics"]})

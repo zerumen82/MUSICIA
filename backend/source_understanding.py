@@ -73,7 +73,9 @@ def classify_metadata(metadata: dict, catalog: dict) -> dict:
     electronic, other = bool(hits["electronic"]), bool(hits["non_electronic"])
     classification = "mixed" if electronic and other else (
         "electronic" if electronic else "non_electronic" if other else "unknown")
+    from genre_glossary import glossary_line
     return {"classification": classification, "genres": genres,
+            "glossary_genre": glossary_line(str(genres)),
             "description": description, "evidence": hits,
             "categories": catalog["categories"], "explanation": catalog["explanation"],
             "method": "ACE-Step full_analysis_only", "confidence": None,

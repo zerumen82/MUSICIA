@@ -37,6 +37,23 @@ MIN_TEMPO_RATIO = 0.8
 MAX_TEMPO_RATIO = 1.25
 
 
+def stems_peeled_from_transformed_bed(actions: dict[str, str], vocal_id: str = "vocals") -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Grupos transformados y stems generados que no deben entrar en la base.
+
+    La base es la generación menos la voz nueva, si la original se conserva,
+    y menos lo generado de cada grupo quitado. Así el bombo que el separador
+    archiva fuera de la batería sigue en la mezcla. No inventa un instrumento.
+    """
+    targets = tuple(key for key, action in actions.items() if action == "transform")
+    if not targets:
+        raise ValueError("No hay pistas en transformar")
+    peeled = tuple(
+        key for key, action in actions.items()
+        if action == "remove" or (action == "keep" and key == vocal_id)
+    )
+    return targets, peeled
+
+
 def stems_kept_out_of_single_transform(actions: dict[str, str], vocal_id: str = "vocals") -> tuple[str, tuple[str, ...]]:
     """Qué stems generados se restan cuando solo una pista está en transformar.
 
@@ -748,6 +765,57 @@ class MixerService:
             warning = ("La pista transformada conserva el audio nuevo que el separador "
                        "había archivado en otro grupo. La voz original no se dobla y lo quitado no vuelve.")
         return {"target": target, "peeled": list(peeled), "used_full_generation": used_full,
+                "gain": gain, "remaining_ratio": 0.0 if engine_rms <= 0 else remaining / engine_rms,
+                "warning": warning, "output_path": str(output)}
+
+    @staticmethod
+    def render_transformed_bed(
+        engine: Path, stems: dict[str, Path], actions: dict[str, str], replaced: Path,
+        output: Path, settings, vocal_id: str = "vocals",
+    ) -> dict:
+        """Una sola base para todas las pistas en transformar.
+
+        Sumar los stems que devuelve el separador deja fuera el golpe que
+        archivó en otro grupo. La base conserva ese audio. El nivel solo sube
+        hasta el tope de ganancia ya configurado, respecto a lo que sustituye.
+        """
+        targets, peeled = stems_peeled_from_transformed_bed(actions, vocal_id)
+        missing = [key for key in peeled if key not in stems]
+        if missing:
+            raise ValueError("Faltan grupos generados para montar la base transformada")
+        engine_pcm = MixerService.inspect_pcm(engine)
+        rate, channels = engine_pcm["sample_rate"], engine_pcm["channels"]
+        frames = len(engine_pcm["samples"]) // channels
+        mixed = array("f", engine_pcm["samples"])
+        for key in peeled:
+            part = MixerService._matched_pcm(stems[key], rate, channels, frames)
+            for index, value in enumerate(part):
+                mixed[index] -= value
+        if not all(math.isfinite(value) for value in mixed):
+            raise ValueError("La resta de la base transformada dejó muestras no finitas")
+        engine_rms = _rms(engine_pcm["samples"])
+        remaining = _rms(mixed)
+        used_full = engine_rms <= 0 or remaining / engine_rms < settings.single_transform_min_remaining_ratio
+        if used_full:
+            mixed = array("f", engine_pcm["samples"])
+        replaced_pcm = MixerService._matched_pcm(replaced, rate, channels, frames)
+        replaced_rms = _rms(replaced_pcm)
+        current_rms = _rms(mixed)
+        max_gain = 10 ** (float(settings.parameters["gain_db"]["max"]) / 20)
+        gain = 1.0
+        if current_rms > 0 and replaced_rms > current_rms:
+            gain = min(replaced_rms / current_rms, max_gain)
+            if gain != 1.0:
+                mixed = array("f", (value * gain for value in mixed))
+        MixerService._write_float_wav(output, mixed, rate, channels)
+        warning = None
+        if used_full:
+            warning = ("El separador se quedó con casi todo el audio nuevo. "
+                       "La base transformada usa la generación entera.")
+        elif peeled:
+            warning = ("La base transformada conserva el audio nuevo que el separador "
+                       "había archivado fuera de su grupo. La voz original no se dobla y lo quitado no vuelve.")
+        return {"targets": list(targets), "peeled": list(peeled), "used_full_generation": used_full,
                 "gain": gain, "remaining_ratio": 0.0 if engine_rms <= 0 else remaining / engine_rms,
                 "warning": warning, "output_path": str(output)}
 

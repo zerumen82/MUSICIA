@@ -26,11 +26,19 @@ export const PROMPT_PREVIEW_DEBOUNCE_MS = 300
  */
 export const HEALTH_PROBE_MS = 8000
 
+/** style_translation.load_timeout_seconds. La primera carga del traductor. */
+export const TRANSLATION_LOAD_TIMEOUT_MS = 180000
+/** style_translation.request_timeout_seconds. Una frase con el modelo ya cargado. */
+export const TRANSLATION_REQUEST_TIMEOUT_MS = 120000
+/** La vista previa espera la carga y la frase. No crea un trabajo. */
+export const PREVIEW_TIMEOUT_MS = TRANSLATION_LOAD_TIMEOUT_MS + TRANSLATION_REQUEST_TIMEOUT_MS
 /**
- * El envío espera a la API, y la API espera al motor hasta request_timeout (60 s).
- * Tiene que ser mayor que esos 60 s: si no, axios corta antes y enseña su texto.
+ * El envío traduce antes de responder y después espera al motor
+ * (acestep.request_timeout, 60 s) y a /health. Los 90 s cubren esa espera.
+ * El cliente no puede cortar antes: el servidor sigue y puede reservar el trabajo.
  */
-export const GENERATE_SUBMIT_TIMEOUT_MS = 90000
+export const GENERATE_SUBMIT_TIMEOUT_MS = PREVIEW_TIMEOUT_MS + 90000
+const previewClient = axios.create({ baseURL: API_BASE_URL, timeout: PREVIEW_TIMEOUT_MS })
 
 /**
  * Corte de red o de tiempo. No es un fallo del trabajo: la pantalla no lo pinta.
@@ -92,14 +100,21 @@ export const api = {
 
   generationPreview: async (payload) => {
     try {
-      const { data } = await client.post('/music/preview', payload)
+      const { data } = await previewClient.post('/music/preview', payload)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
+  styleEnglish: async (prompt) => {
+    try {
+      const { data } = await previewClient.post('/music/style-english', { prompt })
       return data
     } catch (error) { throw new Error(describeError(error)) }
   },
 
   remixPreview: async (payload) => {
     try {
-      const { data } = await client.post('/music/remix/preview', payload)
+      const { data } = await previewClient.post('/music/remix/preview', payload)
       return data
     } catch (error) { throw new Error(describeError(error)) }
   },
@@ -462,6 +477,15 @@ export const api = {
   },
 
   /** Cola de trabajos de la sesión (activos primero). */
+  processLogs: async () => {
+    try {
+      const { data } = await client.get('/music/process-logs', { timeout: HEALTH_PROBE_MS })
+      return data
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
   musicJobs: async () => {
     try {
       const { data } = await client.get('/music/jobs')

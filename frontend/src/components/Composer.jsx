@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Play, Loader2, AlertTriangle, Download, Music4, Sparkles,
+  Play, Loader2, AlertTriangle, Sparkles,
   Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, RotateCcw,
 } from 'lucide-react';
 import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
 import QualityWizard from './QualityWizard';
-import JobsPanel from './JobsPanel';
 import SelectBox from './SelectBox';
 import Glossary from './Glossary';
 import VariantChips from './VariantChips';
 import EffectivePreview from './EffectivePreview';
+import StyleEnglish from './StyleEnglish';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
@@ -17,6 +17,7 @@ import {
 import { CONVERT_PHASES, deskPhase } from '../desk_phase';
 import { glossPrompt } from '../prompt_gloss';
 import { applyModelTerm, ensureModelTerm, modelTerms, sinBpmEnFrase } from '../glossary_pick';
+import { moodClauses, moodTooltip } from '../mood_clauses';
 import { CATALOG_GENRES, findGenre } from '../genres';
 
 const UI = {
@@ -85,7 +86,7 @@ const STATUS = {
 
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false }, jobs = [] }) {
+export default function Composer({ initialMode = 'music', engine = { checked: false, ok: false } }) {
   const [mode, setMode] = useState(initialMode);
   const [config, setConfig] = useState(null);
   const [prompt, setPrompt] = useState('');
@@ -99,7 +100,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [songName, setSongName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
-  const [playing, setPlaying] = useState(null);
+  const [savedName, setSavedName] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceInfo, setEnhanceInfo] = useState(null); // {original, enhanced, additions}
@@ -161,9 +163,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     return () => { active = false; };
   }, []);
 
-  /** Lo que se envía es el cuadro. El mood en español no entra: el modelo no lo escribe. */
+  /** Lo que se envía es el cuadro más el ánimo elegido, en una sola caption.
+      Tranquilo y Chill no meten el tempo si el BPM ya está en su control. */
   const buildPrompt = () => {
-    const parts = [];
     let free = prompt.trim();
     // En modo voz, cada descriptor elegido es vocabulario del modelo y entra
     // en la misma caption. No se cuelga una segunda frase.
@@ -172,8 +174,10 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         free = ensureModelTerm(free, tag);
       }
     }
-    if (free) parts.push(free);
-    return glossPrompt(parts.join(' · '));
+    for (const clause of moodClauses(mood, bpm)) {
+      free = ensureModelTerm(free, clause);
+    }
+    return glossPrompt(free);
   };
 
   /** Prompt final tal y como se enviará (para la vista de transparencia). */
@@ -245,7 +249,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         misses = 0;
         setJob(status);
         if (status.status === 'succeeded' && status.output_name) {
-          setPlaying(api.audioUrl(status.output_name));
+          setSavedName(status.output_name);
           return status;
         }
         if (status.status === 'failed') {
@@ -306,11 +310,13 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       setError('Escribe la letra para la canción con voz');
       return;
     }
+    setSavedName(null);
     setJob({ status: 'queued', progress: '' });
     try {
       const seedValue = seed.trim() === '' ? null : Number(seed);
       const { created } = await launchGeneration(finalPrompt, seedValue);
       aliveRef.current = true;
+      setJob({ status: 'queued', progress: '', job_id: created.job_id });
       void pollUntilDone(created.job_id);
     } catch (e) {
       setError(e.message);
@@ -333,14 +339,17 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     const s1 = Math.floor(Math.random() * 1_000_000);
     let s2 = Math.floor(Math.random() * 1_000_000);
     if (s2 === s1) s2 = (s1 + 1) % 1_000_000;
+    setSavedName(null);
     try {
       aliveRef.current = true;
       setJob({ status: 'queued', phase: 'Variación A en cola' });
       const first = await launchGeneration(finalPrompt, s1);
+      setJob({ status: 'queued', phase: 'Variación A en cola', job_id: first.created.job_id });
       const doneA = await pollUntilDone(first.created.job_id);
       if (!aliveRef.current || doneA?.status !== 'succeeded') return;
       setJob({ status: 'queued', phase: 'Variación B en cola' });
       const second = await launchGeneration(finalPrompt, s2);
+      setJob({ status: 'queued', phase: 'Variación B en cola', job_id: second.created.job_id });
       await pollUntilDone(second.created.job_id);
     } catch (e) {
       setError(e.message);
@@ -382,6 +391,18 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     if (g) setGenre(g.id);
     const m = MOODS.find((x) => x.tag === spec.mood || x.id === spec.mood);
     if (m) setMood(m.id);
+  };
+
+  const stopGeneration = async () => {
+    if (!job?.job_id || cancelling) return;
+    setCancelling(true);
+    try {
+      await api.cancelJob(job.job_id);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const busy = job?.status === 'queued' || job?.status === 'running';
@@ -449,7 +470,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             options={GENRES.map(({ id, label }) => ({ id, label }))}
             value={genre ?? ''} onChange={onSelectGenre} />
           <SelectBox label="MOOD" placeholder="AUTO"
-            options={MOODS.map(({ id, tag }) => ({ id, label: tag, title: 'No se añade al prompt: el modelo no escribe esta palabra' }))}
+            options={MOODS.map(({ id, tag }) => ({ id, label: tag, title: moodTooltip(id) }))}
             value={mood ?? ''} onChange={(id) => setMood(id || null)} />
           <SelectBox label="BPM" placeholder="AUTO"
             options={BPM_PRESETS.filter((p) => p.value != null).map(({ value, tag }) => ({ id: String(value), label: tag }))}
@@ -507,6 +528,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             <summary className="label cursor-pointer">VARIANTES</summary>
             <div className="py-2"><VariantChips prompt={prompt} setPrompt={setPrompt} /></div>
           </details>
+          <StyleEnglish text={finalPrompt} />
           <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
@@ -617,6 +639,13 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                   <span className="mono text-[9px] text-[var(--faint)] ml-2">COLA→SÍNTESIS→RENDER</span>
                 </div>
               )}
+              {busy && job?.job_id && (
+                <button type="button" onClick={() => void stopGeneration()} disabled={cancelling}
+                  title="Para esta generación. Si el motor estaba trabajando se reinicia (recargar el modelo tarda minutos)."
+                  className="mono text-[9px] px-1.5 py-0.5 shrink-0 border border-[var(--line)] text-[var(--faint)] hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300">
+                  {cancelling ? 'PARANDO…' : 'PARAR'}
+                </button>
+              )}
             </div>
             {busy && (
               <div className="flex flex-col gap-2 pl-1">
@@ -648,18 +677,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           </div>
         )}
 
-        {/* Reproductor: protagonista cuando hay resultado */}
-        {playing && (
-          <div className="flex items-center gap-6 py-5 px-5 border border-[var(--acc-line)] bg-[var(--acc-dim)] fade-up" style={{ borderRadius: 8 }}>
-            <div className="w-14 h-14 rounded-[6px] bg-[var(--acc)] flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(184,255,41,0.4)]">
-              <Music4 size={24} className="text-[#0c0f04]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="mono text-[11px] tracking-[0.14em] text-[var(--acc)] mb-2">TU PISTA ESTÁ LISTA — SE REPRODUCE AQUÍ MISMO</p>
-              <audio key={playing} controls autoPlay src={playing} className="player w-full" style={{ height: 44 }} />
-            </div>
-            <a href={playing} download className="btn btn-signal h-11 px-5 shrink-0"><Download size={14} /> MP3</a>
-          </div>
+        {savedName && !busy && (
+          <p className="mono text-[11px] tracking-[0.12em] text-[var(--acc)]">Lista. Está en BIBLIOTECA.</p>
         )}
 
         {/* Motor caído */}
@@ -674,9 +693,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             </div>
           </div>
         )}
-
-        {/* Cola de trabajos + comparador A/B, después del progreso y resultado. */}
-        <JobsPanel items={jobs} />
 
       </section>
 

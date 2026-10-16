@@ -33,6 +33,17 @@ export function remixMinimumDurationLabel(duration) {
   return `${Math.floor(seconds / SECONDS_PER_MINUTE)}:${String(seconds % SECONDS_PER_MINUTE).padStart(2, '0')} (${seconds} s)`;
 }
 
+/** Segundos marcados en la onda para la parte que se repite. Vacío es el extremo del tema. */
+export function repeatBoundsFromWave(selection) {
+  const start = Number(selection?.trim_start_s);
+  const end = selection?.trim_end_s;
+  const text = (value) => String(Math.round(Number(value) * 100) / 100);
+  return {
+    start: Number.isFinite(start) && start > 0 ? text(start) : '',
+    end: end == null || end === '' || !Number.isFinite(Number(end)) ? '' : text(end),
+  };
+}
+
 /** Produce the same optional timeline fields for preview and execution. */
 export function remixTimelineFields({ scope, targetBpm, sourceBpm, sourceBpmOrigin = 'manual', minutes, seconds,
   repeatStart, repeatEnd, transition, sourceDuration, capabilities }) {

@@ -215,6 +215,10 @@ class RemixSettings:
     timeline_min_groove_confidence: float = 0.12
     groove_octave_score_ratio: float = 0.9
     groove_octave_lag_tolerance_frames: float = 1.0
+    # El flujo de ataques del golpe tiene que superar al del compás por este
+    # múltiplo para sustituirlo. Un tren de clics reparte la energía entre
+    # armónicos y no llega; el bombo a negras, con el acento en el compás, sí.
+    groove_onset_spectrum_ratio: float = 1.5
     # Un golpe solo desempata a otro período de evidencia cercana si es al
     # menos este múltiplo más nítido. Así una textura borrosa no gana por
     # unas milésimas de evidencia, ni un acento lento gana por un pliegue
@@ -270,6 +274,67 @@ class RemixSettings:
 
 
 @dataclass
+class StyleTranslationSettings:
+    """El estilo se pasa al inglés en local. La letra cantada no se toca.
+
+    El modelo corre en el Python del motor, en CPU, para no ocupar la GPU
+    de la música. Los números salen de las frases medidas el 2026-10-16:
+    una caption ya inglesa se queda, y una palabra española dentro de una
+    frase inglesa sí se traduce.
+    """
+
+    model_id: str = "facebook/nllb-200-distilled-600M"
+    target_lang: str = "eng_Latn"
+    device: str = "cpu"
+    python_path: str = "vendor/ACE-Step-1.5/.venv/Scripts/python.exe"
+    worker_script: str = "backend/style_translator_worker.py"
+    language_map: str = "backend/nllb_languages.json"
+    # «batería» salió battery y «bombo» salió bumper el 2026-10-16.
+    # Se corrige con este fichero, después de traducir. No es una rama en código.
+    term_fixes: str = "backend/style_term_fixes.json"
+    english_code: str = "en"
+    # Por debajo de esta confianza, un texto corto no se toma por otro idioma.
+    clause_foreign_confidence: float = 0.15
+    # Un texto con al menos estas letras usa el umbral largo, más bajo,
+    # y además tiene que superar al inglés por este múltiplo. Medido el
+    # 2026-10-16: «medieval flutes» es rumano a 0,083 contra inglés 0,078
+    # (1,06) y se queda; «hardcore en 4x4 con doble bombo» es español a
+    # 0,089 contra inglés 0,049 (1,82) y se traduce.
+    long_text_chars: int = 12
+    long_text_foreign_confidence: float = 0.08
+    long_text_foreign_ratio: float = 1.5
+    word_min_chars: int = 4
+    word_min_confidence: float = 0.16
+    # Una palabra solo destapa un idioma si supera al inglés por este múltiplo.
+    word_foreign_ratio: float = 4.0
+    max_input_tokens: int = 256
+    max_new_tokens: int = 256
+    # Un haz. Con uno solo, «flautas medievales» salió «Middle-earth flutes»
+    # el 2026-10-16. Con cuatro, «Flutes of the Middle Ages».
+    num_beams: int = 4
+    do_sample: bool = False
+    load_timeout_seconds: float = 180.0
+    request_timeout_seconds: float = 120.0
+    log_path: str = "logs/style-translator.log"
+
+
+@dataclass
+class ProcessLogSettings:
+    """Ficheros que el progreso abre al pulsar. Rutas bajo logs/ del proyecto.
+
+    tail_lines es lo que se enseña. line_char_budget acota la lectura de un
+    fichero largo. max_tail_lines impide pedir el registro entero.
+    """
+
+    engine_stdout: str = "logs/acestep-api.log"
+    engine_stderr: str = "logs/acestep-api.err.log"
+    api_stderr: str = "logs/musicia-api.err.log"
+    tail_lines: int = 200
+    max_tail_lines: int = 2000
+    line_char_budget: int = 400
+
+
+@dataclass
 class PathsSettings:
     outputs_dir: str = str(BACKEND_DIR / "outputs")
 
@@ -290,6 +355,8 @@ class AppSettings:
     mixer: MixerSettings = field(default_factory=MixerSettings)
     remix: RemixSettings = field(default_factory=RemixSettings)
     source_analysis: SourceAnalysisSettings = field(default_factory=SourceAnalysisSettings)
+    style_translation: StyleTranslationSettings = field(default_factory=StyleTranslationSettings)
+    process_logs: ProcessLogSettings = field(default_factory=ProcessLogSettings)
     paths: PathsSettings = field(default_factory=PathsSettings)
 
     @property

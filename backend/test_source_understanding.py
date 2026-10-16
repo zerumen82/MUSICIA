@@ -33,6 +33,13 @@ class SourceUnderstandingTest(unittest.TestCase):
     def test_unmapped_ambiguous_genre_is_unknown(self):
         self.assertEqual(classify_metadata({"genre": "pop"}, self.catalog)["classification"], "unknown")
 
+    def test_glossary_genre_is_only_a_whole_vocab_line(self):
+        known = classify_metadata({"genre": "gabber, hardstyle, hardcore"}, self.catalog)
+        self.assertEqual(known["glossary_genre"], "gabber, hardstyle, hardcore")
+        unknown = classify_metadata({"genre": "esto no es una linea del glosario"}, self.catalog)
+        self.assertIsNone(unknown["glossary_genre"])
+        self.assertEqual(unknown["genres"], "esto no es una linea del glosario")
+
     def test_analysis_phase_hides_engine_log(self):
         raw = "12:04:01 | INFO | Extracting Audio Codes...\nStarting Deep Analysis..."
         shown = visible_analysis_phase(raw)

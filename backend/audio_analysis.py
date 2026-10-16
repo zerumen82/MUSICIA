@@ -199,6 +199,61 @@ def _reject_unprominent_period(best: float, floor: float, settings) -> None:
                          "sobre la caída de la autocorrelación")
 
 
+def _onset_flux(rms: list[float]) -> list[float]:
+    """Subida de energía de una trama a la siguiente. El compás no es un ataque."""
+    flux = [0.0]
+    for previous, current in zip(rms, rms[1:]):
+        flux.append(max(0.0, current - previous))
+    return flux
+
+
+def _onset_spectrum_power(series: list[float], fps: float, bpm: float) -> float:
+    """Potencia de un solo período en el flujo. No elige tempo por sí sola."""
+    if not series or not math.isfinite(bpm) or bpm <= 0 or not math.isfinite(fps) or fps <= 0:
+        return 0.0
+    omega = 2.0 * math.pi * (bpm / 60.0) / fps
+    sine = cosine = 0.0
+    for index, value in enumerate(series):
+        sine += value * math.sin(omega * index)
+        cosine += value * math.cos(omega * index)
+    return sine * sine + cosine * cosine
+
+
+def _prefer_onset_beat(rms: list[float], fps: float, period_frames: float,
+                       supported: list[tuple[float, float, float]], settings) -> float:
+    """Si el ancla es el compás, el golpe es el armónico cuyo ataque manda.
+
+    Solo entran las mitades /2 y /4 que ya son períodos sostenidos, dentro de
+    la tolerancia de trama de la octava. No consulta el BPM pedido. Si el
+    flujo no destaca sobre el ancla, el ancla se queda.
+    """
+    ratio = settings.groove_onset_spectrum_ratio
+    tolerance = settings.groove_octave_lag_tolerance_frames
+    if (isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or ratio <= 1
+            or isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
+            or not math.isfinite(tolerance) or tolerance < 0
+            or not math.isfinite(period_frames) or period_frames <= 0):
+        raise ValueError("Configuración de octava de groove inválida")
+    flux = _onset_flux(rms)
+    anchor_bpm = 60.0 * fps / period_frames
+    anchor_power = _onset_spectrum_power(flux, fps, anchor_bpm)
+    best_period = period_frames
+    best_power = anchor_power
+    floor = anchor_power * ratio
+    for period, _evidence, _confidence in supported:
+        if not math.isfinite(period) or period <= 0 or period >= period_frames:
+            continue
+        subdivision = period_frames / period
+        nearest = min((2, 4), key=lambda factor: abs(subdivision - factor))
+        if abs(period - period_frames / nearest) > tolerance:
+            continue
+        power = _onset_spectrum_power(flux, fps, 60.0 * fps / period)
+        if power > floor and power > best_power:
+            best_power = power
+            best_period = period
+    return best_period
+
+
 def _reject_flat_shoulder(best: float, shoulder: float, settings) -> None:
     """Rechaza un máximo que no destaca sobre el tempo de al lado.
 
@@ -426,6 +481,7 @@ def detect_groove(path: Path, *, include_periods: bool = False) -> dict:
     # al pulso que sí se puede usar. Si ninguna llega, se conserva la medición
     # débil para que el rechazo diga el BPM y la confianza reales.
     period_frames = _score_supported_grooves(supported, config)
+    period_frames = _prefer_onset_beat(rms, fps, period_frames, supported, config)
     shoulder_offset = max(config.groove_shoulder_min_frames,
                           period_frames * config.groove_shoulder_period_fraction)
     shoulder_room = period_frames + shoulder_offset

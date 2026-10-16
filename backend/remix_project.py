@@ -19,11 +19,15 @@ from pydub import AudioSegment
 from loguru import logger
 
 from audio_analysis import detect_groove
-from mixer_service import MixerService
+from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_ffmpeg
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
+from prompt_style import style_caption
+from style_translator import style_for_engine
 from separator_service import SeparatorService
 from source_understanding import category_catalog
+from remix_recovery import (RECEIPT_NAME, atomic_json, build_receipt,
+                            receipt_digest, validate_receipt, work_directory)
 
 COMPUTE_LOCK = asyncio.Lock()
 
@@ -320,6 +324,177 @@ def required_measured_tempo(path: Path, arrangement: dict | None = None, config=
     return tempo_after_repetition(measured, groove.get("periods") or [], arrangement, config)
 
 
+def groups_tempo_ratio(measured_bpm: float, requested_bpm: float, config) -> float | None:
+    """Relación de un solo atempo para que la mezcla cumpla el BPM pedido.
+
+    None si la medición ya cae dentro de la tolerancia. No usa un BPM fijo
+    ni convierte una lectura incierta: el medidor tiene que haber devuelto
+    un número antes de llamar aquí.
+    """
+    if (isinstance(measured_bpm, bool) or not isinstance(measured_bpm, (int, float))
+            or not math.isfinite(measured_bpm) or measured_bpm <= 0
+            or isinstance(requested_bpm, bool) or not isinstance(requested_bpm, (int, float))
+            or not math.isfinite(requested_bpm) or requested_bpm <= 0):
+        raise ValueError("No hay un BPM medido y pedido para cumplir el tempo")
+    tolerance = config.tempo_verify_tolerance_bpm
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not math.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("La tolerancia de verificación BPM debe ser finita y no negativa")
+    if abs(float(measured_bpm) - float(requested_bpm)) <= tolerance:
+        return None
+    return float(requested_bpm) / float(measured_bpm)
+
+
+def whole_song_repeat_plan(plan: dict, config) -> dict | None:
+    """Abre la repetición a la canción entera.
+
+    None si el tramo elegido ya la cubre o el plan no tiene duración natural.
+    No cambia el tempo ni la duración pedida, y no convierte una lectura
+    incierta en un BPM.
+    """
+    natural = plan.get("natural_duration_seconds")
+    start = plan.get("mapped_repeat_start")
+    end = plan.get("mapped_repeat_end")
+    tolerance = config.duration_tolerance_seconds
+    if (isinstance(natural, bool) or not isinstance(natural, (int, float)) or not math.isfinite(natural) or natural <= 0
+            or isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+            or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
+            or end <= start
+            or isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
+            or not math.isfinite(tolerance) or tolerance < 0):
+        return None
+    if float(end) - float(start) >= float(natural) - tolerance:
+        return None
+    updated = dict(plan)
+    updated["mapped_repeat_start"] = 0.0
+    updated["mapped_repeat_end"] = float(natural)
+    source = plan.get("source_duration_seconds")
+    if (not isinstance(source, bool) and isinstance(source, (int, float))
+            and math.isfinite(source) and source > 0):
+        updated["repeat_start"] = 0.0
+        updated["repeat_end"] = float(source)
+    return updated
+
+
+def _shift_audio_to_kick(source: Path, output: Path, delay_ms: float) -> Path:
+    """Coloca el golpe en el instante del bombo de referencia. Un desfase mínimo no se toca."""
+    if abs(delay_ms) < MIN_PHASE_SHIFT_MS:
+        return source
+    if delay_ms > 0:
+        run_ffmpeg(
+            ["-i", str(source), "-af", f"adelay=delays={delay_ms:.1f}:all=1",
+             "-c:a", "pcm_f32le", "-f", "wav", str(output)],
+            output,
+        )
+    else:
+        cut = abs(delay_ms) / 1000.0
+        run_ffmpeg(
+            ["-i", str(source), "-af", f"atrim=start={cut:.6f},asetpts=PTS-STARTPTS",
+             "-c:a", "pcm_f32le", "-f", "wav", str(output)],
+            output,
+        )
+    return output
+
+
+def square_mix_on_original_kick(parts, movable, reference_drums: Path, new_drums: Path,
+                                output: Path, work: Path, index: int, duration: float, config):
+    """Cuadra la música nueva con el bombo original y rehace la mezcla.
+
+    None si alguno de los dos bombos no se puede medir o el salto de tempo
+    no es seguro. No convierte una lectura incierta en un BPM: el llamador
+    vuelve a medir la mezcla.
+    """
+    if not movable:
+        return None
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        reference = detect_groove(reference_drums)
+        fresh = detect_groove(new_drums)
+    except (ValueError, FileNotFoundError, OSError):
+        return None
+    if plan_alignment(reference, fresh) is None:
+        return None
+    ratio = groups_tempo_ratio(fresh["bpm"], reference["bpm"], config)
+    prepared = {}
+    measure_paths = list(dict.fromkeys([*movable, new_drums]))
+    for path in measure_paths:
+        if ratio is None:
+            prepared[path] = path
+            continue
+        seconds = MixerService.inspect_pcm(path)["duration_seconds"]
+        dest = work / f"cuadre-tempo-{index}-{path.stem}.wav"
+        MixerService.tempo_audio(path, dest, ratio, seconds / ratio, config)
+        prepared[path] = dest
+    try:
+        aligned_kick = detect_groove(prepared[new_drums])
+    except (ValueError, FileNotFoundError, OSError):
+        return None
+    alignment = plan_alignment(reference, aligned_kick)
+    if alignment is None:
+        return None
+    delay = float(alignment["delay_ms"])
+    shifted = {}
+    for path in dict.fromkeys(movable):
+        shifted[path] = _shift_audio_to_kick(
+            prepared[path], work / f"cuadre-fase-{index}-{path.stem}.wav", delay)
+    mixed = [(shifted.get(path, path), gain) for path, gain in parts]
+    MixerService.mix_groups(mixed, output, duration, config.sample_rate)
+    return {"timeline": output, "delay_ms": round(delay, 1), "tempo_ratio": ratio}
+
+
+def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
+                           requested_duration: float | None, config) -> dict:
+    """Timeline después del atempo de la mezcla, con la duración que se pidió.
+
+    La relación es la de ese atempo. Si no hay duración pedida, el resultado
+    es la mezcla ya ajustada, sin rellenarla hasta la duración anterior.
+    Si la mezcla ajustada pasa de la duración pedida, se dice el mínimo y no
+    se recorta. Si cabe, se conserva el objetivo y se amplía solo si falta.
+    """
+    start, end = plan.get("mapped_repeat_start"), plan.get("mapped_repeat_end")
+    if (isinstance(mix_seconds, bool) or not isinstance(mix_seconds, (int, float))
+            or not math.isfinite(mix_seconds) or mix_seconds <= 0
+            or isinstance(ratio, bool) or not isinstance(ratio, (int, float))
+            or not math.isfinite(ratio) or ratio <= 0
+            or isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+            or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
+            or end <= start):
+        raise ValueError("No hay una duración y una relación válidas para el tempo de la mezcla")
+    updated = dict(plan)
+    adjusted = float(mix_seconds) / float(ratio)
+    scale = adjusted / float(mix_seconds)
+    updated["mapped_repeat_start"] = float(start) * scale
+    updated["mapped_repeat_end"] = float(end) * scale
+    updated["natural_duration_seconds"] = adjusted
+    updated["tempo_ratio"] = float(ratio)
+    updated["tempo_method"] = "measured_pcm_atempo"
+    if requested_duration is None:
+        updated["target_duration_seconds"] = adjusted
+        updated["method"] = "original"
+        updated["transition_seconds"] = 0.0
+        return updated
+    if (isinstance(requested_duration, bool) or not isinstance(requested_duration, (int, float))
+            or not math.isfinite(requested_duration) or requested_duration <= 0):
+        raise ValueError("La duración objetivo no es válida")
+    if adjusted > float(requested_duration):
+        minimum = math.ceil(adjusted)
+        raise ValueError("La duración objetivo debe ser igual o mayor que la canción al tempo elegido: "
+                         f"mínimo {minimum} s ({minimum // 60}:{minimum % 60:02d})")
+    updated["target_duration_seconds"] = float(requested_duration)
+    if float(requested_duration) > adjusted:
+        updated["method"] = "repeat_crossfade"
+        if not updated.get("transition_seconds"):
+            updated["transition_seconds"] = config.timeline_transition_seconds
+        span = updated["mapped_repeat_end"] - updated["mapped_repeat_start"]
+        transition = updated["transition_seconds"]
+        if (span < config.timeline_min_repeat_seconds or span <= 2 * transition
+                or adjusted <= transition):
+            raise ValueError("La parte a repetir es demasiado corta para las transiciones elegidas")
+    else:
+        updated["method"] = "original"
+        updated["transition_seconds"] = 0.0
+    return updated
+
+
 def verify_requested_tempo(measured, requested_bpm, config, stage) -> None:
     bpm = require_measured_tempo(measured, config, stage)
     if not math.isfinite(config.tempo_verify_tolerance_bpm) or config.tempo_verify_tolerance_bpm < 0:
@@ -352,6 +527,37 @@ def audio_has_no_usable_groove(error: BaseException) -> bool:
         "No se ha detectado un tempo",
         "No hay un BPM fiable en la variante generada",
     ))
+
+
+def unmeasured_variant_notice(index: int) -> str:
+    """Aviso cuando una variante de canción completa se queda fuera del lote."""
+    return f"La variante {index + 1} no tenía un pulso medible; no se publicó."
+
+
+def full_bpm_preview_notice() -> str:
+    """Aviso que viaja con el trabajo. No dice que una sola variante tumba el lote."""
+    return (
+        "En canción completa se mide cada variante y se ajusta después su tempo sin cambiar el tono. "
+        "La duración natural y la parte a repetir se calculan tras generar. "
+        "Agotadas las muestras, la variante sin pulso no se publica. "
+        "Si otra midió, se publica esa y el trabajo lo dice. "
+        "Si ninguna mide, sigue el error del detector. "
+        "Un BPM medido fuera de tolerancia detiene todo el lote y no pide otra generación."
+    )
+
+
+def full_variant_failure(exc: BaseException) -> str:
+    """Una variante sin pulso se aparta. Cualquier otro fallo para el lote."""
+    if audio_has_no_usable_groove(exc):
+        return "withhold"
+    return "raise"
+
+
+def unpublished_batch_error(kept: int, withheld: list[BaseException]) -> BaseException | None:
+    """Si nadie quedó medible, se conserva el error del detector y no se publica."""
+    if kept > 0 or not withheld:
+        return None
+    return withheld[-1]
 
 
 def replacement_request_seed(requested, batch_size, attempt, seed_max):
@@ -420,7 +626,9 @@ def project_generation(request, source, reference, settings) -> GenerationReques
     """Contrato único para el preview y el envío tras preparar el material."""
     config = settings.remix
     return GenerationRequest(
-        prompt=request.prompt, lyrics=request.lyrics, instrumental=request.instrumental,
+        prompt=style_for_engine(request.prompt, settings),
+        constraint_prompt=style_caption(request.prompt),
+        lyrics=request.lyrics, instrumental=request.instrumental,
         task_type="repaint" if request.scope == "region" else "cover", source_path=str(source),
         reference_path=str(reference) if reference else None,
         duration_seconds=None, bpm=request.bpm, seed=request.seed,
@@ -557,7 +765,7 @@ class RemixProjectRuntime:
             if timeline["tempo_ratio"] != 1:
                 result["warnings"].append("El BPM común procesa también las grabaciones conservadas, sin cambiar el tono. El BPM original medido se puede revisar.")
         if request.scope == "full" and request.bpm:
-            result["warnings"].append("En canción completa se mide cada variante y se ajusta después su tempo sin cambiar el tono. La duración natural y la parte a repetir se calculan tras generar; una medición incierta produce un error.")
+            result["warnings"].append(full_bpm_preview_notice())
             result["pending_material"].append({"parameter": "variant_tempo", "path": None,
                 "operation": "Medir cada variante, ajustar su tempo por DSP y verificar el BPM resultante",
                 "derived_fields": ["natural_duration_seconds", "tempo_ratio", "mapped_repeat_start", "mapped_repeat_end"]})
@@ -579,7 +787,8 @@ class RemixProjectRuntime:
             validate_project(request, duration, self.settings)
             measured = (await asyncio.to_thread(self.measure_bpm, source)
                         if request.scope == "groups" and request.bpm is not None and request.source_bpm is None else None)
-            prepared = self.prepare(request, source, reference, duration, measured)
+            prepared = await asyncio.to_thread(
+                self.prepare, request, source, reference, duration, measured)
             if digest != await asyncio.to_thread(source_digest, source):
                 raise ValueError("La fuente cambió durante la vista previa; vuelve a seleccionar el audio")
             prepared["operations"]["source_digest"] = digest
@@ -598,6 +807,9 @@ class RemixProjectRuntime:
         if reason := self.busy():
             raise HTTPException(status_code=409, detail=reason)
         job = self._new_job(source, request.prompt)
+        chosen_name = (request.output_name or "").strip()
+        if chosen_name:
+            job["output_name"] = chosen_name
         job["project"] = request.model_dump()
         job["source_analysis"] = completed_analysis_for(source)
         job["duration_seconds"] = duration
@@ -652,7 +864,8 @@ class RemixProjectRuntime:
                                           engine_source, reference, natural_duration,
                                           draw, config):
         """Pide una sola muestra nueva y archiva la que no se pudo comprobar."""
-        generation = project_generation(request, engine_source, reference, self.settings)
+        generation = await asyncio.to_thread(
+            project_generation, request, engine_source, reference, self.settings)
         seed_max = config.parameters["seed"]["max"]
         seed = replacement_request_seed(request.seed, self.settings.generation.batch_size, draw, seed_max)
         generation.batch_size = 1
@@ -747,9 +960,20 @@ class RemixProjectRuntime:
                    error="Cancelado por el usuario" if job.get("cancelled") else str(error),
                    completed_at=self.now(), elapsed_seconds=time.monotonic() - job["started"])
 
-    async def run(self, job, source, reference, request, duration) -> None:
+    async def finish_downloaded(self, job, source, reference, request, duration, receipt,
+                                *, before_publish=None) -> None:
+        """Completa explícitamente WAV verificados, sin enviar otra tarea al motor."""
+        await self.run(job, source, reference, request, duration, downloaded=receipt,
+                       before_publish=before_publish)
+
+    async def run(self, job, source, reference, request, duration, *, downloaded=None,
+                  before_publish=None) -> None:
         config = self.settings.remix
-        work = self.settings.outputs_dir / "_remix" / job["job_id"]
+        work = work_directory(self.settings.outputs_dir, job["job_id"])
+        recovered = None
+        if downloaded is not None:
+            recovered = await validate_receipt(downloaded, job, source, reference, request,
+                                               duration, self.settings, self.music)
         work.mkdir(parents=True, exist_ok=True)
         originals = {}
         targets = []
@@ -758,6 +982,10 @@ class RemixProjectRuntime:
             async with COMPUTE_LOCK:
                 self.cancelled(job)
                 job["status"] = "running"
+                if recovered is not None:
+                    job["error"] = None
+                    job.pop("completed_at", None)
+                    self.event(job, "Completando el lote de WAV descargados, sin otra generación")
                 digest = await asyncio.to_thread(source_digest, source)
                 if digest != job["operations"]["source_digest"]:
                     raise ValueError("La fuente cambió después de solicitar el remix; vuelve a seleccionar el audio")
@@ -765,7 +993,11 @@ class RemixProjectRuntime:
                 plan = job["operations"]["timeline"]
                 natural_duration = plan["natural_duration_seconds"] or duration
                 engine_source = source
-                if request.scope == "groups":
+                if recovered is not None:
+                    _generated, originals = recovered
+                    targets = [key for key, action in request.groups.items() if action == "transform"]
+                    job["preserved_groups"] = [key for key, action in request.groups.items() if action == "keep"]
+                elif request.scope == "groups":
                     self.event(job, "Separando los grupos del original")
                     for item in reversed(list(self.separate_jobs.values())):
                         if (item.get("status") != "succeeded" or item.get("source_digest") != digest
@@ -802,10 +1034,13 @@ class RemixProjectRuntime:
                     raise ValueError("La fuente cambió durante la preparación; vuelve a solicitar el remix")
                 self.cancelled(job)
                 generated = []
-                if request.scope != "groups" or targets:
+                if recovered is not None:
+                    generated = recovered[0]
+                elif request.scope != "groups" or targets:
                     task = "repaint" if request.scope == "region" else "cover"
                     self.event(job, f"Transformando el audio original con {task}")
-                    generation = project_generation(request, engine_source, reference, self.settings)
+                    generation = await asyncio.to_thread(
+                        project_generation, request, engine_source, reference, self.settings)
                     job["effective_parameters"] = self.music.build_payload(generation)
                     if request.scope == "groups":
                         job["provenance"]["src_audio_path"] = "derived_material"
@@ -840,9 +1075,14 @@ class RemixProjectRuntime:
                         generated.append((path, track))
                     if len(generated) != self.settings.generation.batch_size:
                         raise MusicEngineError(f"El motor devolvió {len(generated)} variantes; se pidieron {self.settings.generation.batch_size}")
+                    receipt = await asyncio.to_thread(build_receipt, job, source, reference, request,
+                        duration, self.settings, generated, originals)
+                    await asyncio.to_thread(atomic_json, work / RECEIPT_NAME, receipt)
+                    job["operations"]["downloaded_batch_sha256"] = receipt_digest(receipt)
+                    self.save()
                 else:
                     generated = [(None, None)]
-                exported, metadata, publications = [], [], []
+                exported, metadata, publications, withheld = [], [], [], []
                 for index, (path, track) in enumerate(generated):
                     self.cancelled(job)
                     timeline = path
@@ -853,14 +1093,21 @@ class RemixProjectRuntime:
                     groove_replacements = 0
                     replacement_parameters = None
                     if request.scope == "full" and request.bpm is not None:
-                        (path, track, tempo_before, variant_plan, groove_replacements,
-                         replacement_parameters, tempo_after_adjust, tempo_processing) = (
-                            await self._measured_full_variant(
-                                job, request, work, index, path, track, engine_source, reference,
-                                natural_duration, duration, config))
+                        try:
+                            (path, track, tempo_before, variant_plan, groove_replacements,
+                             replacement_parameters, tempo_after_adjust, tempo_processing) = (
+                                await self._measured_full_variant(
+                                    job, request, work, index, path, track, engine_source, reference,
+                                    natural_duration, duration, config))
+                        except ValueError as exc:
+                            if full_variant_failure(exc) != "withhold":
+                                raise
+                            withheld.append((index, exc))
+                            continue
                         timeline = Path(tempo_processing["output_path"])
                     if request.scope == "groups":
                         transformed = {}
+                        separated = {}
                         targets = [key for key, action in request.groups.items() if action == "transform"]
                         if path and len(targets) == 1:
                             self.event(job, f"Separando grupos transformados de la variante {index + 1}")
@@ -880,19 +1127,106 @@ class RemixProjectRuntime:
                             self.event(job, f"Separando grupos transformados de la variante {index + 1}")
                             result = await self._groups(path, job, work, f"transformada-{index + 1}")
                             self.cancelled(job)
-                            transformed = {item["id"]: work / item["file_name"] for item in result["groups"]}
-                        parts = [(originals[key] if action == "keep" else transformed[key], request.gains_db.get(key, 0.0))
-                                 for key, action in request.groups.items() if action != "remove"]
+                            separated = {item["id"]: work / item["file_name"] for item in result["groups"]}
+                            gains = [request.gains_db.get(key, 0.0) for key in targets]
+                            if len(set(gains)) == 1:
+                                replaced = work / f"reemplazada-{index + 1}.wav"
+                                await asyncio.to_thread(
+                                    MixerService.mix_groups,
+                                    [(originals[key], 0.0) for key in targets],
+                                    replaced, natural_duration, config.sample_rate)
+                                bed = work / f"base-transformada-{index + 1}.wav"
+                                mounted = await asyncio.to_thread(
+                                    MixerService.render_transformed_bed, path, separated, request.groups,
+                                    replaced, bed, config)
+                                warning = mounted.get("warning")
+                                if warning and warning not in job.setdefault("warnings", []):
+                                    job["warnings"].append(warning)
+                                transformed = {key: bed for key in targets}
+                            else:
+                                transformed = separated
+                        parts = []
+                        seen = set()
+                        for key, action in request.groups.items():
+                            if action == "remove":
+                                continue
+                            gain = request.gains_db.get(key, 0.0)
+                            if action == "keep":
+                                parts.append((originals[key], gain))
+                                continue
+                            source = transformed[key]
+                            if source in seen:
+                                continue
+                            seen.add(source)
+                            parts.append((source, gain))
                         timeline = work / f"mezcla-{index + 1}.wav"
                         self.event(job, f"Recombinando la variante {index + 1} sobre la timeline original")
                         await asyncio.to_thread(MixerService.mix_groups, parts, timeline, natural_duration, config.sample_rate)
                     self.cancelled(job)
+                    if request.scope == "groups" and request.bpm is not None:
+                        self.event(job, f"Comprobando el tempo de la mezcla {index + 1}")
+                        aligned = None
+                        try:
+                            mix_measured = await asyncio.to_thread(required_measured_tempo, timeline)
+                        except ValueError as exc:
+                            reference = originals.get("drums") if "drums" in targets else None
+                            new_kick = separated.get("drums") if reference is not None else None
+                            movable = []
+                            for piece, _gain in parts:
+                                if piece in transformed.values() and piece not in movable:
+                                    movable.append(piece)
+                            if (not audio_has_no_usable_groove(exc) or reference is None
+                                    or new_kick is None or not movable):
+                                raise
+                            self.event(job, f"Cuadrando el bombo de la variante {index + 1} con el original")
+                            squared = await asyncio.to_thread(
+                                square_mix_on_original_kick, parts, movable, reference, new_kick,
+                                work / f"mezcla-cuadrada-{index + 1}.wav", work, index + 1,
+                                natural_duration, config)
+                            if squared is None:
+                                raise
+                            timeline = squared["timeline"]
+                            aligned = squared
+                            mix_measured = await asyncio.to_thread(required_measured_tempo, timeline)
+                        self.cancelled(job)
+                        measured_bpm = require_measured_tempo(mix_measured, config, "en la mezcla de grupos")
+                        if aligned is not None:
+                            variant_plan["kick_alignment_delay_ms"] = aligned["delay_ms"]
+                            variant_plan["kick_alignment_tempo_ratio"] = aligned["tempo_ratio"]
+                            warning = ("La mezcla no tenía un pulso propio; "
+                                       "el bombo nuevo se cuadró con el original.")
+                            warnings = job.setdefault("warnings", [])
+                            if warning not in warnings:
+                                warnings.append(warning)
+                        ratio = groups_tempo_ratio(measured_bpm, request.bpm, config)
+                        tempo_before = mix_measured
+                        if ratio is not None:
+                            seconds = await self.music.verify_audio(timeline) / 1000
+                            adjusted_plan = apply_groups_mix_tempo(
+                                variant_plan, seconds, ratio, request.duration_seconds, config)
+                            adjusted = work / f"tempo-mezcla-{index + 1}.wav"
+                            self.event(job, f"Ajustando el BPM de la variante {index + 1} sin cambiar el tono")
+                            tempo_processing = await asyncio.to_thread(
+                                MixerService.tempo_audio, timeline, adjusted, ratio,
+                                adjusted_plan["natural_duration_seconds"], config)
+                            tempo_processing.update(input_path=str(timeline), output_path=str(adjusted))
+                            tempo_after_adjust = await asyncio.to_thread(required_measured_tempo, adjusted)
+                            verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
+                            variant_plan = adjusted_plan
+                            variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
+                            variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
+                            timeline = adjusted
+                        else:
+                            variant_plan["beat_clock_bpm"] = mix_measured["bpm_measured"]
+                            variant_plan["beat_clock_origin"] = "generated_measurement"
+                        self.cancelled(job)
                     arrangement = {"method": "original", "repetitions": 0,
                                    "duration_seconds": variant_plan["natural_duration_seconds"], "transition_seconds": 0.0}
+                    body = timeline
                     if variant_plan["method"] == "repeat_crossfade":
                         self.event(job, f"Ampliando la variante {index + 1} con partes y transiciones")
                         extended = work / f"arreglo-{index + 1}.wav"
-                        arrangement = await asyncio.to_thread(MixerService.extend_timeline, timeline, extended, variant_plan, config)
+                        arrangement = await asyncio.to_thread(MixerService.extend_timeline, body, extended, variant_plan, config)
                         timeline = extended
                         self.cancelled(job)
                     stem = self.safe_name(request.output_name or f"{source.stem}-remix", "remix")
@@ -903,14 +1237,44 @@ class RemixProjectRuntime:
                     final_seconds = await self.music.verify_audio(staged_output) / 1000
                     if abs(final_seconds - variant_plan["target_duration_seconds"]) > config.duration_tolerance_seconds:
                         raise ValueError("La duración final no corresponde al arreglo solicitado")
-                    if request.scope == "full" and request.bpm is not None:
-                        measured = await asyncio.to_thread(
-                            required_measured_tempo, staged_output, arrangement, config)
+                    self.event(job, f"Comprobando el tempo de la variante {index + 1}")
+                    repeated_whole_song = False
+                    if request.bpm is not None and request.scope in {"full", "groups"}:
+                        try:
+                            measured = await asyncio.to_thread(
+                                required_measured_tempo, staged_output, arrangement, config)
+                        except ValueError as exc:
+                            widened = whole_song_repeat_plan(variant_plan, config) if (
+                                audio_has_no_usable_groove(exc)
+                                and variant_plan.get("method") == "repeat_crossfade") else None
+                            if widened is None:
+                                raise
+                            self.event(job, f"La parte elegida no conserva el pulso; "
+                                       f"se repite la canción entera en la variante {index + 1}")
+                            extended = work / f"arreglo-completo-{index + 1}.wav"
+                            arrangement = await asyncio.to_thread(
+                                MixerService.extend_timeline, body, extended, widened, config)
+                            timeline = extended
+                            self.cancelled(job)
+                            mastering = await asyncio.to_thread(
+                                MixerService.export_remix, timeline, staged_output, config)
+                            final_seconds = await self.music.verify_audio(staged_output) / 1000
+                            if abs(final_seconds - widened["target_duration_seconds"]) > config.duration_tolerance_seconds:
+                                raise ValueError("La duración final no corresponde al arreglo solicitado")
+                            measured = await asyncio.to_thread(
+                                required_measured_tempo, staged_output, arrangement, config)
+                            variant_plan = widened
+                            repeated_whole_song = True
                     else:
                         measured = await asyncio.to_thread(self.measure_bpm, staged_output)
                     self.cancelled(job)
-                    if request.scope == "full" and request.bpm is not None:
+                    if request.bpm is not None and request.scope in {"full", "groups"}:
                         verify_requested_tempo(measured, request.bpm, config, "después del arreglo y exportación")
+                    if repeated_whole_song:
+                        warning = "La parte elegida no conservaba el pulso; se repitió la canción entera."
+                        warnings = job.setdefault("warnings", [])
+                        if warning not in warnings:
+                            warnings.append(warning)
                     variant = {"file_name": None, "intermediate_path": str(timeline),
                                "seed": track.seed if track else None,
                                "seed_origin": track.seed_origin if track else "not_applicable",
@@ -945,8 +1309,20 @@ class RemixProjectRuntime:
                     publications.append((staged_output, stem, ficha, variant))
                     metadata.append(variant)
                 self.cancelled(job)
-                # Todas las variantes han pasado sus verificaciones. No hay
-                # awaits entre el checkpoint y la publicación del lote.
+                withheld_error = unpublished_batch_error(
+                    len(publications), [exc for _index, exc in withheld])
+                if withheld_error is not None:
+                    raise withheld_error
+                warnings = job.setdefault("warnings", [])
+                for index, _exc in withheld:
+                    notice = unmeasured_variant_notice(index)
+                    if notice not in warnings:
+                        warnings.append(notice)
+                if before_publish is not None:
+                    before_publish()
+                self.event(job, "Publicando las variantes verificadas del remix")
+                # Las variantes que se publican han pasado sus verificaciones.
+                # No hay awaits entre el checkpoint y la publicación del lote.
                 for staged_output, stem, ficha, variant in publications:
                     output = self.unique_output(stem, ".mp3")
                     staged_output.replace(output)

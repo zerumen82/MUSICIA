@@ -3,6 +3,7 @@ import RemixActions from './RemixActions';
 import { api } from '../api';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
+import StyleEnglish from './StyleEnglish';
 
 /** Compatibilidad de apertura: todas las versiones trabajan sobre el original. */
 export default function RemixIAPanel({ fileName, sourceKind = null, sourceDuration = null, onDone, createBacking = false, onLaunch, generating = false, jobNote = null }) {
@@ -52,6 +53,7 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
       <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Compás <select aria-label="Compás del acompañamiento" value={timeSignature} disabled={generating} onChange={(event) => setTimeSignature(event.target.value)} className="desk-select"><option value="">Auto</option>{['4/4', '3/4', '6/8'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
     </div></details>
     <input aria-label="Nombre del acompañamiento" value={name} disabled={generating} onChange={(event) => setName(event.target.value)} placeholder="Nombre opcional" className="px-3 py-2 bg-transparent border border-[var(--line)] text-[13px]" />
+    <StyleEnglish text={prompt} />
     <EffectivePreview request={request} loadPreview={api.generationPreview} title="ENVÍO EFECTIVO" />
     <button type="button" disabled={generating || !config || !prompt.trim()} onClick={() => void launch()} className="btn btn-signal h-10 px-4 self-start">{generating ? 'LANZANDO…' : 'CREAR ACOMPAÑAMIENTO'}</button>
     {jobNote && <p role="status" className="mono text-[10px] st-ok">{jobNote}</p>}

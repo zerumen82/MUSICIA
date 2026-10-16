@@ -40,6 +40,7 @@ El arranque local aplica `scripts/patches/acestep_vae_cpu_dtype.patch` mediante 
 | POST | `/music/generate` | enviar tarea real → job y URL de estado |
 | GET | `/music/status/{job_id}` | generación, errores y resultados con parámetros efectivos |
 | GET | `/music/jobs` | historial común de generación/remix/separación |
+| GET | `/music/process-logs` | final real de la salida del motor, de su error y del error de la API |
 | POST | `/music/jobs/{job_id}/cancel` | cancelar trabajo; reiniciar motor si la operación lo requiere |
 | GET | `/music/library`, `/music/audio/{name}` | biblioteca/fichas y audio generado |
 | PATCH / DELETE | `/music/audio/{name}` | renombrar/borrar audio y ficha; conflicto real si el archivo está ocupado |
@@ -76,11 +77,13 @@ R11 (autorizado el 2026-10-14 y verificado técnicamente con PASS del tester y A
 
 La ampliación full/groups ocurre después de cover o recombinación: repite el material o la parte elegida con fundidos hasta la duración objetivo, en PCM float; después exporta a MP3. Los tiempos de parte se expresan sobre el original y se mapean al tempo común. No se permite usar la ampliación como recorte ni dentro de repaint regional. Capacidades publica límites/defaults de timeline derivados de configuración. Preview, operaciones del job, variantes y ficha registran duración original/natural/final, relación y procedencia de tempo, sección y repeticiones. La duración cover nativa sigue siendo la de la fuente preparada.
 
+**Corrección de entrega verificada, 2026-10-15 (memory CL; tester PASS/reviewer APPROVE)**: tras descargar un lote se conserva un recibo local con identidad de proyecto/tarea/fuente, parámetros y huellas de los WAV y sus metadatos, anclado por SHA256 en el historial. `scripts/complete_downloaded_remix.py` permite completar explícitamente el posprocesado de un remix Por pistas interrumpido, usando esos archivos verificados y el mismo runtime de mezcla/ampliación/exportación/publicación, sin otra inferencia. Inspecciona por defecto; `--execute` exige lote completo, servicios detenidos, copia de historial y preservación de trabajos ajenos. Para lotes anteriores al recibo se contrasta el resultado real de la caché local del motor y sus archivos con las descargas. No se reanudan tareas automáticamente; SALIR conserva su apagado y Q1 mantiene la marca de interrupción. El lote se publica tras verificar todas sus variantes. La ejecución real recuperó dos MP3 de 240 s y sus fichas, verificados en biblioteca/API/Electron; no cierra los defectos de BPM o estilo.
+
 **Rectificación 2026-10-14 (memory CXXXII)**: comprobado con los audios reales del usuario, el BPM original automático falla de octava (363,64 BPM en `f6fc62fe-Arroja la bomba.mp3`; 99,2 en un MP3 generado a 199) y en full el BPM pedido no se cumple (pedido 199 → medido 104,7 y 250,5). El cambio común de tempo solo es fiable con el BPM original revisado a mano; el defecto queda abierto como B6 en `spec/03-PENDIENTES.md`.
 
 Los grupos de Demucs se validan como cuatro WAV float finitos, de duración y formato comunes; la caché requiere digest de fuente y firma de modelo/dispositivo/shifts/overlap/grupos/formato. Separación y preparación comprueban que la fuente no haya cambiado durante la operación. Estas validaciones técnicas no certifican la calidad de aislamiento ni el cumplimiento musical del cover.
 
-**Contrato B6 autorizado, 2026-10-14 (memory CXXXIII; implementación en curso)**: en full con BPM elegido, el condicionamiento del motor se acompaña de medición independiente y ajuste DSP posterior de cada variante, sin cambio de tono. El preview declara pendientes la medición, relación de tempo y duración natural; la ejecución calcula un plan individual antes de ampliar y exportar. Una medición incierta o duración pedida inferior a la natural efectiva produce un error con causa y mínimo concreto. Por pistas mantiene su tempo PCM común y expone medición original revisable. Region conserva el BPM orientativo del motor sin aplicar un estiramiento global. Este contrato no está verificado todavía; criterios y estado en spec02 B6.
+**Contrato B6 autorizado, 2026-10-14 (memory CXXXIII; implementación en curso)**: en full con BPM elegido, el condicionamiento del motor se acompaña de medición independiente y ajuste DSP posterior de cada variante, sin cambio de tono. El preview declara pendientes la medición, relación de tempo y duración natural; la ejecución calcula un plan individual antes de ampliar y exportar. Si ninguna variante full se puede medir, si el BPM medido sale de la tolerancia, o si la duración pedida es inferior a la natural efectiva, se produce un error con causa y mínimo concreto. Si otra variante sí tiene pulso, se publica esa y la que no mide queda fuera. Por pistas mantiene su tempo PCM común y expone medición original revisable. Region conserva el BPM orientativo del motor sin aplicar un estiramiento global. Este contrato no está verificado todavía; criterios y estado en spec02 B6.
 
 El análisis nativo devuelve metadatos, tramo analizado y base de clasificación; no inventa una probabilidad. Los grupos son únicamente voz, batería, bajo y acompañamiento restante (`other`). Transformar grupos mediante cover requiere separar el resultado antes de recombinar; no tratar una canción completa como un stem puro.
 
@@ -107,13 +110,14 @@ Intermedios de proyecto sin pérdida, exportación final y ficha con fuente/dige
 | `separator_service.py`, `demucs_local.py` | separación real y gestión del proceso Demucs |
 | `mixer_service.py` | ffmpeg: cuadre, atempo/adelay/loudnorm, loop, tempo, crossfade y grupos |
 | `audio_analysis.py`, `audio_service.py` | medición DSP y ganancia/fade/recorte |
-| `prompt_style.py`, `prompt_enhancer.py`, `genre_glossary.py` | catálogo/opciones reales y borradores optativos; texto literal por defecto |
+| `prompt_style.py`, `prompt_enhancer.py`, `genre_glossary.py` | catálogo/opciones reales y borradores optativos; el cuadro conserva el texto |
+| `style_translator.py`, `style_translator_worker.py`, `nllb_languages.json`, `style_term_fixes.json` | el estilo pasa a inglés en local antes del envío; la letra no se traduce; batería/bombo mal traducidos se corrigen con el fichero |
 | `main.py` | rutas, preparación de peticiones/preview, jobs/cancelación, fichas y UI estática |
 
 | Frontend | Responsabilidad |
 |---|---|
 | `src/api.js` | HTTP, previews y configuración común |
-| `src/App.jsx`, `src/components/JobsPanel.jsx` | shell, navegación, salud/modelos y feed común de jobs |
+| `src/App.jsx` | shell, navegación, salud/modelos y sondeo del trabajo activo. Desde el 2026-10-16 CREAR no lista la cola: la pista terminada está en BIBLIOTECA |
 | `src/components/Composer.jsx` | creación, letra, controles y prompt |
 | `src/components/Uploads.jsx`, `Library.jsx` | fuentes, biblioteca/fichas y acceso a herramientas |
 | `src/components/RemixActions.jsx`, `RemixWorkspace.jsx` | mesa contextual sobre original, regiones/grupos y resultados |

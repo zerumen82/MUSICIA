@@ -5,6 +5,11 @@ python-multipart
 aiofiles
 loguru
 httpx
+lingua-language-detector
+
+# El traductor de estilo (NLLB) NO se instala aquí: corre en el Python del
+# motor, vendor/ACE-Step-1.5, porque ese entorno ya tiene torch.
+# lingua solo detecta el idioma. La letra cantada no se traduce.
 
 # El motor de música (ACE-Step 1.5) NO se instala aquí.
 # Vive aislado en vendor/ACE-Step-1.5 con su propio entorno de Python 3.11,

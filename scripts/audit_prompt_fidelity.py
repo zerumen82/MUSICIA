@@ -28,6 +28,7 @@ from music_service import GenerationRequest, MusicService  # noqa: E402
 from config import get_settings  # noqa: E402
 from prompt_enhancer import enhance_prompt  # noqa: E402
 from prompt_style import analyze_prompt, style_caption  # noqa: E402
+from style_translator import style_for_engine  # noqa: E402
 
 ADVERSARIAL = [
     "techno oscuro, 130 bpm",
@@ -76,14 +77,17 @@ def main() -> None:
         # 1. CREAR y REMIX: caption y payload del motor, literales.
         for prompt in ADVERSARIAL:
             caption = style_caption(prompt)
+            engine = style_for_engine(caption, settings)
             report["checks"].append({"path": "style_caption", "prompt": prompt,
                                      "equal": caption == prompt})
+            report["checks"].append({"path": "style_for_engine", "prompt": prompt,
+                                     "engine": engine})
             for task in ("text2music", "cover", "repaint"):
                 payload = service.build_payload(GenerationRequest(
-                    prompt=caption, task_type=task,
+                    prompt=engine, constraint_prompt=caption, task_type=task,
                     source_path=None if task == "text2music" else str(settings.outputs_dir / source)))
                 report["checks"].append({"path": f"payload:{task}", "prompt": prompt,
-                                         "equal": payload["prompt"] == prompt})
+                                         "equal": payload["prompt"] == engine})
                 request = {'prompt': caption, 'task_type': task}
                 if task != 'text2music':
                     request.update(source_name=source, source_kind='output')

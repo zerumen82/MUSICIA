@@ -295,13 +295,14 @@ async function creation() {
   });
   report.create_job = job;
   if (JSON.stringify(job.effective_parameters) !== JSON.stringify(report.create_preview)) throw new Error('Creation preview differs from executed job');
-  report.create_terminal_ui = await wait('visible creation ready state with actual served audio', () => ev((output) => {
+  report.create_terminal_ui = await wait('visible creation ready state with the track in the library', () => ev(async (output, base) => {
     const composer = document.querySelector('[data-panel="composer"][data-active="true"]');
-    const player = [...composer.querySelectorAll('audio[controls]')].find((audio) => decodeURIComponent(new URL(audio.src).pathname).endsWith(`/${output}`));
     const generate = [...composer.querySelectorAll('button')].find((button) => button.textContent.trim() === 'GENERAR');
-    return generate && !generate.disabled && !composer.innerText.includes('CREANDO…') && composer.innerText.includes('TU PISTA ESTÁ LISTA') && player?.readyState >= 2 && player.duration > 0 && !player.error
-      ? { output, src: player.src, duration: player.duration, busy: false, ready: true } : false;
-  }, job.output_name));
+    const ready = generate && !generate.disabled && !composer.innerText.includes('CREANDO…') && composer.innerText.includes('Está en BIBLIOTECA');
+    const library = await (await fetch(base + '/music/library')).json();
+    const listed = (library.items ?? []).some((item) => item.name === output);
+    return ready && listed ? { output, busy: false, library: true } : false;
+  }, job.output_name, api));
   await capture('create-completed');
 }
 async function adjustmentBusy() {

@@ -3,6 +3,7 @@ import { api } from '../api';
 import { SECTIONS } from '../remix_sections';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
+import StyleEnglish from './StyleEnglish';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
 const SECONDS_PER_MINUTE = 60;
@@ -30,6 +31,7 @@ export default function VoiceBackingPanel({ fileName, sourceKind, duration, capa
         <label className="label">SEMILLA <input aria-label="Semilla de la base con voz original" type="number" min={capabilities?.parameters?.seed?.min} max={capabilities?.parameters?.seed?.max} step="1" value={seed} disabled={busy} onChange={(event) => setSeed(event.target.value)} placeholder="Aleatoria" className={`${field} w-36`} /></label>
       </div>
       <label className="label">NOMBRE <input aria-label="Nombre de la base con voz original" value={name} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="Nombre de las variantes" className={`${field} w-full mt-1`} /></label>
+      <StyleEnglish text={prompt} />
       <EffectivePreview request={request} loadPreview={api.remixAiPreview} why={SECTIONS.engine.why} />
       <button type="button" onClick={() => void onRun(request)} disabled={busy || !capabilities || !prompt.trim()} className="btn btn-signal h-10 px-4 self-start">CONSERVAR VOZ Y CREAR BASE</button>
   </div>;

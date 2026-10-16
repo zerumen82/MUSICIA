@@ -7,12 +7,15 @@ from array import array
 from pathlib import Path
 
 from config import AppSettings
-from mixer_service import MixerService, stems_kept_out_of_single_transform
+from mixer_service import MixerService, stems_kept_out_of_single_transform, stems_peeled_from_transformed_bed
 from music_service import MusicService
 from remix_project import (RemixProjectRequest, RemixProjectRuntime, timeline_plan, validate_project,
                            accept_measured_draw, accept_verified_draw, audio_has_no_usable_groove, full_groove_retries,
+                           full_variant_failure, unmeasured_variant_notice, unpublished_batch_error,
+                           full_bpm_preview_notice,
                            full_variant_plan, project_generation, replacement_request_seed,
-                           tempo_after_repetition, verify_requested_tempo)
+                           groups_tempo_ratio, apply_groups_mix_tempo, tempo_after_repetition,
+                           verify_requested_tempo, require_measured_tempo)
 from separator_service import SeparatorService
 
 
@@ -362,6 +365,99 @@ class RemixTimelineTest(unittest.TestCase):
             kept = MixerService.inspect_pcm(fallback)["samples"]
             self.assertLess(max(abs(value - 0.20) for value in kept), 1e-3)
 
+    def test_several_transformed_groups_keep_the_hit_filed_outside_drums(self):
+        actions = {"vocals": "keep", "drums": "transform", "bass": "transform", "other": "transform"}
+        targets, peeled = stems_peeled_from_transformed_bed(actions)
+        self.assertEqual(targets, ("drums", "bass", "other"))
+        self.assertEqual(peeled, ("vocals",))
+        rate = 8000
+        frames = rate // 10
+        config = self.settings.remix
+
+        def tone(value):
+            return array("f", [value] * (frames * 2))
+
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            parts = {"drums": tone(0.02), "bass": tone(0.02), "other": tone(0.30), "vocals": tone(0.05)}
+            engine = array("f", (sum(values) for values in zip(*(parts[name] for name in parts))))
+            paths = {}
+            for name, samples in parts.items():
+                path = directory / f"{name}.wav"
+                MixerService._write_float_wav(path, samples, rate, 2)
+                paths[name] = path
+            engine_path = directory / "engine.wav"
+            replaced = directory / "replaced.wav"
+            output = directory / "bed.wav"
+            MixerService._write_float_wav(engine_path, engine, rate, 2)
+            MixerService._write_float_wav(replaced, tone(0.04), rate, 2)
+            info = MixerService.render_transformed_bed(
+                engine_path, paths, actions, replaced, output, config)
+            self.assertFalse(info["used_full_generation"])
+            heard = MixerService.inspect_pcm(output)["samples"]
+            self.assertLess(max(abs(value - 0.34) for value in heard), 1e-3)
+
+    def test_groups_tempo_ratio_uses_the_measurement_and_the_configured_tolerance(self):
+        config = self.settings.remix
+        self.assertIsNone(groups_tempo_ratio(171.4, 170, config))
+        self.assertAlmostEqual(groups_tempo_ratio(100, 170, config), 1.7)
+        self.assertIsNone(groups_tempo_ratio(168, 170, config))
+        with self.assertRaisesRegex(ValueError, "BPM medido"):
+            groups_tempo_ratio(float("nan"), 170, config)
+        with self.assertRaisesRegex(ValueError, "BPM fiable"):
+            require_measured_tempo({"bpm_measured": 100, "bpm_confidence": 0.01},
+                                   config, "en la mezcla de grupos")
+
+    def test_groups_mix_tempo_keeps_the_requested_duration(self):
+        config = self.settings.remix
+        longer = timeline_plan(self.request(bpm=150, source_bpm=120, duration_seconds=35,
+                                            repeat_start=2, repeat_end=8, transition_seconds=0.1),
+                               20, self.settings)
+        adjusted = apply_groups_mix_tempo(longer, 16, 1.6, 35, config)
+        self.assertAlmostEqual(adjusted["natural_duration_seconds"], 10)
+        self.assertEqual(adjusted["target_duration_seconds"], 35)
+        self.assertEqual(adjusted["method"], "repeat_crossfade")
+        self.assertAlmostEqual(adjusted["tempo_ratio"], 1.6)
+        self.assertAlmostEqual(adjusted["mapped_repeat_start"], 1.0)
+        self.assertAlmostEqual(adjusted["mapped_repeat_end"], 4.0)
+        self.assertEqual(adjusted["transition_seconds"], 0.1)
+        self.assertEqual(longer["natural_duration_seconds"], 16)
+        self.assertEqual(longer["target_duration_seconds"], 35)
+        self.assertAlmostEqual(longer["tempo_ratio"], 1.25)
+        plain = timeline_plan(self.request(bpm=150, source_bpm=120), 20, self.settings)
+        settled = apply_groups_mix_tempo(plain, 16, 2, None, config)
+        self.assertAlmostEqual(settled["natural_duration_seconds"], 8)
+        self.assertAlmostEqual(settled["target_duration_seconds"], 8)
+        self.assertEqual(settled["method"], "original")
+        self.assertEqual(settled["transition_seconds"], 0.0)
+        filled = apply_groups_mix_tempo(plain, 16, 2, 30, config)
+        self.assertEqual(filled["method"], "repeat_crossfade")
+        self.assertEqual(filled["target_duration_seconds"], 30)
+        self.assertEqual(filled["transition_seconds"], config.timeline_transition_seconds)
+        with self.assertRaisesRegex(ValueError, r"mínimo 32 s \(0:32\)"):
+            apply_groups_mix_tempo(plain, 16, 0.5, 10, config)
+
+    def test_full_preview_says_one_unmeasured_variant_does_not_drop_the_lot(self):
+        notice = full_bpm_preview_notice()
+        self.assertIn("la variante sin pulso no se publica", notice)
+        self.assertIn("detiene todo el lote", notice)
+        self.assertNotIn("produce un error", notice)
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.wav"
+            MixerService._write_float_wav(source, array("f", [0.1] * 16000), 8000, 2)
+            runtime = RemixProjectRuntime.__new__(RemixProjectRuntime)
+            runtime.settings = self.settings
+            runtime.music = MusicService(self.settings)
+            runtime.find_audio = lambda _name, _kind: source
+            full = RemixProjectRequest(source_name=source.name, prompt="A track with techno",
+                                       bpm=170, scope="full")
+            prepared = asyncio.run(runtime.preview(full))
+            groups = asyncio.run(runtime.preview(self.request(
+                bpm=150, source_bpm=120, prompt="A track with techno")))
+        self.assertIn(notice, prepared["warnings"])
+        self.assertFalse(any("produce un error" in item for item in prepared["warnings"]))
+        self.assertFalse(any(item == notice for item in groups["warnings"]))
+
 
 class UnmeasuredVariantRetryTest(unittest.TestCase):
     def test_retry_count_comes_from_configuration(self):
@@ -485,6 +581,31 @@ class UnmeasuredVariantRetryTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "no cumple el pedido"):
             asyncio.run(accept_verified_draw(measured, adjust, replace_verified, 2))
+
+    def test_an_unmeasurable_full_variant_stays_out_and_names_itself(self):
+        for text in (
+            "El groove es incierto: el período elegido no destaca sobre los tempos vecinos",
+            "Audio demasiado corto para detectar el groove",
+            "No se ha detectado un tempo",
+            "No hay un BPM fiable en la variante generada",
+        ):
+            self.assertEqual(full_variant_failure(ValueError(text)), "withhold")
+        self.assertEqual(
+            unmeasured_variant_notice(0),
+            "La variante 1 no tenía un pulso medible; no se publicó.")
+        second = unmeasured_variant_notice(1)
+        self.assertIn("no se publicó", second)
+        self.assertIn("2", second)
+        groove = ValueError("El groove es incierto: meseta")
+        self.assertIs(unpublished_batch_error(0, [groove]), groove)
+        self.assertIsNone(unpublished_batch_error(1, [groove]))
+        self.assertIsNone(unpublished_batch_error(0, []))
+
+    def test_a_measured_bpm_outside_tolerance_is_not_left_out(self):
+        missed = ValueError("El BPM final medido 104.7 no cumple el pedido 199 (tolerancia 2 BPM)")
+        self.assertEqual(full_variant_failure(missed), "raise")
+        self.assertEqual(full_variant_failure(ValueError("Configuración de groove inválida")), "raise")
+        self.assertEqual(full_variant_failure(RuntimeError("El groove es incierto")), "raise")
 
 
 if __name__ == "__main__":

@@ -224,5 +224,37 @@
     "poll_interval": 3.0,
     "timeout_seconds": 1800.0,
     "max_history": 30
+  },
+  "style_translation": {
+    "model_id": "facebook/nllb-200-distilled-600M",
+    "target_lang": "eng_Latn",
+    "device": "cpu",
+    "python_path": "vendor/ACE-Step-1.5/.venv/Scripts/python.exe",
+    "worker_script": "backend/style_translator_worker.py",
+    "language_map": "backend/nllb_languages.json",
+    "term_fixes": "backend/style_term_fixes.json",
+    "english_code": "en",
+    "clause_foreign_confidence": 0.15,
+    "long_text_chars": 12,
+    "long_text_foreign_confidence": 0.08,
+    "long_text_foreign_ratio": 1.5,
+    "word_min_chars": 4,
+    "word_min_confidence": 0.16,
+    "word_foreign_ratio": 4.0,
+    "max_input_tokens": 256,
+    "max_new_tokens": 256,
+    "num_beams": 4,
+    "do_sample": false,
+    "load_timeout_seconds": 180.0,
+    "request_timeout_seconds": 120.0,
+    "log_path": "logs/style-translator.log"
+  },
+  "process_logs": {
+    "engine_stdout": "logs/acestep-api.log",
+    "engine_stderr": "logs/acestep-api.err.log",
+    "api_stderr": "logs/musicia-api.err.log",
+    "tail_lines": 200,
+    "max_tail_lines": 2000,
+    "line_char_budget": 400
   }
 }

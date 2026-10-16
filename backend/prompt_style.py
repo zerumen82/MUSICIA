@@ -165,11 +165,10 @@ def analyze_prompt(prompt: str) -> dict:
 
 
 def style_caption(prompt: str) -> str:
-    """Caption efectivo, sin recetas ni traducción parcial oculta.
+    """Texto del cuadro, solo sin espacios externos.
 
-    El frontend muestra este mismo texto y el backend conserva su sentido
-    literal. No es un traductor universal: una adaptación semántica futura
-    debe ser explícita, revisable y validada antes de entrar en el envío.
+    No traduce. El inglés que viaja al motor lo decide style_for_engine,
+    y esa misma frase es la que se muestra antes de enviar.
     """
     return (prompt or "").strip()
 

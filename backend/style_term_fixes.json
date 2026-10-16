@@ -1,0 +1,19 @@
+{
+  "_doc": "Palabras que el traductor NLLB 600M midió mal el 2026-10-16. Se aplican solo después de traducir, si el texto de origen contiene la frase española y el inglés contiene la palabra equivocada. Una caption ya inglesa no pasa por aquí. La frase española más larga gana: «doble bombo» no se trata como un «bombo» suelto. «batería» y «bateria» son la misma palabra con o sin tilde.",
+  "fixes": [
+    {"source": "doble bombo", "wrong": "double bumpers", "right": "double kicks"},
+    {"source": "doble bombo", "wrong": "double bumper", "right": "double kick"},
+    {"source": "baterías", "wrong": "batteries", "right": "drums"},
+    {"source": "baterías", "wrong": "battery", "right": "drums"},
+    {"source": "baterias", "wrong": "batteries", "right": "drums"},
+    {"source": "baterias", "wrong": "battery", "right": "drums"},
+    {"source": "batería", "wrong": "batteries", "right": "drums"},
+    {"source": "batería", "wrong": "battery", "right": "drums"},
+    {"source": "bateria", "wrong": "batteries", "right": "drums"},
+    {"source": "bateria", "wrong": "battery", "right": "drums"},
+    {"source": "bombos", "wrong": "bumpers", "right": "kicks"},
+    {"source": "bombos", "wrong": "bumper", "right": "kicks"},
+    {"source": "bombo", "wrong": "bumpers", "right": "kicks"},
+    {"source": "bombo", "wrong": "bumper", "right": "kick"}
+  ]
+}
