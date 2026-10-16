@@ -10,12 +10,17 @@ from config import AppSettings
 from style_translator import (
     correct_translated_terms,
     reset_style_translation_cache,
+    stop_style_translation_worker,
     style_for_engine,
     translation_worker_running,
 )
 
 
 class EnglishStyleStaysTest(unittest.TestCase):
+    def setUp(self):
+        stop_style_translation_worker()
+        reset_style_translation_cache()
+
     def test_empty_stays_empty(self):
         self.assertEqual(style_for_engine(""), "")
         self.assertEqual(style_for_engine("   "), "")
@@ -51,6 +56,10 @@ class EnglishStyleStaysTest(unittest.TestCase):
 
 
 class CorrectedTermsTest(unittest.TestCase):
+    def setUp(self):
+        stop_style_translation_worker()
+        reset_style_translation_cache()
+
     def test_measured_words_change_and_english_battery_does_not(self):
         self.assertEqual(
             correct_translated_terms("Batería suave al fondo", "Soft battery at the bottom"),

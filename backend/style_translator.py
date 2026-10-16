@@ -69,6 +69,11 @@ def translation_worker_running() -> bool:
     return _WORKER.running()
 
 
+def stop_style_translation_worker() -> None:
+    """Detiene el worker de traducción. La usan las pruebas para aislarse entre sí."""
+    _WORKER.stop()
+
+
 def _path(raw: str) -> Path:
     path = Path(raw)
     return path if path.is_absolute() else PROJECT_ROOT / path
