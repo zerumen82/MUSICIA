@@ -2978,3 +2978,9 @@ ahí estaba el desfase que oía el usuario.
 - **Commit**: `8119019` (2 ficheros, +14). Repo limpio.
 - **TESTER — PASS**: evidencias de esta entrada (backend/frontend/lint/build + medición groove real). Sin GPU ni ventana.
 - **REVIEWER — APPROVE** (pasada propia separada): diff mínimo (stop + 2 setUp), sin cambio de producto, asserts intactos. Nota no bloqueante: ResourceWarning de fichero sin cerrar al parar el worker en tests; no afecta a producción (atexit lo cubre).
+
+## 2026-10-16 (CLXVIII) — CLXVI verificado en GPU: el sobrante continúa la misma base
+- **Qué pidió**: si el remix dura más que el original, ampliar con la misma base más tiempo, sin bucle del recorte. Trabajo `b6615554` (Por pistas, todo conservar, `Animales muertos.mp3` 81,4 s → 240 s, tramo 24,37–28,41, nombre PRUEBA-continue-bed-240).
+- **Medido**: `succeeded` en 602,8 s. `PRUEBA-continue-bed-240.mp3` 239,96 s / 5.760.620 bytes. Ficha: `method: continue_bed`, `repetitions: 0`, 2 continuaciones del motor con semillas reales (1019109256, 651602136), recorte colocado una sola vez en 81,4 s. `detect_groove` del MP3: 165,75 BPM conf 0,248 ≈ original 165,52. Sin bucle, sin cambio de tono, tempo conservado.
+- **TESTER — PASS** (evidencia de esta entrada: job, MP3, ficha y groove). Falta oído del usuario (B7).
+- **REVIEWER — PENDIENTE**.
