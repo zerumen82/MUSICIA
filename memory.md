@@ -2970,3 +2970,11 @@ ahí estaba el desfase que oía el usuario.
 - **Qué dijo**: si pide más duración que la canción, lo que sobra es una base que se genera, y el recorte se usa como sample. No es repetir ese tramo.
 - **Qué hizo amrem**: pidió 240 s y el tramo 24,37–28,41. El programa rellenó con el bucle de ese trozo. La mezcla de 79 s midió 170,21. El archivo de 240 s midió 136,36 y no se publicó.
 - **Estado**: no está implementado. No se ha generado audio ni se ha cambiado el arreglo. El corte de 2 BPM sigue. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXVII) — Suite en verde + diagnóstico BPM con audios reales
+- **Qué**: a petición "arréglalo todo": suite backend completa daba 4/290 FAIL en `test_style_translation` (worker vivo heredado de `test_effective_preview`, dependencia de orden). Fix causa: `stop_style_translation_worker()` nuevo en `backend/style_translator.py` + `setUp` que para el worker y limpia caché en `EnglishStyleStaysTest`/`CorrectedTermsTest`. Sin debilitar asserts.
+- **Medido**: backend 290 OK (2 skipped) en 81,9 s; `test_effective_preview + test_style_translation` 32 OK; frontend `node --test` 62/62; eslint 0; `npm run build` OK (index-BvdqTPmq.js, 389 kB).
+- **BPM**: `detect_groove` vigente con tus 2 subidas: Animales 165,52/0,659 fiable; Arroja 121,21/0,143 fiable (antes 363,64/0,101) — la octava ya rige. UI `RemixWorkspace.jsx:447` expone BPM original editable; `remix_project.py` devuelve mínimo concreto. Full con 2 variantes y CLXVI (sobrante como base generada) y B7-oído quedan abiertos.
+- **Commit**: `8119019` (2 ficheros, +14). Repo limpio.
+- **TESTER — PASS**: evidencias de esta entrada (backend/frontend/lint/build + medición groove real). Sin GPU ni ventana.
+- **REVIEWER — PENDIENTE**.
