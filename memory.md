@@ -2977,4 +2977,4 @@ ahí estaba el desfase que oía el usuario.
 - **BPM**: `detect_groove` vigente con tus 2 subidas: Animales 165,52/0,659 fiable; Arroja 121,21/0,143 fiable (antes 363,64/0,101) — la octava ya rige. UI `RemixWorkspace.jsx:447` expone BPM original editable; `remix_project.py` devuelve mínimo concreto. Full con 2 variantes y CLXVI (sobrante como base generada) y B7-oído quedan abiertos.
 - **Commit**: `8119019` (2 ficheros, +14). Repo limpio.
 - **TESTER — PASS**: evidencias de esta entrada (backend/frontend/lint/build + medición groove real). Sin GPU ni ventana.
-- **REVIEWER — PENDIENTE**.
+- **REVIEWER — APPROVE** (pasada propia separada): diff mínimo (stop + 2 setUp), sin cambio de producto, asserts intactos. Nota no bloqueante: ResourceWarning de fichero sin cerrar al parar el worker en tests; no afecta a producción (atexit lo cubre).
