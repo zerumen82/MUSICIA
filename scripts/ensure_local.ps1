@@ -1,7 +1,9 @@
 <#
 Deja el motor ACE-Step (:8001) y la API (:8000) en marcha.
 
-No mata un proceso que ya existe: un motor cargado no se reinicia en frío.
+No mata un motor que ya existe: un motor cargado no se reinicia en frío.
+La excepción es la API de Musicia: si el proceso sigue vivo y el puerto no
+acepta conexiones pasada la espera de config, se repone solo esa API.
 Si el proceso no está, lo arranca. Si SALIR escribió logs\stop.flag, no arranca
 nada, salvo que se llame con -Rearme (la siguiente apertura de la ventana).
 
@@ -129,18 +131,49 @@ try {
 
     $apiArriba = Test-Endpoint 'http://127.0.0.1:8000/health'
     # «main.py» a secas también es ComfyUI. Solo cuenta el backend de Musicia.
-    $apiPresente = (Find-Python 'backend\main.py').Count -gt 0 -or (Find-Python 'backend/main.py').Count -gt 0 -or (Test-Port 8000)
+    $apiProcs = @(Find-Python 'backend\main.py') + @(Find-Python 'backend/main.py')
+    $apiProcs = @($apiProcs | Where-Object { $_ })
+    $apiPort = Test-Port 8000
+    $apiPy = Join-Path $raiz 'backend\venv\Scripts\python.exe'
+    $apiArgs = @('backend\main.py')
+    $apiOut = Join-Path $logs 'musicia-api.log'
+    $apiErr = Join-Path $logs 'musicia-api.err.log'
     if ($apiArriba) {
         Write-Output 'API=up'
-    } elseif ($apiPresente) {
+    } elseif ($apiProcs.Count -gt 0 -and -not $apiPort) {
+        # El proceso existe y el puerto no acepta. Si ya pasó la espera, está
+        # colgado: se repone solo la API. El motor no se toca.
+        $oldest = 0.0
+        foreach ($proc in $apiProcs) {
+            $created = $proc.CreationDate
+            if ($created -is [string]) {
+                $created = [System.Management.ManagementDateTimeConverter]::ToDateTime($created)
+            }
+            $age = ((Get-Date) - [datetime]$created).TotalSeconds
+            if ($age -gt $oldest) { $oldest = $age }
+        }
+        $backend = Join-Path $raiz 'backend'
+        $ageText = $oldest.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        & $apiPy -c "import sys; sys.path.insert(0, r'$backend'); from config import get_settings; from api_supervisor import api_is_wedged; raise SystemExit(0 if api_is_wedged(health_ok=False, port_accepts=False, age_seconds=float(sys.argv[1]), grace_seconds=get_settings().api_listen_grace_seconds) else 1)" $ageText
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($proc in $apiProcs) {
+                & taskkill.exe /PID $proc.ProcessId /T /F | Out-Null
+            }
+            $apiExitWaitSeconds = 15
+            $apiExitPollMs = 300
+            $deadline = (Get-Date).AddSeconds($apiExitWaitSeconds)
+            do {
+                Start-Sleep -Milliseconds $apiExitPollMs
+            } while (((Find-Python 'backend\main.py').Count + (Find-Python 'backend/main.py').Count) -gt 0 -and (Get-Date) -lt $deadline)
+            Start-Servicio 'API' $apiPy $apiArgs $raiz $apiOut $apiErr
+            Write-Output 'API=revived'
+        } else {
+            Write-Output 'API=starting'
+        }
+    } elseif ($apiProcs.Count -gt 0 -or $apiPort) {
         Write-Output 'API=starting'
     } else {
-        Start-Servicio 'API' `
-            (Join-Path $raiz 'backend\venv\Scripts\python.exe') `
-            @('backend\main.py') `
-            $raiz `
-            (Join-Path $logs 'musicia-api.log') `
-            (Join-Path $logs 'musicia-api.err.log')
+        Start-Servicio 'API' $apiPy $apiArgs $raiz $apiOut $apiErr
     }
 } finally {
     if ($owned) { [void]$mutex.ReleaseMutex() }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
+import { isTransportBlip, PROMPT_PREVIEW_DEBOUNCE_MS, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 
 /** Consulta el mismo preparador que usa la ejecución; nunca inventa defaults. */
 export default function EffectivePreview({ request, loadPreview, title = 'PARÁMETROS DEL MOTOR', why = '' }) {
@@ -10,11 +10,16 @@ export default function EffectivePreview({ request, loadPreview, title = 'PARÁM
     if (!open) return undefined;
     let active = true;
     const timer = setTimeout(async () => {
-      try {
-        const result = await loadPreview(JSON.parse(encoded));
-        if (active) setAnswer({ key: encoded, result });
-      } catch (error) {
-        if (active) setAnswer({ key: encoded, error: error.message });
+      while (active) {
+        try {
+          const result = await loadPreview(JSON.parse(encoded));
+          if (active) setAnswer({ key: encoded, result });
+          return;
+        } catch (error) {
+          if (!active) return;
+          if (!isTransportBlip(error.message)) { setAnswer({ key: encoded, error: error.message }); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
       }
     }, PROMPT_PREVIEW_DEBOUNCE_MS);
     return () => { active = false; clearTimeout(timer); };

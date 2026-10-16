@@ -6,6 +6,9 @@
  */
 import axios from 'axios'
 import { releaseAudioSources } from './audio_player'
+import { actionError, isEnginePollBlip, isTransportBlip, staleTransportError } from './transport_error'
+
+export { actionError, isEnginePollBlip, isTransportBlip, staleTransportError }
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
@@ -26,6 +29,9 @@ export const PROMPT_PREVIEW_DEBOUNCE_MS = 300
  */
 export const HEALTH_PROBE_MS = 8000
 
+/** Cadencia para quitar un corte de red cuando /health ya contestó. */
+export const TRANSPORT_ERROR_CLEAR_MS = 1000
+
 /** style_translation.load_timeout_seconds. La primera carga del traductor. */
 export const TRANSLATION_LOAD_TIMEOUT_MS = 180000
 /** style_translation.request_timeout_seconds. Una frase con el modelo ya cargado. */
@@ -39,15 +45,6 @@ export const PREVIEW_TIMEOUT_MS = TRANSLATION_LOAD_TIMEOUT_MS + TRANSLATION_REQU
  */
 export const GENERATE_SUBMIT_TIMEOUT_MS = PREVIEW_TIMEOUT_MS + 90000
 const previewClient = axios.create({ baseURL: API_BASE_URL, timeout: PREVIEW_TIMEOUT_MS })
-
-/**
- * Corte de red o de tiempo. No es un fallo del trabajo: la pantalla no lo pinta.
- * Axios dice «timeout of 30000ms exceeded» cuando su reloj acaba antes que la API.
- */
-export const isTransportBlip = (message) =>
-  /no responde|no contesta|respuesta ilegible|timeout of \d+ms exceeded|timeout exceeded|tardó demasiado|Network Error|ECONNABORTED|ECONNREFUSED/i.test(message ?? '')
-
-export const isEnginePollBlip = isTransportBlip
 
 const client = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 
@@ -181,29 +178,29 @@ export const api = {
     }
   },
 
-  /** Glosario real de estilos: catálogo de Musicia + vocabulario del motor. */
+  /** Glosario real de estilos: catálogo de Musicia + vocabulario del motor.
+   *  Un corte de red devuelve null para reintentar. Un fallo escrito se propaga. */
   genreGlossary: async (q, limit = 50) => {
     try {
-      const { data } = await client.get('/music/genre_glossary', {
-        params: { q, limit },
-        timeout: HEALTH_PROBE_MS,
-      })
+      const { data } = await client.get('/music/genre_glossary', { params: { q, limit } })
       return data
-    } catch {
-      return null
+    } catch (error) {
+      const message = actionError(describeError(error))
+      if (message == null) return null
+      throw new Error(message)
     }
   },
 
-  /** Combinaciones de dos estilos que existen en el vocabulario del modelo. */
+  /** Combinaciones de dos estilos que existen en el vocabulario del modelo.
+   *  Un corte de red devuelve null para reintentar. Un fallo escrito se propaga. */
   genreCombine: async (a, b, limit = 50) => {
     try {
-      const { data } = await client.get('/music/genre_glossary/combine', {
-        params: { a, b, limit },
-        timeout: HEALTH_PROBE_MS,
-      })
+      const { data } = await client.get('/music/genre_glossary/combine', { params: { a, b, limit } })
       return data
-    } catch {
-      return null
+    } catch (error) {
+      const message = actionError(describeError(error))
+      if (message == null) return null
+      throw new Error(message)
     }
   },
 

@@ -2918,3 +2918,55 @@ ahí estaba el desfase que oía el usuario.
 - **Pruebas**: ESLint de App y Composer, 0. Frontend `node --test`, 52/52. Build `index-2bsqluKk.js`: no contiene «COLA DE TRABAJOS» y sí «Está en BIBLIOTECA». La ventana no se ha pulsado. No se generó audio. No cierra R9, R10, B6 ni B7.
 - **TESTER — PASS** (`01a144c3-e517-72c2-825b-18c06411fc02`): ESLint 0, 52/52, `JobsPanel.jsx` no existe, el bundle no tiene la cola. La ventana queda NO-VERIFICADA.
 - **REVIEWER — APPROVE** (`01a144c3-e517-72c2-825b-18bfff78467f`). Sin bloqueantes. PARAR sigue en el progreso y el remix conserva el suyo. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXI) — La API estaba viva y no escuchaba
+
+- **Qué**: la ventana no conectaba. El proceso de la API (pid 316, desde las 14:43) seguía en memoria y no tenía el puerto 8000 en escucha. Un traductor de estilo arrancado a las 15:34 seguía vivo a las 15:42, sin CPU, con la descarga colgada, pasado el tope de 180 s. `ensure_local` lo veía presente y no lo sustituía. El motor 8001 (pids 8556/8500) contestaba.
+- **Qué se hizo**: se mató solo ese árbol (API y traductor) y se volvió a crear la API con `Win32_Process.Create`. El motor no se tocó.
+- **Resultado**: a las 15:44 `GET /health` devuelve `api=ok` y motor alcanzable. `GET /` devuelve 200. Escucha el pid 24788. El motor sigue en el pid 8500. No se generó audio.
+- **Pantalla**: a las 15:46 SUBIR seguía mostrando «La API no contesta.» bajo REMIX, con MOTOR ACTIVO. La ventana no se recargó: el formulario (Animales muertos, 170, AMMMM1) se conservó y el aviso quedó del corte. Desde el rearranque el registro no tiene ningún POST de remix.
+
+## 2026-10-16 (CLXII) — Un corte de red no se queda en el remix
+
+- **Qué pidió**: eso no debe ocurrir. Luego cerró Musicia él mismo (SALIR, `logs/stop.flag`).
+- **Qué hace**: «La API no contesta.» y «La API tardó demasiado en contestar.» no se guardan como fallo de pulsar REMIX ni de GENERAR. Un fallo real sí se queda: el traductor que tardó demasiado, el motor que no responde y la respuesta ilegible. Si el aviso de corte ya estaba y `/health` vuelve, se quita. Opciones, duración, BPM original, análisis, referencias, vista previa, estilo en inglés, listas, el cuadre y el envío de CREAR se vuelven a pedir tras el corte, con espera. CREAR no pinta el triángulo de ERROR por ese corte. El sondeo de un trabajo ya lanzado no lo pinta. Si el proceso de la API sigue vivo y el puerto 8000 no acepta conexiones al pasar `api_listen_grace_seconds` (60), `ensure_local` repone solo la API. El motor no se toca. Con la marca de SALIR no arranca nada.
+- **Pruebas**: `test_api_supervisor.py` 5 OK. Frontend `node --test` 55/55. ESLint 0. Build servido: `index-D0BsIbow.js`. `ensure_local.ps1` imprimió HOLD, la marca sigue en «salir» (6 bytes, 15:54:28) y el 8000 y el 8001 siguen cerrados. La ventana no se ha vuelto a abrir. No se generó audio. No cierra R9, R10, B6 ni B7.
+- **TESTER — PASS** (`01a14521-f466-7ae3-9cc3-67f433ea8be0`). El primer pase (`01a14507-dc74-73c1-bdd0-3110565bf34b`) y el segundo (`01a14517-c57b-7411-82f4-3abcf62fdbb0`) fueron FAIL: el corte se pintaba y CREAR marcaba ERROR. Eso quedó rehecho. ESLint 0. El test del corte, 3/3. HOLD y la marca intactos. La ventana queda NO-VERIFICADA.
+- **REVIEWER — APPROVE** (`01a14521-f466-7ae3-9cc3-6801ed951b40`). El primer pase (`01a14507-dc76-7dc0-a536-6d083e5bc6d4`) pidió el corte estrecho. El segundo (`01a14517-c57b-7411-82f4-3ac355bf9a4d`) ya lo aprobó. Este confirma CREAR, MEZCLA y el ancla del mensaje. Sin bloqueantes. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXIII) — El glosario decía que el vocabulario no estaba
+
+- **Qué pidió**: en el glosario no va. Dice que el vocabulario del motor no está disponible.
+- **Qué era**: el archivo `vendor/ACE-Step-1.5/acestep/genres_vocab.txt` sí está (178572 líneas, cargado a las 17:40). `GET /music/genre_glossary` responde `available: true`. El panel pintaba esa frase en cuanto aún no había respuesta, y si la petición fallaba se quedaba ahí. La ventana no había pedido el glosario: el único GET del registro era el de diagnóstico.
+- **Qué hace**: sin respuesta dice «Cargando el vocabulario…» y reintenta el corte de red. «vocabulario del motor no disponible» solo si el servidor manda `available: false`. Un fallo escrito se muestra y no se reintenta. Cambiar la búsqueda no conserva el recuento de la consulta anterior. Esas dos llamadas ya no usan el tope de 8 s.
+- **Pruebas**: frontend `node --test` 57/57. ESLint 0. Build servido: `index-BFajuZfN.js`. `GET /` lo cita. `GET /music/genre_glossary?q=&limit=50` → `available=true`, total 178572, primera entrada «16-bit J-RPG». `q=gabber` devuelve `q=gabber`, total 294. No se generó audio. No se reinició la API ni el motor. No se abortó el remix. No cierra R9, R10, B6 ni B7.
+- **Ventana**: estaba minimizada en CREAR. Al abrir GLOSARIO salen las entradas y el pie «178.572 entradas · whitelist del motor». En SUBIR, el remix de Animales muertos, el mismo panel lista «16-bit J-RPG» y el mismo pie. El registro tiene el GET del clic, 200. No se pulsó el botón verde de REMIX.
+- **TESTER — PASS** (`01a14578-ec61-7c12-bf4f-e8fbc1374a4b`). El pase anterior (`01a1456c-9cc4-7853-b0d7-0c4fabb93700`) fue PASS del pie, antes de filtrar la consulta. 57/57. ESLint 0. El bundle servido tiene la rama missing y la comparación de `q`. La ventana queda NO-VERIFICADA.
+- **REVIEWER — APPROVE** (`01a14578-ec61-7c12-bf4f-e8e332968ace`). El primer pase (`01a1456c-9cc5-7a60-b391-0ed725f9ce67`) pidió no pintar el recuento de otra consulta. Eso quedó hecho. Sin bloqueantes. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXIV) — El estilo en mayúsculas se traducía mal
+
+- **Qué pidió**: hace una traducción del prompt muy mala.
+- **Qué era**: escribió `GABBER HARDCORE · KICK CONTUNDENTES, VIBRACION BOUNCE · PITIDOS DE COMPUTADORAS · MELODIA ORIGINAL CON SINTETIZADOR`. A las 17:41 el motor recibió `GABBER HARDCORE · KICK CONTENTS, VIBRACION BOUNCE · Questions from computers · Original melody with synthesizer` (tarea `6738d470-6278-4d97-88ac-68f05109433e`). NLLB lee mal el español en mayúsculas. La misma frase en minúsculas ya salía bien: `gabber hardcore · strong kick, bounce vibration · computer whistles · original synth melody`. No faltaba un par en el fichero de términos.
+- **Qué hace**: al traductor se le pasa la frase en minúsculas. El texto escrito sigue valiendo para detectar el idioma, para las correcciones de batería y bombo, y para la caja. No se reponen las mayúsculas. No se añadieron pares. Sigue en CPU, con 4 haces. `use_format` y `thinking` siguen apagados. No se parte la frase por «·».
+- **Medido con el código nuevo**: `Gabber hardcore · strong kick, bounce vibration · computer whistles · original synth melody`.
+- **Pruebas**: `EnglishStyleStaysTest` y `CorrectedTermsTest`, 5 OK en 2,454 s. `LocalTranslationTest` solo, 2 OK en 46,356 s. No se generó audio. No se movió el traductor de CPU. No cierra R9, R10, B6 ni B7.
+- **API**: no había trabajos en cola ni en curso. Se paró solo el árbol de la API (22816 / 15916 y su traductor). El motor siguió en el pid 7072. El primer `Win32_Process.Create` devolvió 21 y no creó proceso. A las 18:32:19 quedó otra API (lanzador 23304, escucha 19624). `GET /health` api=ok y motor alcanzable. `POST /music/style-english` de la frase en mayúsculas devolvió 200 y el inglés medido. El 8001 no cambió de pid.
+- **TESTER — PASS** (`01a14589-64f4-7fb3-82eb-c8f6c62743d3`). 5 OK y luego 2 OK (31,550 s). La frase exacta no se reimprimió en su runner; las aserciones sí pasaron. CPU, fichero de términos y `use_format` quedaron NO-VERIFICADOS por él.
+- **REVIEWER — APPROVE** (`01a14589-64f4-7fb3-82eb-c903660fb995`). Sin bloqueantes. El diff es el `casefold` y el test. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXV) — La consola se quedaba solo mientras trabajaba
+
+- **Qué pidió**: en la UI marca el remix como si no lo hubiera hecho, y no hay logs. La consola solo está cuando está trabajando.
+- **Qué era**: la cabecera solo pintaba el botón de logs con un trabajo en cola o en curso. Al fallar amrem, ese botón desaparecía. El remix no se publicó. El fallo sigue en el historial: BPM medido 136,36 frente al pedido 170.
+- **Qué hace**: CONSOLA está siempre y abre la salida y el error. Si no hay trabajo en curso, la cabecera enseña el último. El de amrem sale en rojo con el error del BPM. Uno en curso sigue enseñando el porcentaje. La pastilla del motor no usa un trabajo ya terminado.
+- **Ventana**: bundle `index-CbG4Ox7W.js`. La cabecera muestra CONSOLA y «amrem · El BPM final medido 136.36 no cumple el pedido 170 (tolerancia 2 BPM)». Abrí la consola: sale el error del motor, con la generación de las 17:50. La cerré. La pestaña quedó en SUBIR. No pulsé REMIX. El recambio del bundle vació el formulario. No se generó audio. No se reinició el motor. No cierra R9, R10, B6 ni B7.
+- **Pruebas**: frontend `node --test` 61/61. ESLint 0.
+- **TESTER — PASS** (`01a14596-ff62-7600-996b-25dd8f6c4306`). 61/61. ESLint 0. `GET /` cita `index-CbG4Ox7W.js`.
+- **REVIEWER — APPROVE** (`01a14596-ff62-7600-996b-25e4ccc86eee`). Sin bloqueantes. No cierra R9, R10, B6 ni B7.
+
+## 2026-10-16 (CLXVI) — Lo que sobra no es un bucle del recorte
+
+- **Qué dijo**: si pide más duración que la canción, lo que sobra es una base que se genera, y el recorte se usa como sample. No es repetir ese tramo.
+- **Qué hizo amrem**: pidió 240 s y el tramo 24,37–28,41. El programa rellenó con el bucle de ese trozo. La mezcla de 79 s midió 170,21. El archivo de 240 s midió 136,36 y no se publicó.
+- **Estado**: no está implementado. No se ha generado audio ni se ha cambiado el arreglo. El corte de 2 BPM sigue. No cierra R9, R10, B6 ni B7.

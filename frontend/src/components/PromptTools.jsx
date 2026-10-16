@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
+import { api, actionError, PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
 import Glossary from './Glossary';
 import { applyModelTerm, sinBpmEnFrase } from '../glossary_pick';
 import SelectBox from './SelectBox';
@@ -29,7 +29,7 @@ export default function PromptTools({ prompt, setPrompt, bpm = null, onBpm = nul
     setEnhancing(true); setError(null);
     const original = prompt;
     try { setDraft({ original, bpm: bpmValue, result: await api.enhancePrompt({ prompt: original.trim(), bpm: bpmValue }) }); }
-    catch (err) { setError(err.message); }
+    catch (err) { setError(actionError(err.message)); }
     finally { setEnhancing(false); }
   };
   const currentDraft = draft?.original === prompt && draft?.bpm === bpmValue ? draft.result : null;

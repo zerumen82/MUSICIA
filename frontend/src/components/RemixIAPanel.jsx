@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import RemixActions from './RemixActions';
-import { api } from '../api';
+import { api, actionError } from '../api';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
@@ -20,7 +20,7 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
     if (!createBacking) return undefined;
     let active = true;
     api.musicConfig().then((data) => { if (active) setConfig(data); })
-      .catch((err) => { if (active) setError(err.message); });
+      .catch((err) => { if (active) setError(actionError(err.message)); });
     return () => { active = false; };
   }, [createBacking]);
   const defaultDuration = config && sourceDuration > 0 ? Math.min(sourceDuration, config.max_duration_seconds) : config?.duration_seconds;
@@ -37,7 +37,7 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
       await api.generationPreview(request);
       await onLaunch(request);
     }
-    catch (err) { setError(err.message); }
+    catch (err) { setError(actionError(err.message)); }
   };
   if (!createBacking) return <RemixActions fileName={fileName} sourceKind={sourceKind} onDone={onDone} />;
   return <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-3">

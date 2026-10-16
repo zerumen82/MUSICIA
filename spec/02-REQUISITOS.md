@@ -761,3 +761,15 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 - [x] Un fichero ausente se dice. No se inventan líneas. Una ruta fuera de `logs/` lanza el error que la ruta convierte en 422. `test_process_logs`, 4 OK.
 - [x] En rehacer, tramo y pistas, el nombre se escribe al lado de REMIX y viaja en `output_name`. Vacío sigue usando el nombre del original con `-remix`. La vista del nombre pedido, OK.
 
+## [R16] Lo que sobra continúa la base y el recorte entra una vez — pedido 2026-10-16
+
+**Como** usuario, **quiero** que una duración mayor que la canción continúe el final de la base que el remix ya creó, y que el recorte marcado entre una vez al empezar esa parte, **para** no rellenar el tiempo sobrante con un bucle de ese trozo.
+
+**Decisión**: el motor instalado es SFT. La continuación es repaint del final, en trozos de `continuation_min_seconds` a `continuation_max_seconds` (3–90 s). El lote de cada trozo es `continuation_batch_size` 1. El lote 2, los 50 pasos, guidance 9, thinking, use_cot y use_format siguen como están. No se activan complete, lego ni extract, y no se descarga el modelo base. El recorte, si se marca, se toma de la base ya creada y se superpone una vez donde empieza lo que sobra, sin estirarlo y sin repetirlo. Sin recorte, solo continúa la base. El corte de 2 BPM se mide en el audio final. Un BPM fuera de tolerancia detiene el trabajo. Esto no cierra R9, R10, B6 ni B7. No se genera audio hasta que el usuario pida el remix.
+
+- [ ] Si la duración pedida supera la de la base, el plan es `continue_bed` y los trozos respetan el mínimo y el máximo de la configuración.
+- [ ] El payload del trozo es repaint, con el inicio en el final de la base, el final por delante, lote 1, `thinking` y `use_format` apagados, y el mismo BPM y la misma caption.
+- [ ] El recorte entra una sola vez al empezar lo que sobra. La base anterior queda igual. No hay una segunda copia.
+- [ ] La mesa dice continuación y recorte. Vacío no envía un sample. El fundido de repetición no se envía.
+- [ ] El corte de 2 BPM no se baja. No se publica un audio de esta historia en esta entrega.
+

@@ -15,6 +15,7 @@ from remix_project import (RemixProjectRequest, RemixProjectRuntime, timeline_pl
                            full_bpm_preview_notice,
                            full_variant_plan, project_generation, replacement_request_seed,
                            groups_tempo_ratio, apply_groups_mix_tempo, tempo_after_repetition,
+                           continuation_spans, continuation_generation, continuation_limits,
                            verify_requested_tempo, require_measured_tempo)
 from separator_service import SeparatorService
 
@@ -75,6 +76,7 @@ class RemixTimelineTest(unittest.TestCase):
         self.assertEqual(plan["mapped_repeat_start"], 1.6)
         self.assertEqual(plan["mapped_repeat_end"], 6.4)
         self.assertEqual(plan["target_duration_seconds"], 35)
+        self.assertEqual(plan["method"], "continue_bed")
 
     def test_short_duration_reports_concrete_rounded_minimum(self):
         request = self.request(bpm=199, source_bpm=166.25, duration_seconds=60)
@@ -137,81 +139,87 @@ class RemixTimelineTest(unittest.TestCase):
             crossings = sum(a <= 0 < b for a, b in zip(mono, mono[1:]))
             self.assertAlmostEqual(crossings, carrier, delta=3)
 
-    def test_repeated_fractional_beat_clock_preserves_pcm_phase_and_final_mp3_tempo(self):
-        from audio_analysis import detect_groove
-        rate, seconds, bpm, phase = 8000, 12, 199, 0.04
-        config = self.settings.remix
-        config.sample_rate = rate
-        with tempfile.TemporaryDirectory() as folder:
-            directory = Path(folder)
-            source, extended, output = directory / "pulse.wav", directory / "extended.wav", directory / "final.mp3"
-            samples = array("f", ((0.6 * math.exp(-((frame / rate - phase) % (60 / bpm)) / 0.02) + 0.02)
-                                 * math.sin(2 * math.pi * 220 * frame / rate)
-                                 for frame in range(rate * seconds) for _ in range(2)))
-            MixerService._write_float_wav(source, samples, rate, 2)
-            request = self.request(bpm=bpm, source_bpm=bpm, duration_seconds=30,
-                                   repeat_start=2, repeat_end=6, transition_seconds=0.1)
-            source_groove = detect_groove(source)
-            plan = timeline_plan(request, seconds, self.settings)
-            arrangement = MixerService.extend_timeline(source, extended, plan, config)
-            pcm = MixerService.inspect_pcm(extended)
-            start, end = (arrangement["effective_repeat_start_seconds"],
-                          arrangement["effective_repeat_end_seconds"])
-            self.assertGreaterEqual(start, plan["mapped_repeat_start"])
-            self.assertLessEqual(end, plan["mapped_repeat_end"])
-            period = 60 / bpm
-            stride = arrangement["repetition_stride_seconds"]
-            self.assertAlmostEqual(stride, arrangement["beats_per_repetition"] * period, delta=1 / rate)
-            join = arrangement["first_join_start_seconds"]
-            cycles = (join - start) / period
-            self.assertAlmostEqual(cycles, round(cycles), delta=1 / rate / period)
-            prefix_count = round(join * rate) * 2
-            self.assertEqual(pcm["samples"][:prefix_count], samples[:prefix_count])
-            # El interior copiado es la sección efectiva, sin resampling ni
-            # el fundido que ocupa el comienzo de la sección.
-            fade_count = round(plan["transition_seconds"] * rate) * 2
-            section_start = round(start * rate) * 2
-            self.assertEqual(pcm["samples"][len(samples):len(samples) + rate],
-                             samples[section_start + fade_count:section_start + fade_count + rate])
-            MixerService.export_remix(extended, output, config)
-            final = detect_groove(output)
-            verify_requested_tempo({"bpm_measured": final["bpm"], "bpm_confidence": final["confidence"]},
-                                   bpm, config, "tras repetir y exportar")
-            self.assertAlmostEqual(final["phase_ms"], source_groove["phase_ms"], delta=10)
-            self.assertEqual(pcm["duration_seconds"], 30)
-
-    def test_clock_repeat_rejects_insufficient_effective_section_and_pending_full_clock(self):
+    def test_marked_cut_is_placed_once_at_the_start_of_the_extra(self):
+        rate = 8000
         config = self.settings.remix
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
-            source, output = directory / "source.wav", directory / "extended.wav"
-            MixerService._write_float_wav(source, array("f", [0.1] * 64000), 8000, 2)
-            request = self.request(bpm=120, source_bpm=120, duration_seconds=8,
-                                   repeat_start=0, repeat_end=1.01, transition_seconds=0.1)
-            plan = timeline_plan(request, 4, self.settings)
-            with self.assertRaisesRegex(ValueError, "amplía el intervalo"):
-                MixerService.extend_timeline(source, output, plan, config)
-            full = RemixProjectRequest(source_name=source.name, prompt="A track with techno", bpm=120,
-                                        duration_seconds=8)
-            full_plan = full_variant_plan(full, 4, 4, self.settings,
-                                          {"bpm_measured": 120, "bpm_confidence": 0.9})
-            with self.assertRaisesRegex(ValueError, "reloj de tempo"):
-                MixerService.extend_timeline(source, output, full_plan, config)
-
-    def test_repeat_without_bpm_preserves_selected_interval_legacy_copy(self):
-        with tempfile.TemporaryDirectory() as folder:
-            directory = Path(folder)
-            source, output = directory / "source.wav", directory / "extended.wav"
-            samples = array("f", (frame / 100000 for frame in range(64000)))
-            MixerService._write_float_wav(source, samples, 8000, 2)
-            request = self.request(duration_seconds=8, repeat_start=1, repeat_end=3, transition_seconds=0.1)
-            plan = timeline_plan(request, 4, self.settings)
-            arrangement = MixerService.extend_timeline(source, output, plan, self.settings.remix)
-            self.assertEqual(arrangement["seam_method"], "selected_interval_crossfade")
-            self.assertEqual(arrangement["effective_repeat_start_seconds"], 1)
-            self.assertEqual(arrangement["effective_repeat_end_seconds"], 3)
+            bed, continued, output = directory / "bed.wav", directory / "continued.wav", directory / "out.wav"
+            frames = rate * 2
+            samples = array("f")
+            for frame in range(frames):
+                value = 0.4 if rate // 2 <= frame < rate else 0.05
+                samples.extend((value, value))
+            MixerService._write_float_wav(bed, samples, rate, 2)
+            tail = array("f", samples)
+            tail.extend([0.0] * (rate * 2 * 2))
+            MixerService._write_float_wav(continued, tail, rate, 2)
+            info = MixerService.finish_continuation(
+                continued, bed, output, {"start": 0.5, "end": 1.0}, 2.0, 4.0, config)
             pcm = MixerService.inspect_pcm(output)
-            self.assertEqual(pcm["samples"][64000:72000], samples[17600:25600])
+            self.assertAlmostEqual(pcm["duration_seconds"], 4.0, places=3)
+            self.assertTrue(info["sample"]["placed"])
+            self.assertAlmostEqual(info["sample"]["seconds"], 0.5, places=3)
+            self.assertEqual(info["repetitions"], 0)
+            heard = pcm["samples"]
+            self.assertEqual(heard[:frames * 2], samples)
+            extra = heard[frames * 2:]
+            self.assertEqual(extra[:rate], array("f", [0.4] * rate))
+            self.assertEqual(max(abs(value) for value in extra[rate:]), 0.0)
+
+    def test_short_sample_is_rejected_and_an_unmarked_extension_has_no_window(self):
+        with self.assertRaisesRegex(ValueError, "demasiado corto"):
+            timeline_plan(self.request(bpm=120, source_bpm=120, duration_seconds=8,
+                                       repeat_start=0, repeat_end=0.4), 4, self.settings)
+        full = RemixProjectRequest(source_name="source.wav", prompt="A track with techno", bpm=120,
+                                   duration_seconds=8)
+        plan = full_variant_plan(full, 4, 4, self.settings, {"bpm_measured": 120, "bpm_confidence": 0.9})
+        self.assertEqual(plan["method"], "continue_bed")
+        self.assertIsNone(plan["repeat_start"])
+        self.assertIsNone(plan["repeat_end"])
+        self.assertIsNone(plan["mapped_repeat_start"])
+        self.assertIsNone(plan["mapped_repeat_end"])
+
+    def test_continuation_spans_follow_the_configured_chunk_and_do_not_retile_the_cut(self):
+        config = self.settings.remix
+        spans = continuation_spans(79.0, 240.0, config)
+        self.assertEqual([item["start"] for item in spans], [79.0, 169.0])
+        self.assertEqual(spans[-1]["end"], 240.0)
+        for item in spans:
+            width = item["end"] - item["start"]
+            self.assertGreaterEqual(width, config.continuation_min_seconds)
+            self.assertLessEqual(width, config.continuation_max_seconds)
+        self.assertEqual(continuation_spans(10.0, 10.4, config), [{"start": 10.0, "end": 13.0}])
+        with self.assertRaisesRegex(ValueError, "trozos"):
+            continuation_spans(1.0, 200.0, type("Cfg", (), {
+                "continuation_min_seconds": 3.0, "continuation_max_seconds": 90.0,
+                "continuation_max_chunks": 1, "continuation_batch_size": 1,
+            })())
+
+    def test_continuation_payload_repaints_the_end_of_the_created_bed(self):
+        request = RemixProjectRequest(source_name="source.wav", prompt="A track with techno", bpm=170)
+        generation = continuation_generation(
+            request, Path("bed.wav"), {"start": 79.25, "end": 169.25}, 42, self.settings)
+        payload = MusicService(self.settings).build_payload(generation)
+        self.assertEqual(payload["task_type"], "repaint")
+        self.assertEqual(payload["src_audio_path"], "bed.wav")
+        self.assertEqual(payload["repainting_start"], 79.25)
+        self.assertEqual(payload["repainting_end"], 169.25)
+        self.assertEqual(payload["batch_size"], 1)
+        self.assertEqual(payload["audio_duration"], -1)
+        self.assertFalse(payload["thinking"])
+        self.assertFalse(payload["use_format"])
+        self.assertFalse(payload["use_cot_caption"])
+        self.assertEqual(payload["bpm"], 170)
+        self.assertEqual(payload["prompt"], "A track with techno")
+        self.assertNotIn("audio_cover_strength", payload)
+        self.assertEqual(payload["model"], self.settings.generation.remix_model)
+        with self.assertRaisesRegex(ValueError, "texto de estilo"):
+            continuation_generation(
+                RemixProjectRequest(source_name="source.wav", prompt="  "),
+                Path("bed.wav"), {"start": 1.0, "end": 4.0}, None, self.settings)
+        limits = continuation_limits(self.settings.remix)
+        self.assertEqual(limits, (3.0, 90.0, 200, 1))
 
     def test_invalid_scope_and_nonfinite_or_short_sections_rejected(self):
         for kwargs in ({"duration_seconds": float("nan")}, {"source_bpm": float("inf"), "bpm": 150},
@@ -221,10 +229,13 @@ class RemixTimelineTest(unittest.TestCase):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 validate_project(self.request(**kwargs), 20, self.settings)
         for kwargs in ({"duration_seconds": 10}, {"duration_seconds": 20, "repeat_start": 1, "repeat_end": 8},
-                       {"duration_seconds": 25, "repeat_start": 1, "repeat_end": 1.1},
-                       {"duration_seconds": 25, "repeat_start": 1, "repeat_end": 3, "transition_seconds": 1}):
+                       {"duration_seconds": 25, "repeat_start": 1, "repeat_end": 1.1}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 timeline_plan(self.request(**kwargs), 20, self.settings)
+        kept = timeline_plan(self.request(duration_seconds=25, repeat_start=1, repeat_end=3, transition_seconds=1),
+                             20, self.settings)
+        self.assertEqual(kept["method"], "continue_bed")
+        self.assertEqual(kept["transition_seconds"], 0.0)
         with self.assertRaises(ValueError):
             validate_project(RemixProjectRequest(source_name="a.wav", scope="region", prompt="Cambio",
                              region_start=1, region_end=2, duration_seconds=25), 20, self.settings)
@@ -259,13 +270,27 @@ class RemixTimelineTest(unittest.TestCase):
             request = self.request(bpm=150, source_bpm=120, duration_seconds=8,
                                    repeat_start=1, repeat_end=3, transition_seconds=0.1)
             plan = timeline_plan(request, seconds, self.settings)
+            self.assertEqual(plan["method"], "continue_bed")
+            spans = continuation_spans(plan["natural_duration_seconds"], plan["target_duration_seconds"], config)
+            self.assertEqual(spans[0]["start"], plan["natural_duration_seconds"])
+            self.assertLessEqual(spans[0]["end"] - spans[0]["start"], config.continuation_max_seconds)
+            mix = MixerService.inspect_pcm(mixed)
+            continued = directory / "continued.wav"
+            tail = array("f", mix["samples"])
+            extra = round((8 - mix["duration_seconds"]) * rate)
+            tail.extend([0.2] * (extra * 2))
+            MixerService._write_float_wav(continued, tail, rate, 2)
             extended = directory / "extended.wav"
-            result = MixerService.extend_timeline(mixed, extended, plan, config)
+            result = MixerService.finish_continuation(
+                continued, mixed, extended,
+                {"start": plan["mapped_repeat_start"], "end": plan["mapped_repeat_end"]},
+                plan["natural_duration_seconds"], 8, config)
             pcm = MixerService.inspect_pcm(extended)
-            self.assertEqual(result["duration_seconds"], 8)
-            self.assertEqual(pcm["duration_seconds"], 8)
-            self.assertGreater(sum(value * value for value in pcm["samples"][-rate * 2:]), 1)
-            self.assertGreater(result["repetitions"], 0)
+            self.assertEqual(result["repetitions"], 0)
+            self.assertTrue(result["sample"]["placed"])
+            self.assertAlmostEqual(pcm["duration_seconds"], 8, places=3)
+            prefix = round(plan["natural_duration_seconds"] * rate) * 2
+            self.assertEqual(pcm["samples"][:prefix], mix["samples"][:prefix])
 
     def test_cache_rejects_wrong_signature_incomplete_groups_and_nonfinite_samples(self):
         config = self.settings.remix
@@ -286,7 +311,8 @@ class RemixTimelineTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no finitas"):
                 SeparatorService.validate_groups(result, directory, 1, config)
 
-    def test_real_pcm_preview_for_keep_remove_has_timeline_without_engine_parameters(self):
+    def test_keep_remove_continuation_asks_for_style_before_separating(self):
+        from fastapi import HTTPException
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "source.wav"
             MixerService._write_float_wav(source, array("f", [0.1] * 64000), 8000, 2)
@@ -296,13 +322,26 @@ class RemixTimelineTest(unittest.TestCase):
             request = self.request(bpm=150, source_bpm=120, duration_seconds=8,
                                    repeat_start=1, repeat_end=3, transition_seconds=0.1)
             request.groups["vocals"] = "remove"
+            with self.assertRaises(HTTPException) as caught:
+                asyncio.run(runtime.preview(request))
+            self.assertEqual(caught.exception.status_code, 422)
+            self.assertIn("texto de estilo", caught.exception.detail)
+            request.prompt = "A track with techno"
             prepared = asyncio.run(runtime.preview(request))
-            self.assertFalse(prepared["operations"]["engine_required"])
+            self.assertTrue(prepared["operations"]["engine_required"])
             self.assertEqual(prepared["effective_parameters"], {})
             self.assertEqual(prepared["pending_material"], [])
             self.assertEqual(len(prepared["operations"]["source_digest"]), 64)
+            self.assertFalse(any("determinista" in item for item in prepared["warnings"]))
+            self.assertTrue(any("continúa el final" in item for item in prepared["warnings"]))
+            self.assertEqual(prepared["operations"]["timeline"]["method"], "continue_bed")
             self.assertEqual(prepared["operations"]["timeline"]["natural_duration_seconds"], 3.2)
             self.assertEqual(prepared["operations"]["timeline"]["target_duration_seconds"], 8)
+            plain = self.request(bpm=150, source_bpm=120)
+            plain.groups["vocals"] = "remove"
+            kept = asyncio.run(runtime.preview(plain))
+            self.assertFalse(kept["operations"]["engine_required"])
+            self.assertTrue(any("determinista" in item for item in kept["warnings"]))
 
     def test_one_transformed_group_keeps_the_style_filed_outside_that_stem(self):
         actions = {"vocals": "keep", "drums": "transform", "bass": "remove", "other": "keep"}
@@ -416,11 +455,11 @@ class RemixTimelineTest(unittest.TestCase):
         adjusted = apply_groups_mix_tempo(longer, 16, 1.6, 35, config)
         self.assertAlmostEqual(adjusted["natural_duration_seconds"], 10)
         self.assertEqual(adjusted["target_duration_seconds"], 35)
-        self.assertEqual(adjusted["method"], "repeat_crossfade")
+        self.assertEqual(adjusted["method"], "continue_bed")
         self.assertAlmostEqual(adjusted["tempo_ratio"], 1.6)
         self.assertAlmostEqual(adjusted["mapped_repeat_start"], 1.0)
         self.assertAlmostEqual(adjusted["mapped_repeat_end"], 4.0)
-        self.assertEqual(adjusted["transition_seconds"], 0.1)
+        self.assertEqual(adjusted["transition_seconds"], 0.0)
         self.assertEqual(longer["natural_duration_seconds"], 16)
         self.assertEqual(longer["target_duration_seconds"], 35)
         self.assertAlmostEqual(longer["tempo_ratio"], 1.25)
@@ -431,9 +470,10 @@ class RemixTimelineTest(unittest.TestCase):
         self.assertEqual(settled["method"], "original")
         self.assertEqual(settled["transition_seconds"], 0.0)
         filled = apply_groups_mix_tempo(plain, 16, 2, 30, config)
-        self.assertEqual(filled["method"], "repeat_crossfade")
+        self.assertEqual(filled["method"], "continue_bed")
         self.assertEqual(filled["target_duration_seconds"], 30)
-        self.assertEqual(filled["transition_seconds"], config.timeline_transition_seconds)
+        self.assertEqual(filled["transition_seconds"], 0.0)
+        self.assertIsNone(filled["mapped_repeat_start"])
         with self.assertRaisesRegex(ValueError, r"mínimo 32 s \(0:32\)"):
             apply_groups_mix_tempo(plain, 16, 0.5, 10, config)
 

@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Pause, Loader2, AlertTriangle, Download, Layers, Scissors, AlignLeft, Check,
 } from 'lucide-react';
-import { api, isTransportBlip } from '../api';
+import { api, actionError, isTransportBlip, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import SelectBox from './SelectBox';
 
 const trackId = (kind, name) => JSON.stringify([kind, name]);
@@ -41,25 +41,36 @@ export default function MixLab({ externalRefresh = 0 }) {
   const [fadeNote, setFadeNote] = useState(null);
   const [mixName, setMixName] = useState('');
 
+  const mounted = useRef(true);
   const refresh = useCallback(async () => {
-    try {
-      const [lib, ups, sep] = await Promise.all([api.library(), api.uploads(), api.separateStatus()]);
-      setLibrary(lib.items ?? []);
-      setUploads(ups.items ?? []);
-      setSeparator(sep);
-      const available = new Set([
-        ...(lib.items ?? []).map((item) => trackId('output', item.name)),
-        ...(ups.items ?? []).map((item) => trackId('upload', item.name)),
-      ]);
-      setBase((current) => available.has(current) ? current : '');
-      setVocal((current) => available.has(current) ? current : '');
-      setFadeTracks((current) => current.filter((id) => available.has(id)));
-    } catch (e) {
-      if (!isTransportBlip(e.message)) setError(e.message);
+    while (mounted.current) {
+      try {
+        const [lib, ups, sep] = await Promise.all([api.library(), api.uploads(), api.separateStatus()]);
+        if (!mounted.current) return;
+        setLibrary(lib.items ?? []);
+        setUploads(ups.items ?? []);
+        setSeparator(sep);
+        const available = new Set([
+          ...(lib.items ?? []).map((item) => trackId('output', item.name)),
+          ...(ups.items ?? []).map((item) => trackId('upload', item.name)),
+        ]);
+        setBase((current) => available.has(current) ? current : '');
+        setVocal((current) => available.has(current) ? current : '');
+        setFadeTracks((current) => current.filter((id) => available.has(id)));
+        return;
+      } catch (e) {
+        if (!mounted.current) return;
+        if (!isTransportBlip(e.message)) { setError(actionError(e.message)); return; }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      }
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => { mounted.current = false; };
+  }, [refresh]);
 
   // Igual que BIBLIOTECA: al terminar un trabajo, las listas se recargan
   // (una mezcla o separación nueva aparece en los desplegables sin tocar nada).
@@ -79,11 +90,25 @@ export default function MixLab({ externalRefresh = 0 }) {
     const baseSource = trackSource(base);
     const vocalSource = trackSource(vocal);
     let active = true;
-    setPlanning(true);
-    api.mixPlan({ base_track: baseSource.name, vocal_track: vocalSource.name, base_kind: baseSource.kind, vocal_kind: vocalSource.kind })
-      .then((d) => { if (active) { setPlan(d.plan); setArrange(d.arrange ?? null); setPlanNote(d.explanation); setPlanReady(true); } })
-      .catch((e) => { if (active) { setPlan(null); setArrange(null); setPlanNote(`No pude calcular el cuadre: ${e.message}`); } })
-      .finally(() => { if (active) setPlanning(false); });
+    const loadPlan = async () => {
+      setPlanning(true);
+      while (active) {
+        try {
+          const plan = await api.mixPlan({ base_track: baseSource.name, vocal_track: vocalSource.name, base_kind: baseSource.kind, vocal_kind: vocalSource.kind });
+          if (!active) return;
+          setPlan(plan.plan); setArrange(plan.arrange ?? null); setPlanNote(plan.explanation); setPlanReady(true);
+          return;
+        } catch (error) {
+          if (!active) return;
+          if (!isTransportBlip(error.message)) {
+            setPlan(null); setArrange(null); setPlanNote(`No pude calcular el cuadre: ${error.message}`);
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
+      }
+    };
+    void loadPlan().finally(() => { if (active) setPlanning(false); });
     return () => { active = false; };
   }, [base, vocal]);
 
@@ -109,7 +134,7 @@ export default function MixLab({ externalRefresh = 0 }) {
       setResult(res.file_name ?? res.file_path);
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setMixing(false);
     }
@@ -127,7 +152,7 @@ export default function MixLab({ externalRefresh = 0 }) {
       setVocal(trackId('output', res.vocals));
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setSeparating(false);
     }
@@ -156,7 +181,7 @@ export default function MixLab({ externalRefresh = 0 }) {
       setResult(res.file_name);
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setFading(false);
     }

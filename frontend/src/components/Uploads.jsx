@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
-import { api, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
+import { api, actionError, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { identifyReading } from '../identify_reading';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
@@ -28,13 +28,18 @@ export default function Uploads({ onChanged }) {
   const alive = useRef(true);
 
   const refresh = useCallback(async () => {
-    try {
-      const data = await api.uploads();
-      setItems(data.items ?? []);
-    } catch (e) {
-      if (!isTransportBlip(e.message)) setError(e.message);
-    } finally {
-      setLoading(false);
+    while (alive.current) {
+      try {
+        const data = await api.uploads();
+        if (alive.current) setItems(data.items ?? []);
+        return;
+      } catch (e) {
+        if (!alive.current) return;
+        if (!isTransportBlip(e.message)) { setError(actionError(e.message)); return; }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      } finally {
+        if (alive.current) setLoading(false);
+      }
     }
   }, []);
 
@@ -48,31 +53,42 @@ export default function Uploads({ onChanged }) {
 
   const identifyFile = async (name) => {
     setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: 'Esperando análisis', message: '' } }));
-    try {
-      const started = await api.remixAnalyze({ source_name: name, source_kind: 'upload' });
-      let misses = 0;
-      for (;;) {
-        if (!alive.current) return;
-        let job;
-        try {
-          job = await api.remixAnalyzeStatus(started.job_id);
-          misses = 0;
-        } catch (err) {
-          if (++misses >= JOB_POLL_MAX_MISSES) throw err;
+    while (alive.current) {
+      try {
+        const started = await api.remixAnalyze({ source_name: name, source_kind: 'upload' });
+        let misses = 0;
+        for (;;) {
+          if (!alive.current) return;
+          let job;
+          try {
+            job = await api.remixAnalyzeStatus(started.job_id);
+            misses = 0;
+          } catch (err) {
+            if (isTransportBlip(err.message)) {
+              await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+              continue;
+            }
+            if (++misses >= JOB_POLL_MAX_MISSES) throw err;
+            await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+            continue;
+          }
+          if (!alive.current) return;
+          if (job.status === 'failed') throw new Error(job.error || 'El análisis falló');
+          if (job.status === 'succeeded') {
+            setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result) } }));
+            return;
+          }
+          setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: job.phase || 'El modelo local analiza el audio', message: '' } }));
           await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
-          continue;
         }
+      } catch (err) {
         if (!alive.current) return;
-        if (job.status === 'failed') throw new Error(job.error || 'El análisis falló');
-        if (job.status === 'succeeded') {
-          setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result) } }));
+        if (!isTransportBlip(err.message)) {
+          setIdentify((current) => ({ ...current, [name]: { status: 'failed', phase: '', message: err.message } }));
           return;
         }
-        setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: job.phase || 'El modelo local analiza el audio', message: '' } }));
-        await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
       }
-    } catch (err) {
-      if (alive.current) setIdentify((current) => ({ ...current, [name]: { status: 'failed', phase: '', message: err.message } }));
     }
   };
 
@@ -91,7 +107,7 @@ export default function Uploads({ onChanged }) {
       await refresh();
       onChanged?.();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setUploading(false);
     }
@@ -108,7 +124,8 @@ export default function Uploads({ onChanged }) {
         note: 'Base nueva lanzada. El progreso está en la barra de arriba.',
       });
     } catch (e) {
-      setRemixState({ ok: false, error: e.message });
+      const message = actionError(e.message);
+      if (message) setRemixState({ ok: false, error: message });
       throw e;
     } finally {
       setGenerating(false);
@@ -132,7 +149,7 @@ export default function Uploads({ onChanged }) {
       await refresh();
       onChanged?.();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     }
   };
 
@@ -146,7 +163,7 @@ export default function Uploads({ onChanged }) {
       await refresh();
       onChanged?.();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     }
   };
 

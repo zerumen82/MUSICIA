@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { measuredRemixBpm, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from './remix_timeline.js';
+import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from './remix_timeline.js';
 
 const options = {
   scope: 'groups', targetBpm: '140', sourceBpm: '120', minutes: '2', seconds: '30',
@@ -8,6 +8,14 @@ const options = {
   capabilities: { parameters: { source_bpm: { min: 30, max: 300 }, duration_seconds: { min: 1, max: 600 },
     transition_seconds: { min: 0, max: 5 } }, timeline: { min_repeat_seconds: 1 } },
 };
+
+test('conservar y quitar pide estilo solo cuando la duración alarga la base', () => {
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 240, naturalDuration: 79 }), true);
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 79, naturalDuration: 79 }), false);
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: undefined, naturalDuration: 79 }), false);
+  assert.equal(remixGroupsNeedStyle({ transforms: true, askedDuration: undefined, naturalDuration: 79 }), true);
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 30, naturalDuration: null }), true);
+});
 
 test('la onda marca la parte a repetir y el tema entero deja los extremos vacíos', () => {
   assert.deepEqual(repeatBoundsFromWave({ trim_start_s: 12.345, trim_end_s: 40.2 }), { start: '12.35', end: '40.2' });

@@ -127,6 +127,26 @@ class LocalTranslationTest(unittest.TestCase):
         self.assertTrue(translated.startswith("A track with gabber hardcore"))
         reset_style_translation_cache()
         self.assertEqual(style_for_engine(translated), translated)
+        shouted = (
+            "GABBER HARDCORE · KICK CONTUNDENTES, VIBRACION BOUNCE · "
+            "PITIDOS DE COMPUTADORAS · MELODIA ORIGINAL CON SINTETIZADOR"
+        )
+        reset_style_translation_cache()
+        heard = style_for_engine(shouted)
+        low = heard.casefold()
+        self.assertNotIn("contents", low)
+        self.assertNotIn("questions", low)
+        self.assertNotIn("demands", low)
+        self.assertNotIn("vibracion", low)
+        self.assertNotIn("pitidos", low)
+        self.assertIn("gabber", low)
+        self.assertIn("hardcore", low)
+        self.assertRegex(low, r"kick")
+        self.assertRegex(low, r"vibrat")
+        self.assertRegex(low, r"whistl|beep|comput")
+        self.assertRegex(low, r"synth|melod")
+        reset_style_translation_cache()
+        self.assertEqual(style_for_engine(shouted), heard)
         self.assertTrue(translation_worker_running())
 
     def test_french_and_german_sentences_change_and_lyrics_do_not(self):

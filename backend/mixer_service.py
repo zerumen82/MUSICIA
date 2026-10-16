@@ -667,6 +667,68 @@ class MixerService:
                 "transition_seconds": plan["transition_seconds"], **section_details}
 
     @staticmethod
+    def finish_continuation(continued: Path, original_bed: Path, output: Path,
+                            sample: dict | None, boundary_seconds: float,
+                            target_seconds: float, settings) -> dict:
+        """Recorta la continuación a lo pedido y superpone el recorte una vez.
+
+        El recorte sale de la base ya creada. Entra donde empieza lo que sobra.
+        No se repite ni se estira.
+        """
+        pcm = MixerService.inspect_pcm(continued)
+        samples, rate, channels = pcm["samples"], pcm["sample_rate"], pcm["channels"]
+        if (isinstance(target_seconds, bool) or not isinstance(target_seconds, (int, float))
+                or not math.isfinite(target_seconds) or target_seconds <= 0
+                or isinstance(boundary_seconds, bool) or not isinstance(boundary_seconds, (int, float))
+                or not math.isfinite(boundary_seconds) or boundary_seconds < 0):
+            raise ValueError("La continuación necesita la duración pedida y el inicio de lo que sobra")
+        tolerance = round(settings.duration_tolerance_seconds * rate)
+        target_frames = round(target_seconds * rate)
+        frame_count = len(samples) // channels
+        if frame_count + tolerance < target_frames:
+            raise ValueError("La continuación no llega a la duración pedida")
+        kept = samples if frame_count <= target_frames else samples[:target_frames * channels]
+        placed = {"placed": False}
+        if sample is not None:
+            bed = MixerService.inspect_pcm(original_bed)
+            if bed["sample_rate"] != rate or bed["channels"] != channels:
+                raise ValueError("El recorte no tiene el formato de la base continuada")
+            start, end = sample.get("start"), sample.get("end")
+            if (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+                    or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
+                    or end <= start):
+                raise ValueError("El recorte no cabe en la base creada")
+            start_frame = round(float(start) * rate)
+            end_frame = round(float(end) * rate)
+            bed_frames = len(bed["samples"]) // channels
+            if start_frame < 0 or end_frame > bed_frames or end_frame <= start_frame:
+                raise ValueError("El recorte no cabe en la base creada")
+            at = round(float(boundary_seconds) * rate)
+            kept_frames = len(kept) // channels
+            if at < 0 or at >= kept_frames:
+                raise ValueError("No queda sitio para el recorte al empezar lo que sobra")
+            length = min(end_frame - start_frame, kept_frames - at)
+            if length <= 0:
+                raise ValueError("No queda sitio para el recorte al empezar lo que sobra")
+            bed_samples = bed["samples"]
+            for frame in range(length):
+                for channel in range(channels):
+                    offset = (at + frame) * channels + channel
+                    kept[offset] = kept[offset] + bed_samples[(start_frame + frame) * channels + channel]
+            placed = {
+                "placed": True,
+                "at_seconds": at / rate,
+                "seconds": length / rate,
+                "source_start_seconds": start_frame / rate,
+                "source_end_seconds": (start_frame + length) / rate,
+            }
+        if not all(math.isfinite(value) for value in kept):
+            raise ValueError("La continuación dejó muestras no finitas")
+        MixerService._write_float_wav(output, kept, rate, channels)
+        return {"duration_seconds": len(kept) / channels / rate, "method": "continue_bed",
+                "repetitions": 0, "transition_seconds": 0.0, "sample": placed}
+
+    @staticmethod
     def mix_groups(
         tracks: list[tuple[Path, float]], output: Path, duration_seconds: float,
         sample_rate: int,

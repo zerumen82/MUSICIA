@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, actionError } from '../api';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 
 /**
@@ -27,7 +27,7 @@ export default function Waveform({ fileName, onSelection, sourceKind = null, sel
         setError(null);
       })
       .catch((e) => {
-        if (active) setError(e.message);
+        if (active) setError(actionError(e.message));
       });
     return () => { active = false; };
   }, [fileName, sourceKind]);

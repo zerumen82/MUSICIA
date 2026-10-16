@@ -252,6 +252,13 @@ class RemixSettings:
     groove_refine_max_candidates: int = 1000
     tempo_verify_tolerance_bpm: float = 2.0
     timeline_max_repetitions: int = 1200
+    # El motor instalado continúa un final con repaint. El tutorial del
+    # proveedor limita cada trozo a 3–90 s. El lote de la generación sigue
+    # en 2; cada trozo continúa una base ya elegida.
+    continuation_min_seconds: float = 3.0
+    continuation_max_seconds: float = 90.0
+    continuation_max_chunks: int = 200
+    continuation_batch_size: int = 1
     demucs_model: str = "htdemucs"
     demucs_device: str = "auto"
     demucs_shifts: int = 1
@@ -343,6 +350,9 @@ class PathsSettings:
 class AppSettings:
     host: str = "127.0.0.1"
     port: int = 8000
+    # El supervisor repone la API si el proceso sigue vivo y el puerto no acepta
+    # conexiones al pasar este tiempo. Un arranque normal escucha antes.
+    api_listen_grace_seconds: float = 60.0
     log_level: str = "INFO"
     # Historial de trabajos en memoria: los activos no se tocan nunca; de los
     # terminados se guardan los últimos N (la UI sondea /music/jobs cada 3 s).

@@ -93,6 +93,28 @@ export function applyGlossaryPick(prompt, { genre = '' } = {}) {
 }
 
 /**
+ * Pie del glosario. Sin respuesta todavía no se dice que el archivo falta:
+ * eso solo lo afirma el servidor con available en false. Un fallo escrito
+ * no se disfraza de archivo ausente ni de carga.
+ */
+export function glossaryFoot(data, fail) {
+  if (fail) return 'error';
+  if (data?.available) return 'ready';
+  if (data && data.available === false) return 'missing';
+  return 'loading';
+}
+
+/**
+ * La respuesta solo vale para la consulta que la pidió.
+ * Otra consulta, o ninguna respuesta, no enseña ese recuento.
+ * El servidor devuelve `q` tal cual se envió (ya recortado).
+ */
+export function glossaryShown(data, query) {
+  if (data == null || String(data.q ?? '') !== query) return null;
+  return data;
+}
+
+/**
  * Junta el texto de las pistas en transformar en una sola caption.
  * Una pista vacía no aporta términos. No se inventa ninguno.
  * El mismo término en dos pistas queda una vez, en el orden de las pistas.

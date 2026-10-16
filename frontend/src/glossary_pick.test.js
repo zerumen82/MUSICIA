@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyGlossaryPick, applyModelTerm, ensureModelTerm, findStyle, joinStyleAndTracks, joinTrackPrompts, sinBpmEnFrase, stylesForQuery } from './glossary_pick.js';
+import { applyGlossaryPick, applyModelTerm, ensureModelTerm, findStyle, glossaryFoot, glossaryShown, joinStyleAndTracks, joinTrackPrompts, sinBpmEnFrase, stylesForQuery } from './glossary_pick.js';
 
 const GABBER = {
   genre: 'gabber',
@@ -77,6 +77,27 @@ test('la voz añade su término y no lo quita si ya está', () => {
 test('el tempo no se queda escrito en la frase', () => {
   assert.equal(sinBpmEnFrase('A track with gabber, 180 bpm'), 'A track with gabber');
   assert.equal(sinBpmEnFrase('A track with gabber · 180 bpm'), 'A track with gabber');
+});
+
+test('sin respuesta el glosario no dice que el vocabulario falta', () => {
+  assert.equal(glossaryFoot(null), 'loading');
+  assert.equal(glossaryFoot(undefined), 'loading');
+  assert.equal(glossaryFoot({ available: false, items: [] }), 'missing');
+  assert.equal(glossaryFoot({ available: true, total: 3, items: ['gabber'] }), 'ready');
+  assert.equal(glossaryFoot(null, 'Request failed with status code 500'), 'error');
+  assert.equal(glossaryFoot({ available: false, items: [] }, ''), 'missing');
+});
+
+test('una respuesta vieja no cuenta para otra consulta', () => {
+  const vacio = { q: '', available: true, total: 178572, items: ['16-bit J-RPG'] };
+  const gabber = { q: 'gabber', available: true, total: 3, items: ['gabber'] };
+  const ausente = { q: '', available: false, items: [] };
+  assert.equal(glossaryShown(vacio, 'medieval'), null);
+  assert.equal(glossaryFoot(glossaryShown(vacio, 'medieval')), 'loading');
+  assert.equal(glossaryFoot(glossaryShown(gabber, 'gabber')), 'ready');
+  assert.equal(glossaryShown(ausente, 'gabber'), null);
+  assert.notEqual(glossaryFoot(glossaryShown(ausente, 'gabber')), 'missing');
+  assert.equal(glossaryFoot(glossaryShown(ausente, '')), 'missing');
 });
 
 test('una palabra del vocabulario entra en la misma caption', () => {

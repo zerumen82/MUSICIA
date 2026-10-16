@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fastapi import FastAPI
 from pydub.generators import Sine
 from config import AppSettings
-from music_service import GeneratedTrack, MusicService
+from music_service import STATUS_SUCCEEDED, EngineStatus, GeneratedTrack, MusicService
 from remix_project import RemixProjectRequest, RemixProjectRuntime, project_generation, timeline_plan
 from remix_recovery import (RECEIPT_NAME, atomic_json, build_receipt, file_digest,
                             receipt_digest, validate_receipt, work_directory)
@@ -162,17 +162,41 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             unique, lambda raw, fallback: raw or fallback, publish,
             lambda path: None, lambda: "2026-10-15T00:00:01+00:00", lambda job: None)
 
-    async def test_finish_reuses_productive_pcm_and_publishes_both_without_submit(self):
+    def continuation(self):
+        """El cover ya descargado no se repite. Lo que sobra pide un repaint del final."""
+        submitted = []
+
+        async def submit(generation):
+            submitted.append(generation)
+            return (f"cont-{len(submitted)}", "queued")
+
+        async def wait(task_id, on_update=None):
+            return EngineStatus(task_id=task_id, status=STATUS_SUCCEEDED, tracks=[
+                GeneratedTrack(file=f"/v1/audio?path={task_id}.wav", prompt=self.request.prompt,
+                               seed=1, seed_origin="engine.seed")])
+
+        async def download(_remote, path):
+            Sine(220).to_audio_segment(duration=5000).set_channels(2).export(path, format="wav").close()
+            return path
+
+        return submitted, submit, wait, download
+
+    async def test_finish_reuses_the_downloaded_cover_and_continues_the_bed(self):
         published = []
         runtime = self.runtime(published)
         manifest = {"groups": [{"id": key, "file_name": path.name} for key, path in self.originals.items()]}
         before = copy.deepcopy(self.job["project"])
-        with patch.object(self.music, "submit", new_callable=AsyncMock) as submit, \
-                patch.object(self.music, "download", new_callable=AsyncMock) as download, \
+        submitted, submit, wait, download = self.continuation()
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
                 patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
             await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
-            submit.assert_not_awaited()
-            download.assert_not_awaited()
+        self.assertEqual(len(submitted), 2)
+        for generation in submitted:
+            self.assertEqual(generation.task_type, "repaint")
+            self.assertEqual(generation.batch_size, 1)
+            self.assertGreater(generation.repaint_end, generation.repaint_start)
         self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
         self.assertEqual(self.job["project"], before)
         self.assertEqual(len(published), 2)
@@ -195,7 +219,11 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             return None
 
         runtime.measure_bpm = fail_on_second_export
-        with patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
+        _submitted, submit, wait, download = self.continuation()
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
+                patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
             await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
         self.assertEqual(self.job["status"], "failed")
         self.assertEqual(published, [])
@@ -209,7 +237,11 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         def changed_history():
             raise ValueError("History changed before publication")
 
-        with patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
+        _submitted, submit, wait, download = self.continuation()
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
+                patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
             await runtime.finish_downloaded(self.job, self.source, None, self.request, 2,
                                             self.receipt, before_publish=changed_history)
         self.assertEqual(self.job["status"], "failed")

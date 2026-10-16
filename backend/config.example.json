@@ -1,6 +1,7 @@
 {
   "host": "127.0.0.1",
   "port": 8000,
+  "api_listen_grace_seconds": 60.0,
   "log_level": "INFO",
   "cors_origins": [
     "http://localhost:5173",
@@ -165,6 +166,10 @@
     "groove_refine_max_candidates": 1000,
     "tempo_verify_tolerance_bpm": 2.0,
     "timeline_max_repetitions": 1200,
+    "continuation_min_seconds": 3.0,
+    "continuation_max_seconds": 90.0,
+    "continuation_max_chunks": 200,
+    "continuation_batch_size": 1,
     "demucs_model": "htdemucs",
     "demucs_device": "auto",
     "demucs_shifts": 1,

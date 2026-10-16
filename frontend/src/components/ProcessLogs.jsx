@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, JOB_POLL_INTERVAL_MS } from '../api';
+import { api, actionError, JOB_POLL_INTERVAL_MS } from '../api';
 
 const LABELS = {
   engine_stdout: 'Salida del motor',
@@ -22,7 +22,7 @@ export default function ProcessLogs({ open, onClose }) {
         setStreams(data.streams ?? []);
         setError('');
       } catch (failure) {
-        if (active) setError(failure.message);
+        if (active) setError(actionError(failure.message) ?? '');
       }
     };
     void load();

@@ -3,7 +3,7 @@ import {
   Play, Loader2, AlertTriangle, Sparkles,
   Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, RotateCcw,
 } from 'lucide-react';
-import { api, isEnginePollBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
+import { api, actionError, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import QualityWizard from './QualityWizard';
 import SelectBox from './SelectBox';
 import Glossary from './Glossary';
@@ -233,7 +233,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         });
       }
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setWritingLyrics(false);
     }
@@ -263,8 +263,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         misses += 1;
         const gone = /no encontrada/i.test(e.message ?? '');
         if (gone || misses >= JOB_POLL_MAX_MISSES) {
-          setError(e.message);
-          setJob({ status: 'failed' });
+          const message = actionError(e.message);
+          if (message) {
+            setError(message);
+            setJob({ status: 'failed' });
+          }
           return null;
         }
       }
@@ -312,15 +315,22 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     }
     setSavedName(null);
     setJob({ status: 'queued', progress: '' });
-    try {
-      const seedValue = seed.trim() === '' ? null : Number(seed);
-      const { created } = await launchGeneration(finalPrompt, seedValue);
-      aliveRef.current = true;
-      setJob({ status: 'queued', progress: '', job_id: created.job_id });
-      void pollUntilDone(created.job_id);
-    } catch (e) {
-      setError(e.message);
-      setJob({ status: 'failed' });
+    const seedValue = seed.trim() === '' ? null : Number(seed);
+    while (aliveRef.current) {
+      try {
+        const { created } = await launchGeneration(finalPrompt, seedValue);
+        if (!aliveRef.current) return;
+        setJob({ status: 'queued', progress: '', job_id: created.job_id });
+        void pollUntilDone(created.job_id);
+        return;
+      } catch (e) {
+        if (!isTransportBlip(e.message)) {
+          setError(actionError(e.message));
+          setJob({ status: 'failed' });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      }
     }
   };
 
@@ -340,20 +350,35 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     let s2 = Math.floor(Math.random() * 1_000_000);
     if (s2 === s1) s2 = (s1 + 1) % 1_000_000;
     setSavedName(null);
+    const launchWhenBack = async (seedValue, phase) => {
+      while (aliveRef.current) {
+        try {
+          setJob({ status: 'queued', phase });
+          const created = await launchGeneration(finalPrompt, seedValue);
+          if (!aliveRef.current) return null;
+          setJob({ status: 'queued', phase, job_id: created.created.job_id });
+          return created;
+        } catch (e) {
+          if (!isTransportBlip(e.message)) throw e;
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
+      }
+      return null;
+    };
     try {
-      aliveRef.current = true;
-      setJob({ status: 'queued', phase: 'Variación A en cola' });
-      const first = await launchGeneration(finalPrompt, s1);
-      setJob({ status: 'queued', phase: 'Variación A en cola', job_id: first.created.job_id });
+      const first = await launchWhenBack(s1, 'Variación A en cola');
+      if (!first) return;
       const doneA = await pollUntilDone(first.created.job_id);
       if (!aliveRef.current || doneA?.status !== 'succeeded') return;
-      setJob({ status: 'queued', phase: 'Variación B en cola' });
-      const second = await launchGeneration(finalPrompt, s2);
-      setJob({ status: 'queued', phase: 'Variación B en cola', job_id: second.created.job_id });
+      const second = await launchWhenBack(s2, 'Variación B en cola');
+      if (!second) return;
       await pollUntilDone(second.created.job_id);
     } catch (e) {
-      setError(e.message);
-      setJob({ status: 'failed' });
+      const message = actionError(e.message);
+      if (message) {
+        setError(message);
+        setJob({ status: 'failed' });
+      }
     }
   };
 
@@ -370,7 +395,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       const res = await api.enhancePrompt({ prompt: base, bpm: bpm ?? null });
       setEnhanceInfo(res);
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setEnhancing(false);
     }
@@ -399,7 +424,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     try {
       await api.cancelJob(job.job_id);
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setCancelling(false);
     }

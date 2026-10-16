@@ -140,17 +140,17 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
             or not config.timeline_min_duration_seconds <= request.duration_seconds <= settings.generation.max_duration_seconds):
         raise ValueError("La duración objetivo debe estar dentro del límite configurado")
     if (request.repeat_start is None) != (request.repeat_end is None):
-        raise ValueError("Indica inicio y fin de la parte a repetir")
+        raise ValueError("Indica inicio y fin del recorte")
     if request.repeat_start is not None and (
             not math.isfinite(request.repeat_start) or not math.isfinite(request.repeat_end)
             or not 0 <= request.repeat_start < request.repeat_end <= duration):
-        raise ValueError("La parte a repetir debe estar dentro de la canción original")
+        raise ValueError("El recorte debe estar dentro de la canción original")
     if request.transition_seconds is not None and (
             not math.isfinite(request.transition_seconds)
             or not 0 < request.transition_seconds <= config.timeline_max_transition_seconds):
         raise ValueError("La transición debe ser positiva y estar dentro del límite configurado")
     if any(value is not None for value in (request.repeat_start, request.repeat_end, request.transition_seconds)) and request.duration_seconds is None:
-        raise ValueError("La repetición y transición requieren una duración objetivo mayor")
+        raise ValueError("El recorte requiere una duración mayor que la canción")
     voice_control = request.instrumental
     if request.scope == "groups":
         voice_action = request.groups.get("vocals")
@@ -164,15 +164,15 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
     config = settings.remix
     measured = measured or {}
     if request.scope == "full" and request.bpm is not None:
+        marked = request.repeat_start is not None
         return {"source_duration_seconds": duration, "natural_duration_seconds": None,
                 "target_duration_seconds": request.duration_seconds, "tempo_ratio": None,
                 "source_bpm": None, "source_bpm_origin": "pending_generated_measurement",
                 "bpm_measured": None, "bpm_confidence": None, "target_bpm": request.bpm,
-                "repeat_start": 0.0 if request.repeat_start is None else request.repeat_start,
-                "repeat_end": duration if request.repeat_end is None else request.repeat_end,
+                "repeat_start": request.repeat_start if marked else None,
+                "repeat_end": request.repeat_end if marked else None,
                 "mapped_repeat_start": None, "mapped_repeat_end": None,
-                "transition_seconds": (config.timeline_transition_seconds if request.transition_seconds is None
-                                       else request.transition_seconds),
+                "transition_seconds": 0.0,
                 "method": "pending_generated_timeline", "tempo_method": "measured_pcm_atempo",
                 "beat_clock_bpm": None, "beat_clock_origin": "pending_adjusted_measurement",
                 "engine_tempo_method": "engine_conditioning", "status": "pending_generated_audio"}
@@ -199,13 +199,15 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
                          f"mínimo {minimum} s ({minimum // 60}:{minimum % 60:02d})")
     expanding = target > natural
     if not expanding and any(value is not None for value in (request.repeat_start, request.repeat_end, request.transition_seconds)):
-        raise ValueError("La parte y transición solo se aplican al ampliar la canción")
-    start = 0.0 if request.repeat_start is None else request.repeat_start
-    end = duration if request.repeat_end is None else request.repeat_end
-    transition = config.timeline_transition_seconds if request.transition_seconds is None else request.transition_seconds
-    if expanding and ((end - start) / ratio < config.timeline_min_repeat_seconds
-                      or (end - start) / ratio <= 2 * transition or natural <= transition):
-        raise ValueError("La parte a repetir es demasiado corta para las transiciones elegidas")
+        raise ValueError("El recorte solo se aplica al alargar la canción")
+    marked = request.repeat_start is not None
+    start = request.repeat_start if marked else None
+    end = request.repeat_end if marked else None
+    mapped_start = mapped_end = None
+    if marked:
+        mapped_start, mapped_end = start / ratio, end / ratio
+        if expanding and mapped_end - mapped_start < config.timeline_min_repeat_seconds:
+            raise ValueError("El recorte es demasiado corto para usarlo como sample")
     return {"source_duration_seconds": duration, "natural_duration_seconds": natural,
             "target_duration_seconds": target, "tempo_ratio": ratio,
             "source_bpm": source_bpm, "source_bpm_origin": origin,
@@ -213,9 +215,9 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
             "target_bpm": request.bpm, "repeat_start": start, "repeat_end": end,
             "beat_clock_bpm": request.bpm if request.scope == "groups" else None,
             "beat_clock_origin": "requested_common_tempo" if request.scope == "groups" and request.bpm else "not_required",
-            "mapped_repeat_start": start / ratio, "mapped_repeat_end": end / ratio,
-            "transition_seconds": transition if expanding else 0.0,
-            "method": "repeat_crossfade" if expanding else "original",
+            "mapped_repeat_start": mapped_start, "mapped_repeat_end": mapped_end,
+            "transition_seconds": 0.0,
+            "method": "continue_bed" if expanding else "original",
             "tempo_method": "common_pcm_atempo" if ratio != 1 else (
                 "engine_conditioning" if request.scope == "full" and request.bpm else "original")}
 
@@ -247,8 +249,7 @@ def full_variant_plan(request, source_duration, engine_duration, settings, measu
                 source_bpm_origin="generated_measurement", tempo_method="measured_pcm_atempo",
                 beat_clock_bpm=None, beat_clock_origin="pending_adjusted_measurement",
                 engine_tempo_method="engine_conditioning", status="resolved",
-                repeat_start=0.0 if request.repeat_start is None else request.repeat_start,
-                repeat_end=source_duration if request.repeat_end is None else request.repeat_end)
+                repeat_start=request.repeat_start, repeat_end=request.repeat_end)
     return plan
 
 
@@ -451,19 +452,22 @@ def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
     se recorta. Si cabe, se conserva el objetivo y se amplía solo si falta.
     """
     start, end = plan.get("mapped_repeat_start"), plan.get("mapped_repeat_end")
+    marked = start is not None or end is not None
     if (isinstance(mix_seconds, bool) or not isinstance(mix_seconds, (int, float))
             or not math.isfinite(mix_seconds) or mix_seconds <= 0
             or isinstance(ratio, bool) or not isinstance(ratio, (int, float))
-            or not math.isfinite(ratio) or ratio <= 0
-            or isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
-            or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
-            or end <= start):
+            or not math.isfinite(ratio) or ratio <= 0):
+        raise ValueError("No hay una duración y una relación válidas para el tempo de la mezcla")
+    if marked and (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+                   or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
+                   or end <= start):
         raise ValueError("No hay una duración y una relación válidas para el tempo de la mezcla")
     updated = dict(plan)
     adjusted = float(mix_seconds) / float(ratio)
     scale = adjusted / float(mix_seconds)
-    updated["mapped_repeat_start"] = float(start) * scale
-    updated["mapped_repeat_end"] = float(end) * scale
+    if marked:
+        updated["mapped_repeat_start"] = float(start) * scale
+        updated["mapped_repeat_end"] = float(end) * scale
     updated["natural_duration_seconds"] = adjusted
     updated["tempo_ratio"] = float(ratio)
     updated["tempo_method"] = "measured_pcm_atempo"
@@ -480,19 +484,96 @@ def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
         raise ValueError("La duración objetivo debe ser igual o mayor que la canción al tempo elegido: "
                          f"mínimo {minimum} s ({minimum // 60}:{minimum % 60:02d})")
     updated["target_duration_seconds"] = float(requested_duration)
+    updated["transition_seconds"] = 0.0
     if float(requested_duration) > adjusted:
-        updated["method"] = "repeat_crossfade"
-        if not updated.get("transition_seconds"):
-            updated["transition_seconds"] = config.timeline_transition_seconds
-        span = updated["mapped_repeat_end"] - updated["mapped_repeat_start"]
-        transition = updated["transition_seconds"]
-        if (span < config.timeline_min_repeat_seconds or span <= 2 * transition
-                or adjusted <= transition):
-            raise ValueError("La parte a repetir es demasiado corta para las transiciones elegidas")
+        updated["method"] = "continue_bed"
+        if marked:
+            span = updated["mapped_repeat_end"] - updated["mapped_repeat_start"]
+            if span < config.timeline_min_repeat_seconds:
+                raise ValueError("El recorte es demasiado corto para usarlo como sample")
     else:
         updated["method"] = "original"
-        updated["transition_seconds"] = 0.0
     return updated
+
+
+def continuation_limits(config) -> tuple[float, float, int, int]:
+    """Mínimo, máximo, tope de trozos y lote de una continuación."""
+    minimum = config.continuation_min_seconds
+    maximum = config.continuation_max_seconds
+    chunks = config.continuation_max_chunks
+    batch = config.continuation_batch_size
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+           for value in (minimum, maximum)):
+        raise ValueError("La continuación necesita un tramo mínimo y máximo positivos")
+    if float(maximum) < float(minimum):
+        raise ValueError("El tramo máximo de la continuación tiene que cubrir el mínimo")
+    if isinstance(chunks, bool) or not isinstance(chunks, int) or chunks < 1:
+        raise ValueError("El número de trozos de la continuación tiene que ser un entero positivo")
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
+        raise ValueError("El lote de la continuación tiene que ser un entero positivo")
+    return float(minimum), float(maximum), chunks, batch
+
+
+def continuation_spans(bed_seconds: float, target_seconds: float, config) -> list[dict]:
+    """Trozos que alargan la base hasta la duración pedida.
+
+    Cada trozo empieza donde acaba el anterior. El motor instalado genera
+    el final; no se rellena repitiendo el recorte.
+    """
+    minimum, maximum, chunk_limit, _batch = continuation_limits(config)
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
+           for value in (bed_seconds, target_seconds)):
+        raise ValueError("La continuación necesita la duración de la base y la duración pedida")
+    spans = []
+    cursor = float(bed_seconds)
+    while cursor < float(target_seconds):
+        if len(spans) >= chunk_limit:
+            raise ValueError("La duración pedida no cabe en los trozos de continuación configurados")
+        remaining = float(target_seconds) - cursor
+        added = remaining if remaining >= minimum else minimum
+        if added > maximum:
+            added = maximum
+        spans.append({"start": cursor, "end": cursor + added})
+        cursor += added
+    return spans
+
+
+def sample_window(plan: dict, bed_seconds: float, config) -> dict | None:
+    """Recorte marcado dentro de la base ya creada. None si no hay recorte."""
+    start, end = plan.get("mapped_repeat_start"), plan.get("mapped_repeat_end")
+    if start is None and end is None:
+        return None
+    tolerance = config.duration_tolerance_seconds
+    if (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+            or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
+            or end <= start or start < 0
+            or not isinstance(bed_seconds, (int, float)) or isinstance(bed_seconds, bool)
+            or not math.isfinite(bed_seconds) or end > float(bed_seconds) + tolerance):
+        raise ValueError("El recorte no cabe en la base creada")
+    return {"start": float(start), "end": min(float(end), float(bed_seconds))}
+
+
+def continuation_generation(request, bed: Path, span: dict, seed, settings) -> GenerationRequest:
+    """Repaint del final de la base ya creada, con el mismo estilo y el mismo BPM.
+
+    audio_duration queda en la duración del archivo. El final pedido, por
+    delante del archivo, es el silencio que el motor rellena.
+    """
+    if not style_caption(request.prompt):
+        raise ValueError("Para continuar la base hace falta el texto de estilo")
+    _minimum, _maximum, _chunks, batch = continuation_limits(settings.remix)
+    config = settings.remix
+    return GenerationRequest(
+        prompt=style_for_engine(request.prompt, settings),
+        constraint_prompt=style_caption(request.prompt),
+        lyrics=request.lyrics, instrumental=request.instrumental,
+        task_type="repaint", source_path=str(bed), duration_seconds=None,
+        bpm=request.bpm, seed=seed, batch_size=batch,
+        model=settings.generation.remix_model, audio_format=config.intermediate_format,
+        repaint_start=span["start"], repaint_end=span["end"],
+        repaint_mode=request.repaint_mode or config.repaint_mode,
+        repaint_strength=config.repaint_strength if request.repaint_strength is None else request.repaint_strength,
+    )
 
 
 def verify_requested_tempo(measured, requested_bpm, config, stage) -> None:
@@ -538,7 +619,8 @@ def full_bpm_preview_notice() -> str:
     """Aviso que viaja con el trabajo. No dice que una sola variante tumba el lote."""
     return (
         "En canción completa se mide cada variante y se ajusta después su tempo sin cambiar el tono. "
-        "La duración natural y la parte a repetir se calculan tras generar. "
+        "La duración natural se calcula tras generar. "
+        "Si pides más, el motor continúa el final de esa base y el recorte marcado entra una vez al empezar lo que sobra. "
         "Agotadas las muestras, la variante sin pulso no se publica. "
         "Si otra midió, se publica esa y el trabajo lo dice. "
         "Si ninguna mide, sigue el error del detector. "
@@ -679,7 +761,9 @@ class RemixProjectRuntime:
                          "min_duration_seconds": remix.timeline_min_duration_seconds,
                          "min_repeat_seconds": remix.timeline_min_repeat_seconds,
                          "min_groove_confidence": remix.timeline_min_groove_confidence,
-                         "max_transition_seconds": remix.timeline_max_transition_seconds},
+                         "max_transition_seconds": remix.timeline_max_transition_seconds,
+                         "continuation_min_seconds": remix.continuation_min_seconds,
+                         "continuation_max_seconds": remix.continuation_max_seconds},
             "repaint_controls": {
                 "strength_modes": ["balanced"],
                 "crossfade_editable": False,
@@ -709,8 +793,11 @@ class RemixProjectRuntime:
     def prepare(self, request, source, reference, duration, measured=None) -> dict:
         validate_project(request, duration, self.settings)
         timeline = timeline_plan(request, duration, self.settings, measured)
+        if timeline["method"] == "continue_bed" and not style_caption(request.prompt):
+            raise ValueError("Para continuar la base hace falta el texto de estilo")
         config = self.settings.remix
         transform = request.scope != "groups" or "transform" in request.groups.values()
+        continues = timeline["method"] == "continue_bed"
         if transform:
             result = self.music.preview(project_generation(request, source, reference, self.settings))
             for key, field_name in {
@@ -734,9 +821,10 @@ class RemixProjectRuntime:
                 result["effective_parameters"]["src_audio_path"] = None
                 result["provenance"]["src_audio_path"] = "pending_derived_material"
         else:
-            result = {"effective_parameters": {}, "provenance": {},
-                      "warnings": [constraint_rules()["limitation"],
-                                   "Operación determinista: no usa motor, batch ni semilla."]}
+            warnings = [constraint_rules()["limitation"]]
+            if not continues:
+                warnings.append("Operación determinista: no usa motor, batch ni semilla.")
+            result = {"effective_parameters": {}, "provenance": {}, "warnings": warnings}
         result["operations"] = {
             "scope": request.scope, "source": source.name,
             "source_kind": request.source_kind,
@@ -744,9 +832,9 @@ class RemixProjectRuntime:
             "gains_db": {group: request.gains_db.get(group, 0.0)
                          for group, action in (request.groups or {}).items() if action != "remove"},
             "separation_required": request.scope == "groups",
-            "engine_required": transform,
+            "engine_required": transform or continues,
             "timeline": timeline,
-            "preserved_groups_processing": "common_pcm_tempo_and_shared_repetition" if request.scope == "groups" else None,
+            "preserved_groups_processing": "common_pcm_tempo" if request.scope == "groups" else None,
             "export": {"format": "mp3", "bitrate": config.export_bitrate,
                        "sample_rate": config.sample_rate, "peak_limit_dbfs": config.peak_limit_dbfs},
         }
@@ -771,8 +859,10 @@ class RemixProjectRuntime:
                 "derived_fields": ["natural_duration_seconds", "tempo_ratio", "mapped_repeat_start", "mapped_repeat_end"]})
         if request.scope == "region" and request.bpm:
             result["warnings"].append("En Tramo el BPM es orientativo: condiciona al motor, sin ajuste posterior del audio.")
-        if timeline["method"] == "repeat_crossfade":
-            result["warnings"].append("La ampliación repite material con fundidos; no compone partes nuevas.")
+        if timeline["method"] in {"continue_bed", "pending_generated_timeline"} and timeline.get("target_duration_seconds"):
+            result["warnings"].append(
+                "Si pides más duración, el motor continúa el final de la base ya creada. "
+                "El recorte marcado entra una vez al empezar esa parte.")
         return result
 
     async def _prepare(self, request):
@@ -953,6 +1043,65 @@ class RemixProjectRuntime:
         measured, verified, draws = await accept_verified_draw(measure, adjust, replace, retries)
         return (state["path"], state["track"], measured, state["plan"], draws, state["payload"],
                 verified, state["processing"])
+
+    async def _continue_bed(self, job, request, work, index, bed, variant_plan, track):
+        """Alarga la base ya creada y mete el recorte una vez al empezar lo que sobra."""
+        config = self.settings.remix
+        target = float(variant_plan["target_duration_seconds"])
+        bed_seconds = await self.music.verify_audio(bed) / 1000
+        window = sample_window(variant_plan, bed_seconds, config)
+        spans = continuation_spans(bed_seconds, target, config) if target > bed_seconds else []
+        current = bed
+        chunks = []
+        _minimum, _maximum, _chunk_limit, batch = continuation_limits(config)
+
+        def on_update(status):
+            self.cancelled(job)
+            job["status"] = "running"
+            job["engine_progress"] = status.progress
+            job["progress_ratio"] = status.moving_progress()
+            job["engine_progress_text"] = status.progress_text or ""
+            job["phase"] = _visible_phase(status)
+
+        for number, span in enumerate(spans, start=1):
+            self.cancelled(job)
+            self.event(job, f"Continuando la base de la variante {index + 1}, trozo {number}")
+            seed = track.seed if track is not None and track.seed is not None else request.seed
+            generation = await asyncio.to_thread(
+                continuation_generation, request, current, span, seed, self.settings)
+            job["engine_active"] = True
+            try:
+                task_id, _detail = await self.music.submit(generation)
+                job["engine_task_id"] = task_id
+                self.save()
+                final = await self.music.wait(task_id, on_update=on_update)
+            finally:
+                job["engine_active"] = False
+            self.cancelled(job)
+            if not final.succeeded:
+                raise MusicEngineError(final.error or "El motor terminó sin audio válido")
+            ready = [item for item in final.tracks if item.file]
+            if len(ready) != batch:
+                raise MusicEngineError(
+                    f"El motor devolvió {len(ready)} continuaciones; se pidió {batch}")
+            produced = ready[0]
+            dest = work / f"continuacion-{index + 1}-{number}.wav"
+            await self.music.download(produced.file, dest)
+            seconds = await self.music.verify_audio(dest) / 1000
+            if abs(seconds - span["end"]) > config.duration_tolerance_seconds:
+                raise MusicEngineError(
+                    f"La continuación duró {seconds:g} s y el trozo pedía {span['end']:g} s")
+            chunks.append({
+                "start": span["start"], "end": span["end"], "file_name": dest.name,
+                "seed": produced.seed, "seed_origin": produced.seed_origin,
+            })
+            current = dest
+        self.cancelled(job)
+        extended = work / f"arreglo-{index + 1}.wav"
+        info = await asyncio.to_thread(
+            MixerService.finish_continuation, current, bed, extended, window,
+            bed_seconds, target, config)
+        return extended, {**info, "chunks": chunks, "bed_seconds": bed_seconds}
 
     def _fail(self, job: dict, error: Exception) -> None:
         logger.error(f"Proyecto/separación {job['job_id']} falló: {error}")
@@ -1221,9 +1370,15 @@ class RemixProjectRuntime:
                             variant_plan["beat_clock_origin"] = "generated_measurement"
                         self.cancelled(job)
                     arrangement = {"method": "original", "repetitions": 0,
-                                   "duration_seconds": variant_plan["natural_duration_seconds"], "transition_seconds": 0.0}
+                                   "duration_seconds": variant_plan["natural_duration_seconds"],
+                                   "transition_seconds": 0.0, "sample": {"placed": False}, "chunks": []}
                     body = timeline
-                    if variant_plan["method"] == "repeat_crossfade":
+                    if variant_plan["method"] == "continue_bed":
+                        self.event(job, f"Continuando la base de la variante {index + 1}")
+                        timeline, arrangement = await self._continue_bed(
+                            job, request, work, index, body, variant_plan, track)
+                        self.cancelled(job)
+                    elif variant_plan["method"] == "repeat_crossfade":
                         self.event(job, f"Ampliando la variante {index + 1} con partes y transiciones")
                         extended = work / f"arreglo-{index + 1}.wav"
                         arrangement = await asyncio.to_thread(MixerService.extend_timeline, body, extended, variant_plan, config)

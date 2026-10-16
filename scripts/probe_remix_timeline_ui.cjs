@@ -142,10 +142,9 @@ app.whenReady().then(async () => {
   await set('BPM original de las pistas', manifest.source_bpm);
   await set('Minutos del remix', Math.floor(manifest.duration_seconds / 60));
   await set('Segundos del remix', manifest.duration_seconds % 60);
-  await click('REPETICIÓN Y TRANSICIONES');
-  await set('Inicio de la parte a repetir', manifest.repeat_start);
-  await set('Final de la parte a repetir', manifest.repeat_end);
-  await set('Fundido entre repeticiones', manifest.transition_seconds);
+  await click('RECORTE');
+  await set('Inicio del recorte', manifest.repeat_start);
+  await set('Final del recorte', manifest.repeat_end);
   await click('PARÁMETROS DEL MOTOR', `${panel} > [data-effective-preview]`);
   await click('OPERACIONES DE AUDIO', `${panel} > [data-effective-preview]`);
   report.preview_operations = await wait('live preview has tempo and repeat operations', () => ev((query, expected) => {
@@ -154,7 +153,7 @@ app.whenReady().then(async () => {
     const operations = JSON.parse(pre.textContent);
     return operations.timeline?.target_duration_seconds === expected.duration_seconds && operations.timeline?.source_bpm === expected.source_bpm &&
       operations.timeline?.target_bpm === expected.bpm && operations.timeline?.repeat_start === expected.repeat_start &&
-      operations.timeline?.repeat_end === expected.repeat_end && operations.timeline?.transition_seconds === expected.transition_seconds ? operations : false;
+      operations.timeline?.repeat_end === expected.repeat_end && operations.timeline?.method === 'continue_bed' ? operations : false;
   }, panel, manifest));
   await capture([1400, 900]);
   await capture([1080, 700]);
@@ -164,7 +163,7 @@ app.whenReady().then(async () => {
     const req = report.requests.find((r) => new URL(r.url).pathname === '/music/remix/project' && r.body.source_name === manifest.source_name);
     if (!req) return false;
     if (req.body.bpm !== manifest.bpm || req.body.source_bpm !== manifest.source_bpm || req.body.duration_seconds !== manifest.duration_seconds ||
-        req.body.repeat_start !== manifest.repeat_start || req.body.repeat_end !== manifest.repeat_end || req.body.transition_seconds !== manifest.transition_seconds ||
+        req.body.repeat_start !== manifest.repeat_start || req.body.repeat_end !== manifest.repeat_end || req.body.transition_seconds != null ||
         req.body.groups.vocals !== 'remove' || Object.values(req.body.groups).filter((v) => v === 'keep').length !== 3) throw new Error(JSON.stringify(req));
     return req.body;
   });

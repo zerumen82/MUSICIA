@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
-import { api, API_BASE_URL, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES } from '../api';
+import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
 import { ACTIONS, CONVERTING, REPAINT, SCOPE_WHY, SECTIONS, actionWhy, remixBusyLine } from '../remix_sections';
 import { joinStyleAndTracks } from '../glossary_pick';
 import Glossary from './Glossary';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
-import { measuredRemixBpm, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
+import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
 import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
 import PromptTools from './PromptTools';
@@ -21,7 +21,7 @@ const TEMPO_TEXT = {
   full: 'Cada variante se mide y se ajusta al BPM pedido con DSP local, sin cambiar el tono. Si la medición es incierta, el remix mostrará el error.',
   region: 'En un tramo, el BPM orienta al motor; el audio generado puede tener otro tempo.',
   pendingDuration: 'La duración natural al BPM pedido se conocerá después de generar y ajustar cada variante. Una duración menor se rechazará indicando su mínimo.',
-  repetition: 'Para mantener el BPM, las repeticiones se unen al pulso usando una parte dentro del intervalo elegido. Los límites usados quedan registrados en el resultado.',
+  repetition: 'El recorte entra una vez al empezar lo que sobra. Los límites usados quedan registrados en el resultado.',
 };
 
 function Fold({ title, why, children, ...rest }) {
@@ -91,14 +91,48 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   useEffect(() => {
     alive.current = true;
     let active = true;
-    api.remixCapabilities().then((data) => {
-      if (active) { setCapabilities(data); setControls(data.defaults ?? {}); }
-    }).catch((err) => { if (active) setError(err.message); });
-    api.audioPeaks(fileName, undefined, sourceKind).then((data) => {
-      if (active) setDuration(data.duration_seconds);
-    }).catch((err) => { if (active) setNotice(`Duración no disponible: ${err.message}`); });
+    const loadCapabilities = async () => {
+      while (active) {
+        try {
+          const data = await api.remixCapabilities();
+          if (active) { setCapabilities(data); setControls(data.defaults ?? {}); }
+          return;
+        } catch (err) {
+          if (!active) return;
+          if (!isTransportBlip(err.message)) { setError(err.message); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
+      }
+    };
+    const loadDuration = async () => {
+      while (active) {
+        try {
+          const data = await api.audioPeaks(fileName, undefined, sourceKind);
+          if (active) setDuration(data.duration_seconds);
+          return;
+        } catch (err) {
+          if (!active) return;
+          if (!isTransportBlip(err.message)) { setNotice(`Duración no disponible: ${err.message}`); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
+      }
+    };
+    void loadCapabilities();
+    void loadDuration();
     return () => { active = false; alive.current = false; };
   }, [fileName, sourceKind]);
+
+  useEffect(() => {
+    if (!isTransportBlip(error)) return undefined;
+    let active = true;
+    const clearIfBack = async () => {
+      const health = await api.engineHealth();
+      if (active) setError((current) => (staleTransportError(current, health?.api === 'ok') ? null : current));
+    };
+    const timer = setInterval(() => { void clearIfBack(); }, TRANSPORT_ERROR_CLEAR_MS);
+    void clearIfBack();
+    return () => { active = false; clearInterval(timer); };
+  }, [error]);
 
   const measureSourceTempo = useCallback(async () => {
     const request = ++measurementRequest.current;
@@ -106,17 +140,26 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     const current = () => alive.current && currentSourceKey.current === sourceKey
       && measurementRequest.current === request;
     try {
-      const measured = await api.groove(fileName, sourceKind);
-      if (!current()) return;
-      setGrooveReading({ sourceKey, groove: measured, error: null });
-      const valid = measuredRemixBpm(measured, capabilities);
-      setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''
-        ? previous : { sourceKey, value: valid == null ? '' : String(valid), origin: 'measurement' });
-    } catch (err) {
-      if (current()) {
-        setGrooveReading({ sourceKey, groove: null, error: err.message });
-        setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''
-          ? previous : { sourceKey, value: '', origin: 'measurement' });
+      while (current()) {
+        try {
+          const measured = await api.groove(fileName, sourceKind);
+          if (!current()) return;
+          setGrooveReading({ sourceKey, groove: measured, error: null });
+          const valid = measuredRemixBpm(measured, capabilities);
+          setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''
+            ? previous : { sourceKey, value: valid == null ? '' : String(valid), origin: 'measurement' });
+          return;
+        } catch (err) {
+          if (!current()) return;
+          if (!isTransportBlip(err.message)) {
+            setGrooveReading({ sourceKey, groove: null, error: err.message });
+            setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''
+              ? previous : { sourceKey, value: '', origin: 'measurement' });
+            return;
+          }
+          // La medición sigue ocupada durante la espera: el efecto de por pistas no se relanza en bucle.
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
       }
     } finally {
       if (current()) setMeasuringSource(null);
@@ -131,14 +174,21 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   useEffect(() => {
     if (!advanced) return undefined;
     let active = true;
-    Promise.allSettled([api.library(), api.uploads()]).then((results) => {
-      if (!active) return;
-      setReferences(results.flatMap((result, index) => result.status === 'fulfilled'
-        ? (result.value.items ?? []).map((item) => ({ id: `${index === 0 ? 'output' : 'upload'}:${item.name}`, name: item.name, kind: index === 0 ? 'output' : 'upload' })) : [])
-        .filter((item) => !(item.name === fileName && item.kind === sourceKind)));
-      const errors = results.filter((result) => result.status === 'rejected');
-      if (errors.length) setNotice(`Referencias incompletas: ${errors.map((result) => result.reason.message).join(' · ')}`);
-    });
+    const loadReferences = async () => {
+      while (active) {
+        const results = await Promise.allSettled([api.library(), api.uploads()]);
+        if (!active) return;
+        setReferences(results.flatMap((result, index) => result.status === 'fulfilled'
+          ? (result.value.items ?? []).map((item) => ({ id: `${index === 0 ? 'output' : 'upload'}:${item.name}`, name: item.name, kind: index === 0 ? 'output' : 'upload' })) : [])
+          .filter((item) => !(item.name === fileName && item.kind === sourceKind)));
+        const rejected = results.filter((result) => result.status === 'rejected');
+        const real = rejected.map((result) => result.reason?.message).filter((message) => message && !isTransportBlip(message));
+        if (real.length) { setNotice(`Referencias incompletas: ${real.join(' · ')}`); return; }
+        if (!rejected.length) return;
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      }
+    };
+    void loadReferences();
     return () => { active = false; };
   }, [advanced, fileName, sourceKind]);
 
@@ -146,32 +196,45 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     if (!advanced) return undefined;
     let active = true;
     const detect = async () => {
-      setAnalysisStatus(ANALYSIS_FALLBACK);
-      try {
-        const started = await api.remixAnalyze({ source_name: fileName, source_kind: sourceKind });
-        let misses = 0;
-        while (active) {
-          try {
-            const result = await api.remixAnalyzeStatus(started.job_id);
-            if (!active) return;
-            misses = 0;
-            setAnalysisStatus(deskPhase(result.phase, ANALYSIS_FALLBACK));
-            if (result.status === 'failed') { setAnalysisError(result.error ?? 'El análisis falló'); return; }
-            if (result.status === 'succeeded') {
-              setAnalysis(result.result);
-              if (!classificationEdited.current) {
-                const detected = result.result?.classification ?? 'unknown';
-                setClassification(detected); setClassificationOrigin(detected === 'unknown' ? 'unknown' : 'analysis');
+      while (active) {
+        setAnalysisStatus(ANALYSIS_FALLBACK);
+        try {
+          const started = await api.remixAnalyze({ source_name: fileName, source_kind: sourceKind });
+          let misses = 0;
+          while (active) {
+            try {
+              const result = await api.remixAnalyzeStatus(started.job_id);
+              if (!active) return;
+              misses = 0;
+              setAnalysisStatus(deskPhase(result.phase, ANALYSIS_FALLBACK));
+              if (result.status === 'failed') { setAnalysisError(result.error ?? 'El análisis falló'); return; }
+              if (result.status === 'succeeded') {
+                setAnalysis(result.result);
+                if (!classificationEdited.current) {
+                  const detected = result.result?.classification ?? 'unknown';
+                  setClassification(detected); setClassificationOrigin(detected === 'unknown' ? 'unknown' : 'analysis');
+                }
+                return;
               }
-              return;
+            } catch (err) {
+              if (!active) return;
+              if (isTransportBlip(err.message)) {
+                await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+                continue;
+              }
+              if (++misses >= JOB_POLL_MAX_MISSES) throw err;
             }
-          } catch (err) { if (++misses >= JOB_POLL_MAX_MISSES) throw err; }
-          await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+            await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
+          }
+          return;
+        } catch (err) {
+          if (!active) return;
+          if (!isTransportBlip(err.message)) { setAnalysisError(err.message); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
         }
-      } catch (err) { if (active) setAnalysisError(err.message); }
-      finally { if (active) setAnalysisStatus(null); }
+      }
     };
-    void detect();
+    void detect().finally(() => { if (active) setAnalysisStatus(null); });
     return () => { active = false; setAnalysisStatus(null); };
   }, [advanced, fileName, sourceKind]);
 
@@ -204,8 +267,12 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
           const failure = new Error(incoming.error ?? 'La operación no se completó'); failure.finished = true; throw failure;
         }
       } catch (err) {
-        if (err.finished || ++misses >= JOB_POLL_MAX_MISSES) throw err;
-        if (alive.current) setNotice(`Sondeo interrumpido: ${err.message}. Reintentando…`);
+        if (err.finished) throw err;
+        // Un trabajo ya lanzado se sigue sondeando. El corte no se escribe en el aviso.
+        if (!isEnginePollBlip(err.message)) {
+          if (++misses >= JOB_POLL_MAX_MISSES) throw err;
+          if (alive.current) setNotice(`Sondeo interrumpido: ${err.message}. Reintentando…`);
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
     }
@@ -214,7 +281,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const execute = async (operation) => {
     setBusy(true); setError(null); setNotice(null); setSolo(null); setJob(null);
     try { await operation(); }
-    catch (err) { if (alive.current) setError(err.message); }
+    catch (err) { if (alive.current) setError(actionError(err.message)); }
     finally { currentJob.current = null; if (alive.current) setBusy(false); }
   };
   const separate = () => execute(async () => {
@@ -226,7 +293,6 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     setGroups(actual); setActions(Object.fromEntries(actual.map((group) => [group.id, 'keep'])));
     setNotice('Pistas separadas. Escucha cada grupo y elige su acción.');
   });
-  const needsPrompt = scope !== 'groups' || Object.values(actions).includes('transform');
   const trackPhrase = scope === 'groups'
     ? joinStyleAndTracks(prompt, groups.filter((group) => actions[group.id] === 'transform').map((group) => trackText[group.id] ?? ''))
     : '';
@@ -234,28 +300,35 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const timelineSourceBpm = sourceBpm || measuredRemixBpm(groove, capabilities) || '';
   const naturalDuration = remixNaturalDuration({ scope, sourceDuration: duration, targetBpm: bpm, sourceBpm: timelineSourceBpm });
   const timeline = remixTimelineFields({ scope, targetBpm: bpm, sourceBpm: timelineSourceBpm, sourceBpmOrigin: sourceBpm ? sourceBpmOrigin : 'measurement', minutes: durationMinutes, seconds: durationSeconds,
-    repeatStart, repeatEnd, transition: controls.transition_seconds, sourceDuration: duration, capabilities });
+    repeatStart, repeatEnd, transition: '', sourceDuration: duration, capabilities });
+  const transformsGroups = scope === 'groups' && Object.values(actions).includes('transform');
+  const needsStyle = scope !== 'groups' || remixGroupsNeedStyle({
+    transforms: transformsGroups,
+    askedDuration: timeline.fields.duration_seconds,
+    naturalDuration,
+  });
+  const needsCover = scope !== 'groups' || transformsGroups;
   const bpmError = bpm !== '' && (!Number.isFinite(Number(bpm)) || !Number.isInteger(Number(bpm)) || Number(bpm) <= 0
     || (bounds('bpm')?.min != null && Number(bpm) < bounds('bpm').min)
     || (bounds('bpm')?.max != null && Number(bpm) > bounds('bpm').max)) ? 'Escribe un BPM entero dentro de los límites indicados.' : null;
   const requestError = bpmError || timeline.error;
   const hasTargetDuration = durationMinutes !== '' || durationSeconds !== '';
-  const chosenReference = needsPrompt ? references.find((item) => item.id === reference) : null;
+  const chosenReference = needsCover ? references.find((item) => item.id === reference) : null;
   const payload = {
-    source_name: fileName, source_kind: sourceKind, source_classification: classification, classification_origin: classificationOrigin, prompt: needsPrompt ? sentPrompt : '', scope,
+    source_name: fileName, source_kind: sourceKind, source_classification: classification, classification_origin: classificationOrigin, prompt: needsStyle ? sentPrompt : '', scope,
     output_name: outputName.trim() || null,
-    ...(seed !== '' && needsPrompt ? { seed: Number(seed) } : {}),
+    ...(seed !== '' && needsStyle ? { seed: Number(seed) } : {}),
     ...(bpm !== '' ? { bpm: Number(bpm) } : {}),
     ...timeline.fields,
     ...(scope !== 'groups' && vocalMode === 'instrumental' ? { instrumental: true } : {}),
     ...(scope !== 'groups' && vocalMode === 'lyrics' ? { instrumental: false, lyrics: lyrics.trim() } : {}),
     ...(scope === 'region' ? { region_start: Number(region.start), region_end: Number(region.end ?? duration), repaint_mode: controls.repaint_mode, ...(controls.repaint_mode === 'balanced' ? { repaint_strength: controls.repaint_strength } : {}) }
-      : needsPrompt ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
+      : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
     ...(chosenReference ? { reference_name: chosenReference.name, reference_kind: chosenReference.kind } : {}),
   };
   const run = () => execute(async () => {
-    if (needsPrompt && !sentPrompt) throw new Error('Describe los cambios que quieres hacer');
+    if (needsStyle && !sentPrompt) throw new Error('Describe los cambios que quieres hacer');
     if (scope === 'groups' && !groups.length) throw new Error('Separa primero las pistas del original');
     if (scope === 'region' && !(Number(region.end ?? duration) > Number(region.start))) throw new Error('Selecciona un tramo con final posterior al inicio');
     if (grooveBusy) throw new Error('Espera a que termine la medición del BPM original.');
@@ -286,7 +359,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const cancel = async () => {
     if (!currentJob.current) return;
     try { await api.cancelJob(currentJob.current); setNotice('Cancelación solicitada. Esperando confirmación.'); }
-    catch (err) { setError(err.message); }
+    catch (err) { setError(actionError(err.message)); }
   };
 
   const nudgeStep = capabilities?.parameters?.timeline_nudge_seconds?.step;
@@ -359,12 +432,12 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </div>)}
       <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo se escribe en el prompt. El texto de una pista se suma. Una pista vacía no añade nada.</p>
     </div>}
-    {remixing && needsPrompt && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
-      placeholder={activeScope?.placeholder || 'Qué quieres cambiar.'} className={`${field} resize-y w-full`} />}
-    {remixing && scope === 'groups' && groups.length > 0 && !needsPrompt && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
-    {remixing && needsPrompt && <PromptTools prompt={prompt} setPrompt={setPrompt} bpm={bpm === '' ? null : Number(bpm)} onBpm={(value) => setBpm(value == null || value === '' ? '' : String(value))} disabled={busy} />}
-    {remixing && needsPrompt && <StyleEnglish text={sentPrompt} empty={scope === 'groups' ? 'Escribe el estilo en el prompt.' : ''} />}
-    {remixing && scope !== 'region' && needsPrompt && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
+    {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
+      placeholder={needsCover ? (activeScope?.placeholder || 'Qué quieres cambiar.') : 'Texto de estilo para continuar la base.'} className={`${field} resize-y w-full`} />}
+    {remixing && scope === 'groups' && groups.length > 0 && !needsStyle && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
+    {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} bpm={bpm === '' ? null : Number(bpm)} onBpm={(value) => setBpm(value == null || value === '' ? '' : String(value))} disabled={busy} />}
+    {remixing && needsStyle && <StyleEnglish text={sentPrompt} empty={scope === 'groups' ? 'Escribe el estilo en el prompt.' : ''} />}
+    {remixing && scope !== 'region' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
     {remixing && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
     {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
     {remixing && scope === 'region' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.region}</p>}
@@ -386,18 +459,17 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <span aria-hidden="true">:</span>
         <label className="flex items-center gap-1"><input aria-label="Segundos del remix" type="number" min="0" max="59" step="any" value={durationSeconds} disabled={busy} placeholder="seg" onChange={(event) => setDurationSeconds(event.target.value)} className={`${field} w-20`} /><span className="text-[12px] text-[var(--muted)]">s</span></label>
       </div>
-      <p className="text-[13px] text-[var(--muted)]">Vacío conserva la duración natural. Para alargar, repite material de la canción con transiciones; no compone partes nuevas.</p>
+      <p className="text-[13px] text-[var(--muted)]">Vacío conserva la duración natural. Si pides más, el motor continúa el final de la base ya creada{capabilities?.timeline?.continuation_max_seconds ? `, en trozos de hasta ${capabilities.timeline.continuation_max_seconds} s` : ''}. El recorte entra una vez al empezar esa parte.</p>
       {scope === 'groups' && naturalDuration != null && <p className="text-[13px] text-[var(--muted)]" data-remix-minimum-duration>Duración mínima al tempo elegido: {remixMinimumDurationLabel(naturalDuration)}.</p>}
       {scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.pendingDuration}</p>}
-      {hasTargetDuration && <Fold title="REPETICIÓN Y TRANSICIONES" why="Señala la parte en la onda o escribe los segundos. Vacío repite el tema entero.">
+      {hasTargetDuration && <Fold title="RECORTE" why="Señala el sample en la onda o escribe los segundos. Vacío continúa la base sin meter un recorte.">
         <div className="flex flex-col gap-2 py-2">
           <Waveform key={`repeat:${sourceKind}:${fileName}`} fileName={fileName} sourceKind={sourceKind} onSelection={onRepeatRange} selection={{ start: repeatStart === '' ? 0 : Number(repeatStart) || 0, end: repeatEnd === '' ? null : Number(repeatEnd) }} disabled={busy} nudgeStep={nudgeStep} scales={false} />
           <div className="flex items-center gap-3 flex-wrap">
-            <label className="label">DESDE <input aria-label="Inicio de la parte a repetir" type="number" min="0" max={duration ?? undefined} step="any" value={repeatStart} disabled={busy} placeholder="Inicio del original" onChange={(event) => setRepeatStart(event.target.value)} className={`${field} w-36`} /> s</label>
-            <label className="label">HASTA <input aria-label="Final de la parte a repetir" type="number" min="0" max={duration ?? undefined} step="any" value={repeatEnd} disabled={busy} placeholder="Final del original" onChange={(event) => setRepeatEnd(event.target.value)} className={`${field} w-36`} /> s</label>
+            <label className="label">DESDE <input aria-label="Inicio del recorte" type="number" min="0" max={duration ?? undefined} step="any" value={repeatStart} disabled={busy} placeholder="Inicio del original" onChange={(event) => setRepeatStart(event.target.value)} className={`${field} w-36`} /> s</label>
+            <label className="label">HASTA <input aria-label="Final del recorte" type="number" min="0" max={duration ?? undefined} step="any" value={repeatEnd} disabled={busy} placeholder="Final del original" onChange={(event) => setRepeatEnd(event.target.value)} className={`${field} w-36`} /> s</label>
           </div>
-          <label className="label">FUNDIDO <input aria-label="Fundido entre repeticiones" type="number" min={bounds('transition_seconds')?.min ?? 0} max={bounds('transition_seconds')?.max ?? capabilities?.timeline?.max_transition_seconds} step={bounds('transition_seconds')?.step ?? 'any'} value={controls.transition_seconds ?? ''} disabled={busy} placeholder="Según configuración" onChange={(event) => update('transition_seconds', event.target.value)} className={`${field} w-24`} /> s</label>
-          <p className="text-[13px] text-[var(--muted)]">Los tiempos de la parte se refieren al original. Todas las pistas comparten el mismo arreglo.</p>
+          <p className="text-[13px] text-[var(--muted)]">Los tiempos del recorte se refieren al original. Entra una vez, donde empieza lo que sobra.</p>
           {bpm !== '' && <p className="text-[13px] text-[var(--muted)]" data-remix-repeat-clock>{TEMPO_TEXT.repetition}</p>}
         </div>
       </Fold>}
@@ -409,7 +481,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <input aria-label="Nombre del remix" value={outputName} disabled={busy} onChange={(event) => setOutputName(event.target.value)}
           placeholder={fileName ? `${fileName.replace(/\.[^.]+$/, '')}-remix` : 'Nombre de las variantes'} className={field} />
       </label>
-      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsPrompt && !sentPrompt)} className="btn btn-signal h-10 px-5">
+      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && !sentPrompt)} className="btn btn-signal h-10 px-5">
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {busy ? 'TRABAJANDO…' : 'REMIX'}</button></div>}
     {action === 'voice' && <VoiceBackingPanel fileName={fileName} sourceKind={sourceKind} duration={duration} capabilities={capabilities} busy={busy} onRun={voiceBacking} />}
     {action === 'adjust' && <div className="flex flex-col gap-3">
@@ -446,8 +518,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </div>
       {analysis?.description && <p className="mono text-[10px] text-[var(--faint)]">{analysis.description}</p>}
       {analysisError && <p className="mono text-[10px] st-err">Detección no disponible: {analysisError}</p>}
-      {scope !== 'region' && needsPrompt && range('cover_noise_strength', 'VARIACIÓN DEL AUDIO')}
-      {needsPrompt && <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Referencia tímbrica <select aria-label="Referencia tímbrica" value={reference} disabled={busy} onChange={(event) => setReference(event.target.value)} className="desk-select">
+      {scope !== 'region' && needsCover && range('cover_noise_strength', 'VARIACIÓN DEL AUDIO')}
+      {needsCover && <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Referencia tímbrica <select aria-label="Referencia tímbrica" value={reference} disabled={busy} onChange={(event) => setReference(event.target.value)} className="desk-select">
         <option value="">Sin referencia adicional</option>{references.map((item) => <option key={item.id} value={item.id}>{item.kind === 'upload' ? 'SUBIDA' : 'BIBLIOTECA'} · {item.name}</option>)}</select></label>
       }
       {scope !== 'groups' && <>
@@ -457,7 +529,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </>}
       {scope === 'groups' && groups.filter((group) => actions[group.id] !== 'remove').map((group) => <label key={group.id} className="label flex items-center gap-2">VOLUMEN {group.label}
         <input aria-label={`Volumen de ${group.label}`} type="number" min={bounds('gain_db')?.min} max={bounds('gain_db')?.max} step={bounds('gain_db')?.step ?? 'any'} value={gains[group.id] ?? 0} disabled={busy} onChange={(event) => setGains((current) => ({ ...current, [group.id]: Number(event.target.value) }))} className={`${field} w-24`} /> dB</label>)}
-      {needsPrompt && <label className="label">SEMILLA <input aria-label="Semilla del remix" type="number" min={bounds('seed')?.min} max={bounds('seed')?.max} step="1" value={seed} disabled={busy} onChange={(event) => setSeed(event.target.value)} placeholder="Aleatoria" className={`${field} w-44`} /></label>}
+      {needsStyle && <label className="label">SEMILLA <input aria-label="Semilla del remix" type="number" min={bounds('seed')?.min} max={bounds('seed')?.max} step="1" value={seed} disabled={busy} onChange={(event) => setSeed(event.target.value)} placeholder="Aleatoria" className={`${field} w-44`} /></label>}
       </div>
     </Fold>}
     {remixing && !requestError && !grooveBusy && (scope !== 'groups' || groups.length > 0) && <EffectivePreview request={payload} loadPreview={api.remixPreview} why={SECTIONS.engine.why} />}

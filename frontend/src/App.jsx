@@ -6,6 +6,7 @@ import Uploads from './components/Uploads';
 import MixLab from './components/MixLab';
 import { api, JOB_POLL_INTERVAL_MS } from './api';
 import { movingPercent } from './desk_phase';
+import { headerWatchText, latestJob, runningJob } from './header_job';
 import ProcessLogs from './components/ProcessLogs';
 
 // Nota: el Mixer decorativo original se sustituye por MixLab (mezcla real
@@ -24,6 +25,7 @@ function App() {
   const [engine, setEngine] = useState({ checked: false, ok: false });
   const [models, setModels] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
+  const [recentJob, setRecentJob] = useState(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const activeJobRef = useRef(null);
   // App sondea los trabajos UNA vez cada 3 s: la barra de la cabecera y
@@ -86,7 +88,7 @@ function App() {
       try {
         const data = await api.musicJobs();
         const feed = data.items ?? [];
-        const active = feed.find((job) => job.status === 'queued' || job.status === 'running');
+        const active = runningJob(feed);
         if (!alive) return;
         // Un MP3 nuevo o borrado cambia la huella: avisar a BIBLIOTECA.
         const version = data.library_version ?? null;
@@ -96,6 +98,7 @@ function App() {
         libraryVersionRef.current = version;
         uploadsVersionRef.current = uploadsVersion;
         setActiveJob(active ?? null);
+        setRecentJob(latestJob(feed));
         if ((prevVersion !== null && version !== prevVersion)
           || (prevUploadsVersion !== null && uploadsVersion !== prevUploadsVersion)) setLibraryTick((t) => t + 1);
       } catch {
@@ -107,7 +110,10 @@ function App() {
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
+  const headerJob = activeJob ?? recentJob;
   const headerPercent = movingPercent(activeJob?.phase, activeJob?.progress_ratio);
+  const headerText = headerWatchText(headerJob, activeJob ? headerPercent : null);
+  const headerFailed = headerJob?.status === 'failed' || headerJob?.status === 'cancelled';
 
   return (
     <div className="app-container">
@@ -193,12 +199,18 @@ function App() {
             <span className="label">{TABS.find((t) => t.id === tab)?.label}</span>
             <span className="text-[var(--faint)] mono text-[11px]">/</span>
             <span className="mono text-[11px] text-[var(--muted)]">{TABS.find((t) => t.id === tab)?.hint}</span>
-            {activeJob && (
+            <button type="button" onClick={() => setLogsOpen(true)}
+              className="mono text-[10.5px] tracking-[0.12em] text-[var(--muted)] bg-transparent p-0 cursor-pointer hover:underline shrink-0"
+              aria-label="Ver salida y error del proceso">
+              CONSOLA
+            </button>
+            {headerJob && (
               <button type="button" onClick={() => setLogsOpen(true)}
-                className="mono text-[10.5px] text-[var(--acc)] truncate max-w-[420px] bg-transparent p-0 cursor-pointer hover:underline"
-                aria-label="Ver salida y error del proceso">
-                {(activeJob.output_name || (activeJob.prompt ?? '').slice(0, 40) || 'Trabajando…')}
-                {headerPercent != null ? ` · ${headerPercent}%` : ''}
+                className={`mono text-[10.5px] truncate max-w-[420px] bg-transparent p-0 cursor-pointer hover:underline ${
+                  headerFailed ? 'text-[var(--err)]' : activeJob ? 'text-[var(--acc)]' : 'text-[var(--muted)]'
+                }`}
+                aria-label={headerText}>
+                {headerText}
               </button>
             )}
           </div>

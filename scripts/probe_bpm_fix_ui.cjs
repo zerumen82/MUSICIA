@@ -63,10 +63,10 @@ async function set(label, value) {
 async function apiGet(url) { return ev(async (endpoint) => { const response = await fetch(endpoint); if (!response.ok) throw new Error(`${endpoint}:${response.status}`); return response.json(); }, api + url); }
 async function repeatWarning(scope) {
   const visible = await ev((query) => document.querySelector(query)?.querySelector('[data-remix-repeat-clock]')?.checkVisibility(), panel);
-  if (!visible) await click('REPETICIÓN Y TRANSICIONES');
-  return wait(`actual ${scope} beat-aligned repetition warning visible`, () => ev((query) => {
+  if (!visible) await click('RECORTE');
+  return wait(`actual ${scope} sample warning visible`, () => ev((query) => {
     const node = document.querySelector(query)?.querySelector('[data-remix-repeat-clock]');
-    return node?.checkVisibility() && /dentro del intervalo elegido/.test(node.textContent) && /registrados en el resultado/.test(node.textContent) ? node.textContent : false;
+    return node?.checkVisibility() && /entra una vez/.test(node.textContent) && /registrados en el resultado/.test(node.textContent) ? node.textContent : false;
   }, panel));
 }
 async function executedInspector(job, scope) {
@@ -211,10 +211,9 @@ app.whenReady().then(async () => {
   }, panel, minDuration));
   await set('Minutos del remix', Math.floor(manifest.duration_seconds / 60));
   await set('Segundos del remix', manifest.duration_seconds % 60);
-  await click('REPETICIÓN Y TRANSICIONES');
-  await set('Inicio de la parte a repetir', manifest.repeat_start);
-  await set('Final de la parte a repetir', manifest.repeat_end);
-  await set('Fundido entre repeticiones', manifest.transition_seconds);
+  await click('RECORTE');
+  await set('Inicio del recorte', manifest.repeat_start);
+  await set('Final del recorte', manifest.repeat_end);
   report.group_repeat_warning = await repeatWarning('groups');
   await click('PARÁMETROS DEL MOTOR', `${panel} > [data-effective-preview]`);
   await click('OPERACIONES DE AUDIO', `${panel} > [data-effective-preview]`);
@@ -224,7 +223,7 @@ app.whenReady().then(async () => {
     const operations = JSON.parse(pre.textContent);
     return operations.timeline?.target_duration_seconds === expected.duration_seconds && operations.timeline?.source_bpm_origin === 'measurement' &&
       operations.timeline?.target_bpm === expected.bpm && operations.timeline?.repeat_start === expected.repeat_start &&
-      operations.timeline?.repeat_end === expected.repeat_end && operations.timeline?.transition_seconds === expected.transition_seconds ? operations : false;
+      operations.timeline?.repeat_end === expected.repeat_end && operations.timeline?.method === 'continue_bed' ? operations : false;
   }, panel, manifest));
   await capture([1400, 900]);
   await capture([1080, 700]);
@@ -255,7 +254,7 @@ app.whenReady().then(async () => {
     const req = report.requests.find((r) => new URL(r.url).pathname === '/music/remix/project' && r.body.source_name === manifest.source_name);
     if (!req) return false;
     if (req.body.bpm !== manifest.bpm || req.body.source_bpm !== undefined || req.body.duration_seconds !== manifest.duration_seconds ||
-        req.body.repeat_start !== manifest.repeat_start || req.body.repeat_end !== manifest.repeat_end || req.body.transition_seconds !== manifest.transition_seconds ||
+        req.body.repeat_start !== manifest.repeat_start || req.body.repeat_end !== manifest.repeat_end || req.body.transition_seconds != null ||
         Object.values(req.body.groups).filter((v) => v === 'keep').length !== 4) throw new Error(JSON.stringify(req));
     return req.body;
   });
@@ -311,7 +310,8 @@ app.whenReady().then(async () => {
     report.full_project_request = await wait('actual full project HTTP sent with unchanged requested BPM and repeat interval', () => {
       const request = report.requests.find((r) => new URL(r.url).pathname === '/music/remix/project' && r.body.scope === 'full');
       if (!request) return false;
-      for (const key of ['source_name','source_kind','bpm','duration_seconds','repeat_start','repeat_end','transition_seconds']) if (request.body[key] !== manifest[key]) throw new Error(`Unexpected full request ${key}`);
+      for (const key of ['source_name','source_kind','bpm','duration_seconds','repeat_start','repeat_end']) if (request.body[key] !== manifest[key]) throw new Error(`Unexpected full request ${key}`);
+      if (request.body.transition_seconds != null) throw new Error('Unexpected full request transition_seconds');
       if (fullSeed !== null && request.body.seed !== fullSeed) throw new Error('Full request seed differs from the visible explicit UI choice');
       return request.body;
     });

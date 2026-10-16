@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, SlidersHorizontal } from 'lucide-react';
+import { actionError } from '../api';
 import Waveform from './Waveform';
 
 /**
@@ -38,7 +39,7 @@ export default function RemixPanel({ onRun, result, fileName, sourceKind = null,
       trim_end_s: trim.trim_end_s === '' || trim.trim_end_s === null ? null : Number(trim.trim_end_s),
       output_name: name.trim() ? name.trim() : null,
     }); }
-    catch (failure) { setError(failure.message); }
+    catch (failure) { setError(actionError(failure.message)); }
     finally { setRunning(false); }
   };
 

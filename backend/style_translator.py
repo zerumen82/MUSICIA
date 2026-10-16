@@ -432,7 +432,10 @@ def _piece(chunk: str, settings: AppSettings) -> str:
     source = _flores(iso, settings)
     if source == settings.style_translation.target_lang:
         return chunk
-    english = _match_case(stripped, _translate(stripped, source, settings).strip())
+    # NLLB lee mal el español en mayúsculas: «CONTUNDENTES» sale contents
+    # y «PITIDOS» sale questions. En minúsculas la misma frase sale bien.
+    # Lo que se envía es ese inglés, no las mayúsculas del cuadro.
+    english = _match_case(stripped, _translate(stripped.casefold(), source, settings).strip())
     english = correct_translated_terms(stripped, english, settings)
     if not english:
         raise ValueError(

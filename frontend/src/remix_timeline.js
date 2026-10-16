@@ -27,13 +27,19 @@ export function remixNaturalDuration({ scope, sourceDuration, targetBpm, sourceB
     ? duration * original / target : null;
 }
 
+/** Conservar y quitar pide estilo solo si la duración alarga la base. */
+export function remixGroupsNeedStyle({ transforms, askedDuration, naturalDuration }) {
+  if (transforms) return true;
+  return askedDuration > 0 && (naturalDuration == null || askedDuration > naturalDuration);
+}
+
 export function remixMinimumDurationLabel(duration) {
   if (!(duration > 0) || !Number.isFinite(duration)) return null;
   const seconds = Math.ceil(duration);
   return `${Math.floor(seconds / SECONDS_PER_MINUTE)}:${String(seconds % SECONDS_PER_MINUTE).padStart(2, '0')} (${seconds} s)`;
 }
 
-/** Segundos marcados en la onda para la parte que se repite. Vacío es el extremo del tema. */
+/** Segundos marcados en la onda para el recorte. Vacío es el extremo del tema. */
 export function repeatBoundsFromWave(selection) {
   const start = Number(selection?.trim_start_s);
   const end = selection?.trim_end_s;
@@ -79,13 +85,13 @@ export function remixTimelineFields({ scope, targetBpm, sourceBpm, sourceBpmOrig
     fields.repeat_start = start;
     fields.repeat_end = end;
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || (sourceDuration != null && end > sourceDuration)) {
-      return { fields, error: 'La parte a repetir debe estar dentro del original y terminar después de su inicio.' };
+      return { fields, error: 'El recorte debe estar dentro del original y terminar después de su inicio.' };
     }
     const ratio = scope === 'groups' && hasValue(targetBpm)
       ? (hasValue(sourceBpm) ? Number(targetBpm) / Number(sourceBpm) : null)
       : scope === 'full' && hasValue(targetBpm) ? null : 1;
     if (ratio > 0 && timeline.min_repeat_seconds != null && (end - start) / ratio < timeline.min_repeat_seconds) {
-      return { fields, error: `La parte a repetir debe durar al menos ${timeline.min_repeat_seconds} segundos.` };
+      return { fields, error: `El recorte debe durar al menos ${timeline.min_repeat_seconds} segundos.` };
     }
   }
   if (hasValue(transition)) {

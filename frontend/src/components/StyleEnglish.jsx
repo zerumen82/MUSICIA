@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
+import { api, isTransportBlip, PROMPT_PREVIEW_DEBOUNCE_MS, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 
 /** Muestra el inglés que el servidor enviará. El cuadro sigue en el idioma escrito. */
 export default function StyleEnglish({ text, empty = '' }) {
@@ -9,11 +9,16 @@ export default function StyleEnglish({ text, empty = '' }) {
     if (!trimmed) return undefined;
     let active = true;
     const timer = setTimeout(async () => {
-      try {
-        const result = await api.styleEnglish(trimmed);
-        if (active) setState({ key: trimmed, prompt: result.prompt });
-      } catch (error) {
-        if (active) setState({ key: trimmed, error: error.message });
+      while (active) {
+        try {
+          const result = await api.styleEnglish(trimmed);
+          if (active) setState({ key: trimmed, prompt: result.prompt });
+          return;
+        } catch (error) {
+          if (!active) return;
+          if (!isTransportBlip(error.message)) { setState({ key: trimmed, error: error.message }); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
       }
     }, PROMPT_PREVIEW_DEBOUNCE_MS);
     return () => { active = false; clearTimeout(timer); };

@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Pause, Trash2, Download, RefreshCw, SlidersHorizontal, Loader2, AlertTriangle, Sparkles, Pencil, Check, ChevronDown, CheckSquare, Square, X,
 } from 'lucide-react';
-import { api, isTransportBlip } from '../api';
+import { api, actionError, isTransportBlip, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import RemixActions from './RemixActions';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
@@ -17,6 +17,7 @@ const TASK_LABEL = {
 };
 
 export default function Library({ externalRefresh = 0 }) {
+  const mounted = useRef(true);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -86,7 +87,7 @@ export default function Library({ externalRefresh = 0 }) {
       const g = await api.groove(name, 'output');
       if (g?.bpm) setMeasured((prev) => ({ ...prev, [name]: { bpm: g.bpm, confidence: g.confidence ?? null } }));
     } catch (e) {
-      if (!isTransportBlip(e.message)) setError(e.message);
+      if (!isTransportBlip(e.message)) setError(actionError(e.message));
     } finally {
       setMeasuring(null);
     }
@@ -110,26 +111,36 @@ export default function Library({ externalRefresh = 0 }) {
   const visible = showParts ? [...finals, ...parts] : finals;
 
   const refresh = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await api.library();
-      const list = data.items ?? [];
-      setItems(list);
-      // La recarga (manual o automática) no rompe la selección: solo poda.
-      const alive = new Set(list.map((i) => i.name));
-      setSelected((prev) => {
-        if (prev.size === 0) return prev;
-        const kept = new Set([...prev].filter((n) => alive.has(n)));
-        return kept.size === prev.size ? prev : kept;
-      });
-    } catch (e) {
-      if (!isTransportBlip(e.message)) setError(e.message);
-    } finally {
-      setLoading(false);
+    while (mounted.current) {
+      try {
+        const data = await api.library();
+        if (!mounted.current) return;
+        const list = data.items ?? [];
+        setItems(list);
+        setError(null);
+        // La recarga (manual o automática) no rompe la selección: solo poda.
+        const alive = new Set(list.map((i) => i.name));
+        setSelected((prev) => {
+          if (prev.size === 0) return prev;
+          const kept = new Set([...prev].filter((n) => alive.has(n)));
+          return kept.size === prev.size ? prev : kept;
+        });
+        return;
+      } catch (e) {
+        if (!mounted.current) return;
+        if (!isTransportBlip(e.message)) { setError(actionError(e.message)); return; }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      } finally {
+        if (mounted.current) setLoading(false);
+      }
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => { mounted.current = false; };
+  }, [refresh]);
 
   // Auto-recarga al terminar un trabajo (spec/02 [L1]): App.jsx avisa con
   // externalRefresh cuando la cola pasa de activa a vacía. Sin jobs no hay
@@ -152,7 +163,7 @@ export default function Library({ externalRefresh = 0 }) {
       if (playing === oldName) setPlaying(null);
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     }
   };
 
@@ -165,7 +176,7 @@ export default function Library({ externalRefresh = 0 }) {
       await deletion;
       await refresh();
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     }
   };
 
@@ -208,7 +219,7 @@ export default function Library({ externalRefresh = 0 }) {
       if (res.not_found?.length) messages.push(`No estaban: ${res.not_found.join(', ')}`);
       if (messages.length) setError(messages.join(' · '));
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setBulkBusy(false);
     }
@@ -234,7 +245,7 @@ export default function Library({ externalRefresh = 0 }) {
       // auto-play del resultado
       setPlaying(res.file_name);
     } catch (e) {
-      setError(e.message);
+      setError(actionError(e.message));
     } finally {
       setProcessing(false);
     }

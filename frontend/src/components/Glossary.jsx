@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Shuffle, X } from 'lucide-react';
-import { api } from '../api';
-import { applyModelTerm, modelTerms, stylesForQuery } from '../glossary_pick';
+import { api, TRANSPORT_ERROR_CLEAR_MS } from '../api';
+import { applyModelTerm, glossaryFoot, glossaryShown, modelTerms, stylesForQuery } from '../glossary_pick';
 
 /** Alto máximo del panel. Si no cabe debajo del botón, se abre hacia arriba. */
 const PANEL_MAX_PX = 360;
@@ -30,6 +30,7 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
   const [pick, setPick] = useState([]);
   const [combos, setCombos] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [fail, setFail] = useState(null);
   const ref = useRef(null);
   const menuRef = useRef(null);
   const seq = useRef(0);
@@ -58,11 +59,9 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onDown);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', onDown);
     };
   }, [open]);
 
@@ -70,16 +69,28 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
       consulta vacía trae el catálogo y las primeras entradas. */
   useEffect(() => {
     if (!open) return undefined;
+    let active = true;
     const value = q.trim();
     const id = ++seq.current;
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      if (!active || id !== seq.current) return;
       setBusy(true);
-      api.genreGlossary(value, LIMIT).then((res) => {
-        if (res && id === seq.current) setData(res);
-        setBusy(false);
-      });
+      setFail(null);
+      while (active && id === seq.current) {
+        try {
+          const res = await api.genreGlossary(value, LIMIT);
+          if (!active || id !== seq.current) return;
+          if (res) { setData(res); setBusy(false); return; }
+        } catch (err) {
+          if (!active || id !== seq.current) return;
+          setFail(err?.message || 'Error desconocido');
+          setBusy(false);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      }
     }, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => { active = false; clearTimeout(timer); };
   }, [q, open]);
 
   /** Dos estilos elegidos: combinaciones reales del modelo (o nada). El
@@ -87,9 +98,21 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
   useEffect(() => {
     if (pick.length < 2) return undefined;
     let alive = true;
-    api.genreCombine(pick[0], pick[1], LIMIT).then((res) => {
-      if (alive) setCombos(res);
-    });
+    const load = async () => {
+      while (alive) {
+        try {
+          const res = await api.genreCombine(pick[0], pick[1], LIMIT);
+          if (!alive) return;
+          if (res) { setCombos(res); return; }
+        } catch (err) {
+          if (!alive) return;
+          setCombos({ items: [], error: err?.message || 'Error desconocido' });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+      }
+    };
+    void load();
     return () => { alive = false; };
   }, [pick]);
 
@@ -101,6 +124,7 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
     setQ('');
     setPick([]);
     setCombos(null);
+    setFail(null);
   };
 
   const meter = (termino, tempo = null) => {
@@ -145,9 +169,11 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
     </button>
   );
 
-  const items = data?.items ?? [];
   const query = q.trim();
-  const frases = stylesForQuery(data?.styles, query);
+  const current = glossaryShown(data, query);
+  const items = current?.items ?? [];
+  const frases = stylesForQuery(current?.styles, query);
+  const foot = glossaryFoot(current, fail);
 
   return (
     <span className="relative inline-flex" ref={ref}>
@@ -165,7 +191,7 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
             </button>
           </div>
 
-          <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus
+          <input value={q} onChange={(e) => { setQ(e.target.value); setFail(null); }} autoFocus
             placeholder="Buscar estilo o subestilo…"
             className="w-full bg-transparent border border-[var(--line)] px-2 py-1 text-[12px] text-zinc-100 placeholder:text-[var(--faint)] focus:border-[var(--acc-line)] outline-none" />
 
@@ -186,6 +212,8 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
               {pick.length === 2 && (
                 combos === null ? (
                   <span className="text-[10px] text-[var(--faint)]">buscando…</span>
+                ) : combos.error ? (
+                  <span className="text-[10px] text-[var(--faint)]">{combos.error}</span>
                 ) : combos.items?.length > 0 ? (
                   <div className="flex flex-col">
                     {combos.items.map((item) => row(item, item))}
@@ -222,16 +250,20 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
             <span className="label">{query ? 'RESULTADOS' : 'DEL VOCABULARIO DEL MODELO'}</span>
             <div className="max-h-[280px] overflow-y-auto">
               {items.map((item) => row(item, item, pickBtn(item)))}
-              {!busy && items.length === 0 && (
+              {!busy && foot === 'ready' && items.length === 0 && (
                 <span className="text-[10px] text-[var(--faint)] px-1">nada por aquí</span>
               )}
             </div>
           </div>
 
           <div className="mono text-[9.5px] text-[var(--faint)] border-t border-[var(--line)] pt-1">
-            {data?.available
-              ? `${data.total.toLocaleString('es')} entradas${query ? ' para «' + query + '»' : ''} · whitelist del motor`
-              : 'vocabulario del motor no disponible'}
+            {foot === 'ready'
+              ? `${current.total.toLocaleString('es')} entradas${query ? ' para «' + query + '»' : ''} · whitelist del motor`
+              : foot === 'missing'
+                ? 'vocabulario del motor no disponible'
+                : foot === 'error'
+                  ? fail
+                  : 'Cargando el vocabulario…'}
           </div>
         </div>
       )}
