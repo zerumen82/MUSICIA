@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import copy
 import ctypes
+import gc
 import hashlib
 import json
 import os
@@ -120,7 +121,7 @@ def validate_historical_plan(job, request, source, reference, settings):
 def legacy_receipt(cache, job, source, reference, request, duration, settings):
     """Lee el valor JSON de diskcache sin importar/picklear el motor."""
     cache = cache.resolve(strict=True)
-    with sqlite3.connect(cache.as_uri() + "?mode=ro", uri=True) as database:
+    with sqlite3.connect(str(cache)) as database:
         rows = database.execute("SELECT mode, filename, value FROM Cache WHERE key = ?",
                                 ("ace_step_v1.5_" + job["engine_task_id"],)).fetchall()
     if len(rows) != 1 or rows[0][0] != 1 or rows[0][1] is not None:
@@ -158,7 +159,9 @@ def legacy_receipt(cache, job, source, reference, request, duration, settings):
         generated.append((local, track))
     originals = {key: checked_path(work, Path(value).resolve().relative_to(work).as_posix())
                  for key, value in job["operations"]["prepared_groups"].items()}
-    return build_receipt(job, source, reference, request, duration, settings, generated, originals), entries
+    result = build_receipt(job, source, reference, request, duration, settings, generated, originals), entries
+    gc.collect()
+    return result
 
 
 async def recover(args):

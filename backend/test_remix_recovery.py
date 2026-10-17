@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI
 from pydub.generators import Sine
@@ -25,7 +26,7 @@ from remix_recovery import (RECEIPT_NAME, atomic_json, build_receipt, file_diges
 class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(self._cleanup_temp)
         self.settings = AppSettings()
         self.settings.paths.outputs_dir = self.temp.name
         self.music = MusicService(self.settings)
@@ -66,6 +67,20 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.receipt = build_receipt(self.job, self.source, None, self.request, 2,
                                     self.settings, self.generated, self.originals)
         self.job["operations"]["downloaded_batch_sha256"] = receipt_digest(self.receipt)
+
+    def _cleanup_temp(self):
+        """Limpia el directorio temporal reintentando si Windows bloquea archivos."""
+        import time as _time
+        for _attempt in range(5):
+            try:
+                self.temp.cleanup()
+                return
+            except PermissionError:
+                _time.sleep(0.1)
+        try:
+            self.temp.cleanup()
+        except PermissionError:
+            pass
 
     async def validate(self, receipt=None):
         return await validate_receipt(receipt or self.receipt, self.job, self.source, None,
