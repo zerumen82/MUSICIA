@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -185,6 +186,38 @@ class MusicService:
 
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.engine.api_key}"} if self.engine.api_key else {}
+
+    # -- comprobación de VRAM --------------------------------------------------
+
+    @staticmethod
+    def _vram_free_mb() -> int | None:
+        """Devuelve la VRAM libre de la GPU en MB, o None si no se puede leer."""
+        try:
+            resultado = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if resultado.returncode == 0 and resultado.stdout.strip():
+                return int(resultado.stdout.strip().splitlines()[0])
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _ensure_vram_disponible(minimo_mb: int = 2048) -> None:
+        """Verifica que haya suficiente VRAM libre antes de enviar al motor.
+
+        Lanza MusicEngineError con un mensaje claro si no, en lugar de
+        fallar a mitad de la generación con un error críptico de CUDA.
+        """
+        libre = MusicService._vram_free_mb()
+        if libre is None:
+            return  # No se pudo leer; deja que el motor intente y falle por su cuenta
+        if libre < minimo_mb:
+            raise MusicEngineError(
+                f"VRAM insuficiente: solo {libre} MB libres, se necesitan al menos "
+                f"{minimo_mb} MB. Cierra otras aplicaciones que usen la GPU o reinicia el "
+                f"motor (scripts\\ensure_local.ps1 -ReiniciarMotor).")
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -505,6 +538,7 @@ class MusicService:
 
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""
+        self._ensure_vram_disponible()
         payload = self.build_payload(request)
         staged: list[str] = []
         try:

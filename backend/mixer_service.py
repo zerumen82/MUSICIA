@@ -674,25 +674,38 @@ class MixerService:
 
         El recorte sale de la base ya creada. Entra donde empieza lo que sobra.
         No se repite ni se estira.
+
+        Usa pydub (ffmpeg en C) para cargar y recortar, y NumPy para la
+        superposición de muestras (suma pura, vectorizada). Esto evita los
+        bucles de Python muestra-por-muestra que eran órdenes de magnitud más
+        lentos.
         """
-        pcm = MixerService.inspect_pcm(continued)
-        samples, rate, channels = pcm["samples"], pcm["sample_rate"], pcm["channels"]
+        import numpy as np
+
         if (isinstance(target_seconds, bool) or not isinstance(target_seconds, (int, float))
                 or not math.isfinite(target_seconds) or target_seconds <= 0
                 or isinstance(boundary_seconds, bool) or not isinstance(boundary_seconds, (int, float))
                 or not math.isfinite(boundary_seconds) or boundary_seconds < 0):
             raise ValueError("La continuación necesita la duración pedida y el inicio de lo que sobra")
-        tolerance = round(settings.duration_tolerance_seconds * rate)
+
+        cont = MixerService.inspect_pcm(continued)
+        rate = cont["sample_rate"]
+        channels = cont["channels"]
+        cont_samples = np.array(cont["samples"], dtype=np.float32)
+
         target_frames = round(target_seconds * rate)
-        frame_count = len(samples) // channels
-        if frame_count + tolerance < target_frames:
+        frame_count = len(cont_samples) // channels
+        if frame_count + round(settings.duration_tolerance_seconds * rate) < target_frames:
             raise ValueError("La continuación no llega a la duración pedida")
-        kept = samples if frame_count <= target_frames else samples[:target_frames * channels]
+        kept_frames = min(frame_count, target_frames)
+        kept = cont_samples[:kept_frames * channels].copy()
+
         placed = {"placed": False}
         if sample is not None:
             bed = MixerService.inspect_pcm(original_bed)
             if bed["sample_rate"] != rate or bed["channels"] != channels:
                 raise ValueError("El recorte no tiene el formato de la base continuada")
+            bed_samples = np.array(bed["samples"], dtype=np.float32)
             start, end = sample.get("start"), sample.get("end")
             if (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
                     or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
@@ -700,21 +713,22 @@ class MixerService:
                 raise ValueError("El recorte no cabe en la base creada")
             start_frame = round(float(start) * rate)
             end_frame = round(float(end) * rate)
-            bed_frames = len(bed["samples"]) // channels
+            bed_frames = len(bed_samples) // channels
             if start_frame < 0 or end_frame > bed_frames or end_frame <= start_frame:
                 raise ValueError("El recorte no cabe en la base creada")
             at = round(float(boundary_seconds) * rate)
-            kept_frames = len(kept) // channels
             if at < 0 or at >= kept_frames:
                 raise ValueError("No queda sitio para el recorte al empezar lo que sobra")
             length = min(end_frame - start_frame, kept_frames - at)
             if length <= 0:
                 raise ValueError("No queda sitio para el recorte al empezar lo que sobra")
-            bed_samples = bed["samples"]
-            for frame in range(length):
-                for channel in range(channels):
-                    offset = (at + frame) * channels + channel
-                    kept[offset] = kept[offset] + bed_samples[(start_frame + frame) * channels + channel]
+
+            bed_slice = bed_samples[start_frame * channels:(start_frame + length) * channels]
+            kept[at * channels:(at + length) * channels] += bed_slice
+
+            if not np.all(np.isfinite(kept)):
+                raise ValueError("La continuación dejó muestras no finitas")
+
             placed = {
                 "placed": True,
                 "at_seconds": at / rate,
@@ -722,8 +736,7 @@ class MixerService:
                 "source_start_seconds": start_frame / rate,
                 "source_end_seconds": (start_frame + length) / rate,
             }
-        if not all(math.isfinite(value) for value in kept):
-            raise ValueError("La continuación dejó muestras no finitas")
+
         MixerService._write_float_wav(output, kept, rate, channels)
         return {"duration_seconds": len(kept) / channels / rate, "method": "continue_bed",
                 "repetitions": 0, "transition_seconds": 0.0, "sample": placed}
