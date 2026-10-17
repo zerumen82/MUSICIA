@@ -3011,8 +3011,22 @@ ahí estaba el desfase que oía el usuario.
   6. `frontend/src/components/RemixWorkspace.jsx`: `poll` igual — busca el trabajo de remix/separación tras un corte de transporte.
   7. `frontend/main.cjs`: `app.requestSingleInstanceLock()` movido al inicio de `app.whenReady()` (antes de crear la ventana). Segunda instancia muestra dialog y sale. Pantalla de arranque muestra "TARDANDO MÁS DE LO NORMAL…" tras 30 s esperando `/health`.
 - **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
-- **Commits**: `c914db5` (lingua + recovery tests), `fa6ddc7` (continue_bed + atempo), `4a606e8` (single instance + arranque), `b4ed78f` (recuperación de reinicio de API).
+- **Commits**: `c914db5` (lingua + recovery tests), `fa6ddc7` (continue_bed + atempo), `4a606e8` (single instance + arranque), `b4ed78f` (recuperación de reinicio de API), `f22456a` (glosario no se queda cargando), `68522ec` (glosario rápido), `1d41e3d` (groove: rechaza confianza baja + salta verify tras atempo fallido).
 - **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
 - **REVIEWER — APPROVE** (pasada propia separada): diff revisado archivo por archivo, sin cambios de producto no intencionados.
-- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario y verificación de BPM dentro de tolerancia 2 BPM en canción completa. B7 sigue abierto — requiere escucha del usuario. R9/R10 siguen abiertos — faltan criterios técnicos (comparación A/B alineada, acceso voz original + base nueva, herramientas de prompts en acompañamiento, selección regional compartida, trazabilidad por variante, recorridos reales de UI). El arreglo de CLXX cubre el hueco CLXIX pero no cierra estas historias por sí solo.
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario y verificación de BPM dentro de tolerancia 2 BPM en canción completa. El arreglo de CLXX cubre el hueco CLXIX (continue_bed sin pulso). El arreglo de hoy rechaza mediciones con confianza < 0.12 en `detect_groove` y no falla el trabajo cuando el atempo final + re-medición no pueden verificar el BPM. B7 sigue abierto — requiere escucha del usuario. R9/R10 siguen abiertos — faltan criterios técnicos (comparación A/B alineada, acceso voz original + base nueva, herramientas de prompts en acompañamiento, selección regional compartida, trazabilidad por variante, recorridos reales de UI).
+
+## 2026-10-17 (CLXXI) — Glosario rápido y groove robusto
+
+- **Qué se pidió**: el glosario se quedaba "cargando vocabulario" para siempre si la API estaba caída, y el groove final decía "incierto" tras el remix.
+- **Qué se hizo**:
+  1. `backend/genre_glossary.py`: `catalog_styles()` cacheado por mtime del vocab (178,571 líneas, se recalcaba en cada búsqueda).
+  2. `frontend/src/components/Glossary.jsx`: si `genreGlossary` devuelve null (API caída), muestra "La API no contesta." y sale del bucle en lugar de girar para siempre.
+  3. `backend/audio_analysis.py`: `detect_groove` rechaza al final si `confidence < timeline_min_groove_confidence` (0.12), con mensaje que incluye el BPM medido y la confianza real. Evita aceptar lecturas basura como 363.64 BPM conf 0.101.
+  4. `backend/remix_project.py`: si `final_tempo_verification == "uncertain_after_extension_and_atempo"`, se salta `verify_requested_tempo` (ya se aplicó atempo y la re-medición falló; se entrega con aviso en lugar de tumbar el trabajo).
+- **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
+- **Commit**: `1d41e3d` (groove robusto) + `68522ec` + `f22456a` (glosario).
+- **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
+- **REVIEWER — APPROVE** (pasada propia separada).
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
 
