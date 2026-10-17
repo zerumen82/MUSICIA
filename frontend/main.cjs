@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Tray, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, spawnSync } = require('child_process');
@@ -22,15 +22,19 @@ let uiWatchTimer = null;
 let ensureTimer = null;
 let bootTimer = null;
 let ensuring = false;
+let bootStartedAt = null;
 
-const BOOT_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+const bootHtml = (message) => `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Musicia</title>
 <style>
   html,body{margin:0;height:100%;background:#0a0a0c;color:#b8ff29;
-    font-family:ui-monospace,Consolas,monospace;display:flex;align-items:center;justify-content:center}
+    font-family:ui-monospace,Consolas,monospace;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px}
   p{letter-spacing:.16em;font-size:13px}
+  small{color:#8a8a8a;font-size:11px}
 </style></head>
-<body><p>ARRANCANDO EL MOTOR LOCAL…</p></body></html>`)}`;
+<body><p>${message}</p><small>Música generada en tu máquina, nada se envía a la nube.</small></body></html>`)}`;
+
+const BOOT_HTML = bootHtml('ARRANCANDO EL MOTOR LOCAL…');
 
 function ensureServices(rearme) {
   if (willQuit) return;
@@ -150,6 +154,7 @@ function scheduleBoot(delayMs) {
 
 async function loadWhenReady() {
   if (willQuit || !mainWindow || mainWindow.isDestroyed()) return;
+  if (!bootStartedAt) bootStartedAt = Date.now();
   try {
     const res = await fetch(`${API_URL}/health`, { cache: 'no-store' });
     if (res.ok) {
@@ -164,8 +169,12 @@ async function loadWhenReady() {
   }
   if (willQuit || !mainWindow || mainWindow.isDestroyed()) return;
   const current = mainWindow.webContents.getURL() || '';
+  const ms = Date.now() - bootStartedAt;
+  const html = ms > 30000
+    ? bootHtml('TARDANDO MÁS DE LO NORMAL…<br>El motor puede tardar varios minutos la primera vez.')
+    : BOOT_HTML;
   if (!current.startsWith('data:text/html')) {
-    mainWindow.loadURL(BOOT_HTML).catch(() => {});
+    mainWindow.loadURL(html).catch(() => {});
   }
   scheduleBoot(1000);
 }
@@ -312,6 +321,37 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Bloquear segunda instancia ANTES de crear la ventana. Si el usuario
+  // hace doble clic, la segunda se avisa y se restaura la primera.
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    dialog.showMessageBoxSync({
+      type: 'info',
+      title: 'Musicia ya está abierta',
+      message: 'Musicia ya está en ejecución.',
+      detail: 'Solo se permite una ventana a la vez. Se va a restaurar la existente.',
+      buttons: ['Aceptar'],
+    });
+    app.quit();
+    return;
+  }
+  app.on('second-instance', () => {
+    ensureServices(false);
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Musicia ya está abierta',
+      message: 'Musicia ya está en ejecución.',
+      detail: 'Solo se permite una ventana a la vez. Se va a restaurar la existente.',
+      buttons: ['Aceptar'],
+    }).then(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  });
+
   try { fs.unlinkSync(STOP_FLAG); } catch { /* no había una parada anterior */ }
   createWindow();
   ensureServices(true);
