@@ -283,6 +283,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
               }
               continue;
             }
+            // findJob no devolvió nada: la cola se vació al reiniciar la API.
+            const msg = 'La API se reinició y el trabajo se perdió. Vuelve a intentar el remix.';
+            setError(msg);
+            setJob({ status: 'failed', error: msg });
+            return null;
           } catch {
             // Si ni siquiera se puede listar la cola, la API sigue caída.
           }
