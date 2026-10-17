@@ -1423,7 +1423,7 @@ class RemixProjectRuntime:
                         except ValueError as exc:
                             widened = whole_song_repeat_plan(variant_plan, config) if (
                                 audio_has_no_usable_groove(exc)
-                                and variant_plan.get("method") == "repeat_crossfade") else None
+                                and variant_plan.get("method") in {"repeat_crossfade", "continue_bed"}) else None
                             if widened is None:
                                 # [R17] Por pistas que continúa la base: la mezcla ya se
                                 # midió y verificó antes de ampliar. Si la medición final
@@ -1446,6 +1446,24 @@ class RemixProjectRuntime:
                                 warnings = job.setdefault("warnings", [])
                                 if warning not in warnings:
                                     warnings.append(warning)
+                                if request.bpm is not None:
+                                    ratio_after = groups_tempo_ratio(
+                                        measured["bpm_measured"], request.bpm, config)
+                                    if ratio_after is not None:
+                                        adjusted_final = work / f"tempo-final-{index + 1}.wav"
+                                        self.event(job, f"Ajustando el BPM final de la variante {index + 1} sin cambiar el tono")
+                                        await asyncio.to_thread(
+                                            MixerService.tempo_audio, staged_output, adjusted_final, ratio_after,
+                                            variant_plan["target_duration_seconds"], config)
+                                        staged_output = adjusted_final
+                                        final_seconds = await self.music.verify_audio(staged_output) / 1000
+                                        try:
+                                            measured = await asyncio.to_thread(
+                                                required_measured_tempo, staged_output, arrangement, config)
+                                        except ValueError:
+                                            measured = fallback
+                                            variant_plan["final_tempo_verification"] = "uncertain_after_extension_and_atempo"
+                                # fall through to verify_requested_tempo below
                             else:
                                 self.event(job, f"La parte elegida no conserva el pulso; "
                                            f"se repite la canción entera en la variante {index + 1}")
