@@ -81,13 +81,16 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
           const res = await api.genreGlossary(value, LIMIT);
           if (!active || id !== seq.current) return;
           if (res) { setData(res); setBusy(false); return; }
+          // genreGlossary devolvió null (API caída o corte): no bucle infinito.
+          setFail('La API no contesta.');
+          setBusy(false);
+          break;
         } catch (err) {
           if (!active || id !== seq.current) return;
           setFail(err?.message || 'Error desconocido');
           setBusy(false);
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
       }
     }, DEBOUNCE_MS);
     return () => { active = false; clearTimeout(timer); };
