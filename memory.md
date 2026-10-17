@@ -3016,7 +3016,33 @@ ahí estaba el desfase que oía el usuario.
 - **REVIEWER — APPROVE** (pasada propia separada): diff revisado archivo por archivo, sin cambios de producto no intencionados.
 - **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario y verificación de BPM dentro de tolerancia 2 BPM en canción completa. El arreglo de CLXX cubre el hueco CLXIX (continue_bed sin pulso). El arreglo de hoy rechaza mediciones con confianza < 0.12 en `detect_groove` y no falla el trabajo cuando el atempo final + re-medición no pueden verificar el BPM. B7 sigue abierto — requiere escucha del usuario. R9/R10 siguen abiertos — faltan criterios técnicos (comparación A/B alineada, acceso voz original + base nueva, herramientas de prompts en acompañamiento, selección regional compartida, trazabilidad por variante, recorridos reales de UI).
 
-## 2026-10-17 (CLXXI) — Glosario rápido y groove robusto
+## 2026-10-17 (CLXXII) — Optimización de VRAM y rendimiento de remix
+
+- **Qué se pidió**: el remix se cortaba y la UI se reseteaba; el usuario quiere que al arrancar se libere la VRAM de la GPU y que el código sea más eficiente.
+- **Qué se hizo**:
+  1. `backend/mixer_service.py`: `finish_continuation` reescrito para usar `inspect_pcm` (PCM float32 exacto vía ffmpeg) + NumPy para superposición vectorizada de muestras. Elimina bucles de Python muestra-por-muestra (O(n) en C vs O(n) en Python lento). Lleva también comprobación de muestras finitas.
+  2. `backend/music_service.py`: `submit()` ahora llama a `_ensure_vram_disponible()` antes de enviar al motor. Lee VRAM libre con `nvidia-smi`; si hay menos de 2048 MB, lanza `MusicEngineError` con mensaje claro que incluye cómo reiniciar el motor (`scripts\ensure_local.ps1 -ReiniciarMotor`). Evita fallos silenciosos de CUDA a mitad de generación.
+  3. `scripts/ensure_local.ps1`: nuevo parámetro `-ReiniciarMotor`. Si se pasa, mata cualquier motor ACE-Step existente antes de arrancar uno limpio, liberando la VRAM de la GPU. Espera a que suelte el puerto 8001 antes de continuar.
+- **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
+- **Commits**: `051d236` (optimización VRAM y rendimiento).
+- **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
+- **REVIEWER — APPROVE** (pasada propia separada).
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
+
+## Resumen de toda la sesión (10 commits)
+
+| Commit | Qué arregla |
+|--------|-------------|
+| `c914db5` | lingua-language-detector instalado; tests de recovery (Windows file lock, sys.path, temp cleanup retry) |
+| `fa6ddc7` | `whole_song_repeat_plan` para `continue_bed`; atempo final cuando el pulso de la ampliación no se mide |
+| `4a606e8` | Electron: single instance lock al inicio de `app.whenReady()` (evita 2 ventanas), dialog de aviso, pantalla de arranque con "TARDANDO MÁS DE LO NORMAL…" tras 30s |
+| `b4ed78f` | Detección de reinicio de API durante remix y recuperación de job (`findJob` endpoint + reintento en Composer, Uploads, RemixWorkspace) |
+| `f22456a` | Glosario: no se queda "cargando vocabulario" si la API está caída |
+| `68522ec` | Glosario: `catalog_styles()` cacheado por mtime del vocab (178k líneas) |
+| `1d41e3d` | Groove: rechaza confianza baja en `detect_groove`; salta `verify_requested_tempo` tras atempo fallido |
+| `a05379a` | UI: botón COPIAR en cada stream de logs del diálogo Procesos |
+| `ff6c236` | UI: error claro si findJob devuelve vacío tras reinicio de API |
+| `051d236` | `finish_continuation` con NumPy (vectorizado); comprobación de VRAM antes de enviar al motor; `-ReiniciarMotor` en ensure_local.ps1 |
 
 - **Qué se pidió**: el glosario se quedaba "cargando vocabulario" para siempre si la API estaba caída, y el groove final decía "incierto" tras el remix.
 - **Qué se hizo**:
