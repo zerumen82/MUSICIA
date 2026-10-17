@@ -229,66 +229,101 @@ class MusicService:
 
     @staticmethod
     def _restart_engine() -> None:
-        """Mata el motor ACE-Step existente y arranca uno limpio para liberar VRAM."""
+        """Mata el motor ACE-Step existente y arranca uno limpio para liberar VRAM.
+
+        Espera hasta 60 s a que el nuevo motor responda /health antes de
+        retornar, para que el llamador no se encuentre con él todavía caído.
+        """
         import subprocess as _subprocess
+        import time as _time
         raiz = str(Path(__file__).resolve().parents[1])
-        # Arrancar ensure_local.ps1 sin bloquear: el reintento después de 2 s
-        # le da tiempo al motor a empezar a escuchar en el puerto.
+        # Arrancar ensure_local.ps1 sin bloquear este hilo.
         _subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
              "-Command", f"& '{raiz}\\scripts\\ensure_local.ps1'"],
             stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL,
         )
         logger.warning("Motor reiniciado automáticamente (ensure_local.ps1 lanzado en segundo plano)")
+        # Esperar a que el motor vuelva a escuchar en /health.
+        for _intento in range(12):
+            try:
+                resultado = _subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-Command",
+                     "Invoke-WebRequest -Uri 'http://127.0.0.1:8001/health' -TimeoutSec 3 -UseBasicParsing | Out-Null"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if resultado.returncode == 0:
+                    logger.warning("Motor ACE-Step reiniciado y responde en /health")
+                    return
+            except Exception:
+                pass
+            _time.sleep(5)
+        logger.warning("Motor ACE-Step no confirmó /health tras 60 s de reinicio")
 
     # -- transporte ----------------------------------------------------------
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        """Petición HTTP al motor, validando su envoltorio {data, code, error}."""
-        try:
-            response = await self.client.request(method, path, **kwargs)
-            response.raise_for_status()
-            payload = response.json()
-        except httpx.HTTPStatusError as exc:
-            # Un 400 es un rechazo, no un corte. «no responde» la UI lo trata como blip.
-            body = ""
-            code = "?"
-            if exc.response is not None:
-                code = exc.response.status_code
-                body = (exc.response.text or "").strip().replace("\n", " ")[:400]
-            if "absolute audio file paths are not allowed" in body:
-                body = "No acepta la ruta del audio de origen."
-            elif "path traversal" in body:
-                body = "No acepta esa ruta de audio."
-            raise MusicEngineError(
-                f"El motor ACE-Step rechazó {path} (HTTP {code}): {body or exc}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            detail = str(exc).strip() or repr(exc)
-            # Si el motor se cae (ConnectError), intenta reiniciarlo una vez
-            # y reintentar la petición. Esto evita que un corte transitorio de
-            # VRAM o CUDA deje la API colgada para siempre.
-            if isinstance(exc, httpx.ConnectError):
-                try:
-                    self._restart_engine()
-                    await asyncio.sleep(2)
-                    response = await self.client.request(method, path, **kwargs)
-                    response.raise_for_status()
-                    payload = response.json()
-                    if payload.get("code") != 200 or payload.get("error"):
-                        raise MusicEngineError(str(payload.get("error") or f"Error del motor en {path}"))
-                    return payload.get("data")
-                except Exception:
-                    pass
-            raise MusicEngineError(
-                f"El motor ACE-Step no responde ({path}): {type(exc).__name__}: {detail}"
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise MusicEngineError(f"Respuesta ilegible del motor ({path}): {exc}") from exc
+        """Petición HTTP al motor, validando su envoltorio {data, code, error}.
 
-        if payload.get("code") != 200 or payload.get("error"):
-            raise MusicEngineError(str(payload.get("error") or f"Error del motor en {path}"))
-        return payload.get("data")
+        Antes de cada petición comprueba que el motor esté vivo; si no, lo
+        reinicia y espera a que esté listo. Ante ConnectError, reintenta una
+        vez tras reiniciar.
+        """
+        # Asegurar que el motor esté vivo antes de enviar.
+        try:
+            salud = await self.health()
+            if not salud.get("reachable") or salud.get("busy"):
+                logger.warning(f"Motor no reachable o ocupado antes de {path}; reiniciando")
+                self._restart_engine()
+                await asyncio.sleep(2)
+        except Exception:
+            self._restart_engine()
+            await asyncio.sleep(2)
+
+        ultimo_error = None
+        for intento in range(2):
+            try:
+                response = await self.client.request(method, path, **kwargs)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("code") != 200 or payload.get("error"):
+                    raise MusicEngineError(str(payload.get("error") or f"Error del motor en {path}"))
+                return payload.get("data")
+            except httpx.HTTPStatusError as exc:
+                body = ""
+                code = "?"
+                if exc.response is not None:
+                    code = exc.response.status_code
+                    body = (exc.response.text or "").strip().replace("\n", " ")[:400]
+                if "absolute audio file paths are not allowed" in body:
+                    body = "No acepta la ruta del audio de origen."
+                elif "path traversal" in body:
+                    body = "No acepta esa ruta de audio."
+                ultimo_error = MusicEngineError(
+                    f"El motor ACE-Step rechazó {path} (HTTP {code}): {body or exc}"
+                )
+                raise ultimo_error from exc
+            except httpx.ConnectError as exc:
+                ultimo_error = exc
+                # Motor caído: reiniciar y reintentar una vez.
+                if intento == 0:
+                    logger.warning(f"ConnectError en {path}; reiniciando motor y reintentando")
+                    self._restart_engine()
+                    await asyncio.sleep(3)
+                    continue
+                raise MusicEngineError(
+                    f"El motor ACE-Step no responde ({path}): ConnectError tras reinicio"
+                ) from exc
+            except httpx.HTTPError as exc:
+                detalle = str(exc).strip() or repr(exc)
+                raise MusicEngineError(
+                    f"El motor ACE-Step no responde ({path}): {type(exc).__name__}: {detalle}"
+                ) from exc
+            except json.JSONDecodeError as exc:
+                raise MusicEngineError(f"Respuesta ilegible del motor ({path}): {exc}") from exc
+        raise MusicEngineError(
+            f"El motor ACE-Step no responde ({path}): {ultimo_error}"
+        ) from ultimo_error
 
     # -- API del motor -------------------------------------------------------
 
