@@ -77,9 +77,13 @@ function Start-Servicio([string]$etiqueta, [string]$python, [string[]]$argumento
         Write-Output "$etiqueta=missing"
         return
     }
+    # Persistir logs: antes de sobrescribir, guardar copia con timestamp
+    # para que nada se pierda entre arranques ni tras un corte del motor.
+    $ts = (Get-Date).ToString('yyyyMMdd_HHmmss')
     foreach ($log in @($salida, $errorLog)) {
         if ((Test-Path $log) -and (Get-Item $log).Length -gt 0) {
             Copy-Item $log "$log.bak" -Force
+            Copy-Item $log "$log.$ts" -Force
         }
     }
     Start-Process -FilePath $python `
