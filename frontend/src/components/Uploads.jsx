@@ -65,6 +65,28 @@ export default function Uploads({ onChanged }) {
             misses = 0;
           } catch (err) {
             if (isTransportBlip(err.message)) {
+              // La API puede haberse reiniciado: busca el trabajo antes de seguir fallando.
+              try {
+                const found = await api.findJob(started.job_id);
+                if (found) {
+                  misses = 0;
+                  if (found.status === 'failed' && /Interrumpido|reinici/i.test(found.error ?? '')) {
+                    setIdentify((current) => ({ ...current, [name]: { status: 'failed', phase: '', message: 'La API se reinició y se perdió el trabajo en curso. Vuelve a intentarlo.' } }));
+                    return;
+                  }
+                  if (found.status === 'succeeded') {
+                    setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(found.result) } }));
+                    return;
+                  }
+                  if (found.status === 'failed') {
+                    setIdentify((current) => ({ ...current, [name]: { status: 'failed', phase: '', message: found.error || 'El análisis falló' } }));
+                    return;
+                  }
+                  continue;
+                }
+              } catch {
+                // La API sigue caída.
+              }
               await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
               continue;
             }

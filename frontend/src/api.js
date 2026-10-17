@@ -492,6 +492,17 @@ export const api = {
     }
   },
 
+  /** Busca un trabajo por id en la cola (útil tras un reinicio de la API). */
+  findJob: async (jobId) => {
+    try {
+      const { data } = await client.get('/music/jobs', { timeout: HEALTH_PROBE_MS })
+      const items = data?.items ?? []
+      return items.find((item) => item.job_id === jobId) ?? null
+    } catch (error) {
+      throw new Error(describeError(error))
+    }
+  },
+
   /** Para un trabajo en curso (el motor se reinicia si estaba trabajando). */
   cancelJob: async (jobId) => {
     try {

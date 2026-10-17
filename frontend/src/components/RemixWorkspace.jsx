@@ -269,6 +269,25 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       } catch (err) {
         if (err.finished) throw err;
         // Un trabajo ya lanzado se sigue sondeando. El corte no se escribe en el aviso.
+        if (isTransportBlip(err.message)) {
+          // La API puede haberse reiniciado: busca el trabajo antes de rendirse.
+          try {
+            const found = await api.findJob(id);
+            if (found) {
+              misses = 0;
+              if (alive.current) setJob(found);
+              if (found.status === 'succeeded') return found;
+              if (found.status === 'failed') {
+                const failure = new Error(found.error ?? 'La operación no se completó');
+                failure.finished = true;
+                throw failure;
+              }
+              continue;
+            }
+          } catch {
+            // La API sigue caída.
+          }
+        }
         if (!isEnginePollBlip(err.message)) {
           if (++misses >= JOB_POLL_MAX_MISSES) throw err;
           if (alive.current) setNotice(`Sondeo interrumpido: ${err.message}. Reintentando…`);

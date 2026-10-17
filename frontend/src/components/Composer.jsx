@@ -253,12 +253,40 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           return status;
         }
         if (status.status === 'failed') {
-          // Un trabajo marcado failed ya terminó. Seguir sondeando lo dejaba
-          // girando para siempre cuando el texto del error parecía un corte.
           setError(status.error ?? 'La generación falló en el motor');
           return status;
         }
       } catch (e) {
+        // Corte de cliente: la API puede haberse reiniciado. Intenta encontrar
+        // el trabajo en la cola antes de rendirse.
+        if (isTransportBlip(e.message)) {
+          try {
+            const found = await api.findJob(jobId);
+            if (found) {
+              if (found.status === 'failed' &&
+                  /Interrumpido|reinici/i.test(found.error ?? '')) {
+                const msg = 'La API se reinició y se perdió el trabajo en curso. Vuelve a intentar el remix.';
+                setError(msg);
+                setJob({ status: 'failed', error: msg });
+                return null;
+              }
+              // El trabajo sigue ahí: reanuda el sondeo.
+              misses = 0;
+              setJob(found);
+              if (found.status === 'succeeded' && found.output_name) {
+                setSavedName(found.output_name);
+                return found;
+              }
+              if (found.status === 'failed') {
+                setError(found.error ?? 'La generación falló en el motor');
+                return found;
+              }
+              continue;
+            }
+          } catch {
+            // Si ni siquiera se puede listar la cola, la API sigue caída.
+          }
+        }
         if (isEnginePollBlip(e.message)) continue;
         misses += 1;
         const gone = /no encontrada/i.test(e.message ?? '');
