@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Clipboard } from 'lucide-react';
 import { api, actionError, JOB_POLL_INTERVAL_MS } from '../api';
 
 const LABELS = {
@@ -11,6 +12,7 @@ const LABELS = {
 export default function ProcessLogs({ open, onClose }) {
   const [streams, setStreams] = useState([]);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(new Set());
 
   useEffect(() => {
     if (!open) return undefined;
@@ -39,6 +41,20 @@ export default function ProcessLogs({ open, onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  const copiar = async (id, texto) => {
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopied((prev) => new Set([...prev, id]));
+      setTimeout(() => setCopied((prev) => {
+        const siguiente = new Set(prev);
+        siguiente.delete(id);
+        return siguiente;
+      }), 1500);
+    } catch {
+      /* El navegador puede bloquear el portapapeles sin interacción del usuario. */
+    }
+  };
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6" role="presentation" onClick={onClose}>
@@ -52,7 +68,15 @@ export default function ProcessLogs({ open, onClose }) {
         {error && <p role="alert" className="mono text-[11px] st-err">{error}</p>}
         {streams.map((stream) => (
           <section key={stream.id} className="flex flex-col gap-1">
-            <span className="label">{LABELS[stream.id] || stream.id}</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="label">{LABELS[stream.id] || stream.id}</span>
+              {stream.present && stream.text && (
+                <button type="button" onClick={() => copiar(stream.id, stream.text)}
+                  className="btn btn-ghost h-6 px-2 text-[10px]">
+                  {copied.has(stream.id) ? 'COPIADO' : 'COPIAR'}
+                </button>
+              )}
+            </div>
             <pre className="mono text-[11px] whitespace-pre-wrap break-words max-h-56 overflow-y-auto border border-[var(--line)] p-3 text-[var(--text)]">
               {stream.present ? (stream.text || 'Este fichero existe y todavía no tiene líneas.') : 'Este fichero todavía no existe.'}
             </pre>
