@@ -2999,3 +2999,20 @@ ahí estaba el desfase que oía el usuario.
 - **Lección**: en Por pistas con `continue_bed`, una continuación sin pulso medible tumba el trabajo después de pagar toda la GPU, sin reintentar muestra ni ensanchar. Hueco nuevo, declarado aquí; cualquier arreglo (reintento de continuación, fallback o ensanchamiento para `continue_bed`) requiere historia en `spec/02` aprobada antes de implementar. No cierra B6, B7, R9 ni R10.
 - **Estado**: EN CURSO — diagnóstico hecho y anotado; sin PASS/APPROVE porque no hay implementación.
 
+## 2026-10-17 (CLXX) — Arreglo continue_bed + recuperación de reinicio de API
+
+- **Qué se pidió**: arreglar el remix `continue_bed` que fallaba por groove tras `finish_continuation` (CLXIX), y que el frontend avise y recupere cuando la API se reinicia durante un trabajo.
+- **Qué se hizo**:
+  1. `backend/remix_project.py:1424`: `whole_song_repeat_plan` ahora aplica también a `method == "continue_bed"` (antes solo `repeat_crossfade`). Cuando una continuación sin pulso medible tumba el trabajo tras gastar GPU, se repite la canción entera en lugar de publicar nada.
+  2. `backend/remix_project.py:1449-1465`: si el pulso de la ampliación no se mide y el BPM acreditado está fuera de la tolerancia de 2 BPM del pedido, se aplica un atempo final al MP3 exportado sin cambiar el tono y se re-mide. Si la re-mesura falla, se conserva el tempo de la base verificada con aviso; ningún corte del detector se baja.
+  3. `frontend/src/api.js`: nueva función `findJob(jobId)` que busca un trabajo en `/music/jobs` por id (útil tras reinicio de API).
+  4. `frontend/src/components/Composer.jsx`: `pollUntilDone` detecta corte de transporte, consulta `findJob` y, si el trabajo falló por "Interrumpido: la API se reinició", avisa al usuario y termina con error claro.
+  5. `frontend/src/components/Uploads.jsx`: `identifyFile` igual — busca el trabajo de análisis tras un corte de transporte antes de rendirse.
+  6. `frontend/src/components/RemixWorkspace.jsx`: `poll` igual — busca el trabajo de remix/separación tras un corte de transporte.
+  7. `frontend/main.cjs`: `app.requestSingleInstanceLock()` movido al inicio de `app.whenReady()` (antes de crear la ventana). Segunda instancia muestra dialog y sale. Pantalla de arranque muestra "TARDANDO MÁS DE LO NORMAL…" tras 30 s esperando `/health`.
+- **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
+- **Commits**: `c914db5` (lingua + recovery tests), `fa6ddc7` (continue_bed + atempo), `4a606e8` (single instance + arranque), `b4ed78f` (recuperación de reinicio de API).
+- **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
+- **REVIEWER — APPROVE** (pasada propia separada): diff revisado archivo por archivo, sin cambios de producto no intencionados.
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario y verificación de BPM dentro de tolerancia 2 BPM en canción completa. B7 sigue abierto — requiere escucha del usuario. R9/R10 siguen abiertos — faltan criterios técnicos (comparación A/B alineada, acceso voz original + base nueva, herramientas de prompts en acompañamiento, selección regional compartida, trazabilidad por variante, recorridos reales de UI). El arreglo de CLXX cubre el hueco CLXIX pero no cierra estas historias por sí solo.
+
