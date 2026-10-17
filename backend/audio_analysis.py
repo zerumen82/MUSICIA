@@ -498,6 +498,10 @@ def detect_groove(path: Path, *, include_periods: bool = False) -> dict:
         _reject_flat_shoulder(chosen_evidence, max(neighbors), config)
     bpm = 60.0 * fps / period_frames
     phase_ms, strength = _fold_groove(onset, period_frames, fps)
+    if strength < config.timeline_min_groove_confidence:
+        raise ValueError(
+            f"El groove es incierto: confianza {strength:.3f} por debajo del mínimo "
+            f"{config.timeline_min_groove_confidence} (BPM medido: {bpm:.2f})")
     result = {
         "bpm": round(float(bpm), 2),
         "period_ms": round(60000.0 / float(bpm), 1),

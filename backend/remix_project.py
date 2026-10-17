@@ -1485,7 +1485,11 @@ class RemixProjectRuntime:
                         measured = await asyncio.to_thread(self.measure_bpm, staged_output)
                     self.cancelled(job)
                     if request.bpm is not None and request.scope in {"full", "groups"}:
-                        verify_requested_tempo(measured, request.bpm, config, "después del arreglo y exportación")
+                        if variant_plan.get("final_tempo_verification") == "uncertain_after_extension_and_atempo":
+                            self.event(job, f"El BPM final de la variante {index + 1} no se pudo verificar tras el ajuste DSP; "
+                                           f"se entrega con el tempo acreditado de la base ({measured['bpm_measured']} BPM)")
+                        else:
+                            verify_requested_tempo(measured, request.bpm, config, "después del arreglo y exportación")
                     if repeated_whole_song:
                         warning = "La parte elegida no conservaba el pulso; se repitió la canción entera."
                         warnings = job.setdefault("warnings", [])
