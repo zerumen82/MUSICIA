@@ -11,8 +11,7 @@ No es un segundo supervisor que tire de la GPU. Solo cubre el hueco.
 #>
 param(
     [switch]$SinMotor,
-    [switch]$Rearme,
-    [switch]$ReiniciarMotor
+    [switch]$Rearme
 )
 
 $ErrorActionPreference = 'Continue'
@@ -96,16 +95,17 @@ try {
     if (-not $SinMotor) {
         $motorArriba = Test-Endpoint 'http://127.0.0.1:8001/health'
         $motorPresente = (Find-Python 'acestep.api_server').Count -gt 0 -or (Test-Port 8001)
-        
-        # Si se pide reiniciar el motor, mata el existente primero para
-        # liberar la VRAM de la GPU antes de arrancar uno limpio.
-        if ($ReiniciarMotor -and $motorPresente) {
+
+        # Siempre libera la VRAM al arrancar: mata el motor existente para que
+        # la GPU quede libre antes de arrancar uno limpio. Evita que se quede
+        # sin memoria entre trabajos largos.
+        if ($motorPresente) {
             Write-Output 'MOTOR=liberando-vram'
             foreach ($proc in (Find-Python 'acestep.api_server')) {
                 & taskkill.exe /F /T /PID $proc.ProcessId | Out-Null
                 Write-Output "MOTOR=detenido (PID $($proc.ProcessId))"
             }
-            # Esperar a que suelte el puerto
+            # Esperar a que suelte el puerto y la VRAM
             $limite = (Get-Date).AddSeconds(15)
             do {
                 Start-Sleep -Milliseconds 400

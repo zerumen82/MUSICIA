@@ -165,18 +165,22 @@ async function loadWhenReady() {
       return;
     }
   } catch {
-    /* La API todavía no escucha. */
+    /* La API todavía no escucha. Cargamos la UI igual: se reconectará sola. */
   }
   if (willQuit || !mainWindow || mainWindow.isDestroyed()) return;
   const current = mainWindow.webContents.getURL() || '';
   const ms = Date.now() - bootStartedAt;
-  const html = ms > 30000
-    ? bootHtml('TARDANDO MÁS DE LO NORMAL…<br>El motor puede tardar varios minutos la primera vez.')
-    : BOOT_HTML;
-  if (!current.startsWith('data:text/html')) {
-    mainWindow.loadURL(html).catch(() => {});
+  // No bloqueamos la UI esperando al motor: cargamos la app tras un breve
+  // aviso. El frontend reintentará la conexión sola cuando el motor esté listo.
+  if (ms < 5000 && !current.startsWith('data:text/html')) {
+    mainWindow.loadURL(BOOT_HTML).catch(() => {});
+    scheduleBoot(1000);
+    return;
   }
-  scheduleBoot(1000);
+  if (!current.startsWith(API_URL)) {
+    await mainWindow.loadURL(API_URL).catch(() => {});
+  }
+  startUiWatch();
 }
 
 ipcMain.handle('musica:exit', () => exitApp());
