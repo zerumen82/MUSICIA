@@ -44,7 +44,7 @@ class AcestepSettings:
     audio_path: str = "/v1/audio"
     models_path: str = "/v1/models"
     format_input_path: str = "/format_input"
-    request_timeout: float = 60.0
+    request_timeout: float = 300.0
     # El sondeo de la pastilla no puede esperar lo mismo que una generación.
     health_timeout: float = 3.0
     poll_interval: float = 3.0

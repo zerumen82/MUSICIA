@@ -231,15 +231,15 @@ class MusicService:
     def _restart_engine() -> None:
         """Mata el motor ACE-Step existente y arranca uno limpio para liberar VRAM."""
         import subprocess as _subprocess
-        import sys as _sys
         raiz = str(Path(__file__).resolve().parents[1])
-        ps = _subprocess.run(
+        # Arrancar ensure_local.ps1 sin bloquear: el reintento después de 2 s
+        # le da tiempo al motor a empezar a escuchar en el puerto.
+        _subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
              "-Command", f"& '{raiz}\\scripts\\ensure_local.ps1'"],
-            capture_output=True, text=True, timeout=60,
+            stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL,
         )
-        logger.warning(f"Motor reiniciado automáticamente: rc={ps.returncode} "
-                       f"stdout={ps.stdout[:200]} stderr={ps.stderr[:200]}")
+        logger.warning("Motor reiniciado automáticamente (ensure_local.ps1 lanzado en segundo plano)")
 
     # -- transporte ----------------------------------------------------------
 
