@@ -142,13 +142,25 @@ try {
             if (-not $tope) {
                 Write-Output 'MOTOR=timeout-unread'
             } else {
-                $env:ACESTEP_GENERATION_TIMEOUT = "$tope"
-                Start-Servicio 'MOTOR' `
-                    (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
-                    @('-m', 'acestep.api_server') `
-                    (Join-Path $raiz 'vendor\ACE-Step-1.5') `
-                    (Join-Path $logs 'acestep-api.log') `
-                    (Join-Path $logs 'acestep-api.err.log')
+            $env:ACESTEP_GENERATION_TIMEOUT = "$tope"
+            Start-Servicio 'MOTOR' `
+                (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
+                @('-m', 'acestep.api_server') `
+                (Join-Path $raiz 'vendor\ACE-Step-1.5') `
+                (Join-Path $logs 'acestep-api.log') `
+                (Join-Path $logs 'acestep-api.err.log')
+            # Esperar a que el motor responda /health (carga el modelo a la GPU,
+            # puede tardar varios minutos la primera vez).
+            $limiteMotor = (Get-Date).AddMinutes(5)
+            do {
+                Start-Sleep -Seconds 5
+            } while (-not (Test-Endpoint 'http://127.0.0.1:8001/health') -and (Get-Date) -lt $limiteMotor)
+            if (Test-Endpoint 'http://127.0.0.1:8001/health') {
+                Write-Output 'MOTOR=listo'
+            } else {
+                Write-Output 'MOTOR=no-responde'
+                exit 1
+            }
             }
         }
     }
