@@ -3041,7 +3041,17 @@ ahí estaba el desfase que oía el usuario.
 - **REVIEWER — APPROVE** (pasada propia separada).
 - **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
 
-## Resumen de toda la sesión (11 commits)
+## 2026-10-17 (CLXXIV) — Reinicio automático del motor ante ConnectError
+
+- **Qué se pidió**: el motor ACE-Step se caía durante generación larga (4 min) por falta de VRAM, dejando `ConnectError` sin recuperación.
+- **Qué se hizo**:
+  1. `backend/music_service.py`: `_request()` ahora detecta `httpx.ConnectError`, llama a `_restart_engine()` (mata el motor y arranca uno limpio vía `ensure_local.ps1`), espera 2 s y reintenta la petición una vez. Si el reintento falla, devuelve error claro.
+  2. `_restart_engine()` ejecuta `scripts\ensure_local.ps1` para matar el proceso `acestep.api_server` y arrancar uno nuevo, liberando la VRAM.
+- **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
+- **Commit**: `b005839` (reinicio automático del motor).
+- **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
+- **REVIEWER — APPROVE** (pasada propia separada).
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
 
 | Commit | Qué arregla |
 |--------|-------------|
