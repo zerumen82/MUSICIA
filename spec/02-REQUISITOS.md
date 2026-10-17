@@ -773,3 +773,16 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 - [ ] La mesa dice continuación y recorte. Vacío no envía un sample. El fundido de repetición no se envía.
 - [ ] El corte de 2 BPM no se baja. No se publica un audio de esta historia en esta entrega.
 
+## [R17] La ampliación continúa la misma música y se entrega — pedido 2026-10-17
+
+**Como** usuario, **quiero** que un remix por pistas con duración mayor siga la misma música y meta el recorte, y que el trabajo lo entregue en vez de morir por una medición final incierta, **para** no perder toda la GPU pagada después de que la base ya se midió y verificó.
+
+**Decisión**: en Por pistas, antes de continuar la base, la mezcla ya exige pulso medible (`require_measured_tempo`, confianza mínima 0,12) y ya cumple el BPM pedido (un solo atempo si estaba fuera de los 2 BPM; `verify_requested_tempo` tras el ajuste). La continuación es repaint de esa misma base, con el mismo estilo y el mismo BPM. Si después de ampliar y exportar la medición del archivo final vuelve a ser incierta (los mismos cortes del detector, sin bajar ningún umbral), el trabajo se entrega con la medida de la base —ya verificada— como tempo acreditado y un aviso honesto de que el pulso de la ampliación no se pudo re-medir. Un BPM final medido y concluyente fuera de tolerancia sigue deteniendo el trabajo; un groove incierto ya no tumba una ampliación cuya base se verificó. Sin PASS/APPROVE esta historia no queda cerrada; esto no cierra B6, B7, R9 ni R10.
+
+- [ ] Si la medición del archivo ampliado (`continue_bed`) es incierta y la mezcla base se verificó antes, el trabajo termina con `succeeded`, el tempo acreditado es el de la base y el aviso dice que el pulso de la ampliación no se pudo re-medir.
+- [ ] La ficha conserva la medición de la base con su procedencia y el aviso; no se inventa una medición del archivo final.
+- [ ] Si la medición final es concluyente y cumple tolerancia, se publica como hoy. Si es concluyente y no la cumple, el trabajo falla como hoy.
+- [ ] El recorte sigue entrando una sola vez. Los cortes del detector (hombro 1,25, confianza 0,12) no se bajan.
+- [ ] `repeat_crossfade` y el scope full conservan su comportamiento actual (ensanchamiento y reintentos).
+- [ ] Pruebas nuevas de la rama incierta y de la rama concluyente; suite verde.
+

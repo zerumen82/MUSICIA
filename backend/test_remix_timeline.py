@@ -16,6 +16,7 @@ from remix_project import (RemixProjectRequest, RemixProjectRuntime, timeline_pl
                            full_variant_plan, project_generation, replacement_request_seed,
                            groups_tempo_ratio, apply_groups_mix_tempo, tempo_after_repetition,
                            continuation_spans, continuation_generation, continuation_limits,
+                           uncertain_extension_fallback,
                            verify_requested_tempo, require_measured_tempo)
 from separator_service import SeparatorService
 
@@ -646,6 +647,49 @@ class UnmeasuredVariantRetryTest(unittest.TestCase):
         self.assertEqual(full_variant_failure(missed), "raise")
         self.assertEqual(full_variant_failure(ValueError("Configuración de groove inválida")), "raise")
         self.assertEqual(full_variant_failure(RuntimeError("El groove es incierto")), "raise")
+
+
+class UncertainExtensionTest(unittest.TestCase):
+    """[R17] Una ampliación incierta en Por pistas conserva el tempo de la base verificada."""
+
+    def setUp(self):
+        self.config = AppSettings().remix
+        self.bed = {"bpm_measured": 169.85, "bpm_confidence": 0.417}
+        self.plan = {"method": "continue_bed"}
+        self.uncertain = ValueError(
+            "El groove es incierto: el período elegido no destaca sobre los tempos vecinos")
+
+    def test_uncertain_groupsextension_keeps_the_verified_bed_measurement(self):
+        fallback = uncertain_extension_fallback(
+            self.uncertain, "groups", self.plan, self.bed, self.config)
+        self.assertEqual(fallback, self.bed)
+        verify_requested_tempo(fallback, 170, self.config, "después del arreglo y exportación")
+
+    def test_a_conclusive_final_tempo_still_stops_the_job(self):
+        conclusive = ValueError(
+            "El BPM final medido 136.36 no cumple el pedido 170 (tolerancia 2 BPM)")
+        self.assertIsNone(uncertain_extension_fallback(
+            conclusive, "groups", self.plan, self.bed, self.config))
+
+    def test_only_por_pistas_continuing_the_bed_qualifies(self):
+        self.assertIsNone(uncertain_extension_fallback(
+            self.uncertain, "full", self.plan, self.bed, self.config))
+        self.assertIsNone(uncertain_extension_fallback(
+            self.uncertain, "groups", {"method": "original"}, self.bed, self.config))
+        self.assertIsNone(uncertain_extension_fallback(
+            self.uncertain, "groups", None, self.bed, self.config))
+        self.assertIsNone(uncertain_extension_fallback(
+            ValueError("Configuración de hombro de groove inválida"), "groups",
+            self.plan, self.bed, self.config))
+        self.assertIsNone(uncertain_extension_fallback(
+            RuntimeError("El motor falló"), "groups", self.plan, self.bed, self.config))
+
+    def test_without_a_fiable_bed_measurement_there_is_nothing_to_credit(self):
+        for bed in (None, {}, {"bpm_measured": 169.85, "bpm_confidence": 0.05},
+                    {"bpm_measured": float("nan"), "bpm_confidence": 0.4}):
+            with self.subTest(bed=bed):
+                self.assertIsNone(uncertain_extension_fallback(
+                    self.uncertain, "groups", self.plan, bed, self.config))
 
 
 if __name__ == "__main__":

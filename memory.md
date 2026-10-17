@@ -2984,3 +2984,18 @@ ahí estaba el desfase que oía el usuario.
 - **Medido**: `succeeded` en 602,8 s. `PRUEBA-continue-bed-240.mp3` 239,96 s / 5.760.620 bytes. Ficha: `method: continue_bed`, `repetitions: 0`, 2 continuaciones del motor con semillas reales (1019109256, 651602136), recorte colocado una sola vez en 81,4 s. `detect_groove` del MP3: 165,75 BPM conf 0,248 ≈ original 165,52. Sin bucle, sin cambio de tono, tempo conservado.
 - **TESTER — PASS** (evidencia de esta entrada: job, MP3, ficha y groove). Falta oído del usuario (B7).
 - **REVIEWER — APPROVE** (pasada propia separada): job/MP3/ficha/groove coherentes entre sí; sin código tocado; no cierra B7/R9/R10.
+
+## 2026-10-17 (CLXIX) — MDS y estado: ASMNAMA cae por groove tras continue_bed
+
+- **Qué se pidió**: «MDS Y ESTADO. FALLA POR GROOVE» — revisar MDs y estado real ante el fallo del remix `df6b6e8aba2f41688e0a377379d0f6e4` (ASMNAMA, «Animales muertos.mp3», Por pistas, voz conservada, resto en transformar, 170 BPM, 240 s, tramo 24,23–28,28 s). Solo diagnóstico: sin instalar nada, sin generar GPU, sin tocar umbrales, sin publicar y sin cerrar historias. La API y el motor estaban parados (`logs/stop.flag` 01:14:32); la medición fue local con el venv de backend.
+- **Medido, sin tocar los WAV del trabajo** (sonda `logs/diag_groove_df6b6e8.py`, cifras del corte en `logs/diag_shoulder_df6b6e8.py`):
+  - `material-a-transformar.wav`: 170,09 BPM, conf 0,689 — la base que entra al motor medía bien.
+  - `mezcla-1.wav`: 172,66, conf 0,346 — fuera de tolerancia (2,66 > 2 BPM), se aplicó el atempo del plan (ratio 1,027).
+  - `tempo-mezcla-1.wav`: 169,85, conf 0,417 — la mezcla de grupos cuadrada sí medía.
+  - `continuacion-1-1.wav` (170,5 s), `continuacion-1-2.wav` (240 s), `arreglo-1.wav` y `exportada-1.mp3`: FALLO en los cuatro — «El groove es incierto: el período elegido no destaca sobre los tempos vecinos».
+  - Cifras del corte en el MP3 exportado: evidencia del período elegido 1,0387 frente a 0,9458 del vecino (ratio 1,098 < 1,25 exigido). El pulso que la base tenía (conf 0,417) se diluye en las continuaciones del motor.
+- **Dónde truena el código**: `remix_project.py:1399`, `required_measured_tempo` del MP3 exportado tras `finish_continuation`; el trabajo muere en `_fail` (`logs/musicia-api.err.log` 01:14:07) con 944 s de elapsed. Los tres frenos existentes no cubren este punto: el cuadre de bombo de CLV solo actúa en la mezcla de grupos (que aquí midió bien), el ensanchamiento a canción entera de CLVI solo actúa con `method: repeat_crossfade` (este plan es `continue_bed`) y los reintentos/withhold de variante solo existen en scope `full`. No se publica nada: no hay `ASMNAMA*` en `outputs/`, y los intermedios quedan en `outputs/_remix/df6b6e8…/`.
+- **Divergencias MD ↔ estado (solo lectura)**: `knowledge.md` «Estado vigente (2026-10-15)» no recoge CLV/CLVI/CLXVII/CLXVIII; `spec/03` B6 dice «Por pistas no cambia» pero CLV añadió el cuadre de bombo en Por pistas. El diff sin commitear de README/knowledge/memory/spec/01/03/06 y `test_remix_timeline.py` es solo de fin de línea: `git diff --ignore-cr-at-eol` vacío, sin cambio de contenido.
+- **Lección**: en Por pistas con `continue_bed`, una continuación sin pulso medible tumba el trabajo después de pagar toda la GPU, sin reintentar muestra ni ensanchar. Hueco nuevo, declarado aquí; cualquier arreglo (reintento de continuación, fallback o ensanchamiento para `continue_bed`) requiere historia en `spec/02` aprobada antes de implementar. No cierra B6, B7, R9 ni R10.
+- **Estado**: EN CURSO — diagnóstico hecho y anotado; sin PASS/APPROVE porque no hay implementación.
+

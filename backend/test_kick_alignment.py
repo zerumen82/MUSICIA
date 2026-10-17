@@ -17,6 +17,7 @@ from remix_project import (
     require_measured_tempo,
     required_measured_tempo,
     square_mix_on_original_kick,
+    uncertain_extension_fallback,
     verify_requested_tempo,
     whole_song_repeat_plan,
 )
@@ -179,3 +180,26 @@ class KickAlignmentTest(unittest.TestCase):
             verify_requested_tempo(measured, 170, self.config, "después de repetir la canción entera")
         for path, stamp in before.items():
             self.assertEqual(path.stat().st_mtime_ns, stamp)
+
+    def test_asmnama_uncertain_extension_keeps_the_verified_bed_tempo(self):
+        """[R17] ASMNAMA: la ampliación no midió; la base verificada acredita el tempo."""
+        root = Path(__file__).resolve().parents[1]
+        work = root / "backend" / "outputs" / "_remix" / "df6b6e8aba2f41688e0a377379d0f6e4"
+        bed = work / "tempo-mezcla-1.wav"
+        history_path = root / "backend" / "job_history.json"
+        if not bed.is_file() or not history_path.is_file():
+            self.skipTest("los WAV de ese trabajo no están en este equipo")
+        history = json.loads(history_path.read_text(encoding="utf-8"))
+        job = next((item for item in history["remix"]
+                    if item.get("job_id") == "df6b6e8aba2f41688e0a377379d0f6e4"), None)
+        if job is None:
+            self.skipTest("ese trabajo no está en el historial")
+        self.assertEqual(job["status"], "failed")
+        error = ValueError(job["error"])
+        self.assertIn("tempos vecinos", str(error))
+        plan = job["operations"]["timeline"]
+        self.assertEqual(plan["method"], "continue_bed")
+        measured = required_measured_tempo(bed)
+        verify_requested_tempo(measured, 170, self.config, "de la base antes de continuar")
+        fallback = uncertain_extension_fallback(error, "groups", plan, measured, self.config)
+        self.assertEqual(fallback, measured)

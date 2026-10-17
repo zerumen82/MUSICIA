@@ -376,6 +376,28 @@ def whole_song_repeat_plan(plan: dict, config) -> dict | None:
     return updated
 
 
+def uncertain_extension_fallback(exc: BaseException, scope: str, plan: dict | None,
+                                 bed_measured, config) -> dict | None:
+    """Medición de la base que sigue acreditando el tempo de una ampliación incierta [R17].
+
+    None si el trabajo debe seguir fallando: el error no es de groove, el
+    ámbito no es Por pistas, el método no continúa la base o la base no
+    tiene una medición fiable. No convierte una lectura incierta en un
+    BPM: devuelve la medición ya verificada de la base de antes de
+    continuar, que es la que el detector sí midió.
+    """
+    if not audio_has_no_usable_groove(exc) or scope != "groups":
+        return None
+    if not plan or plan.get("method") != "continue_bed":
+        return None
+    measured = bed_measured or {}
+    try:
+        require_measured_tempo(measured, config, "de la base antes de continuar")
+    except ValueError:
+        return None
+    return measured
+
+
 def _shift_audio_to_kick(source: Path, output: Path, delay_ms: float) -> Path:
     """Coloca el golpe en el instante del bombo de referencia. Un desfase mínimo no se toca."""
     if abs(delay_ms) < MIN_PHASE_SHIFT_MS:
@@ -1403,23 +1425,44 @@ class RemixProjectRuntime:
                                 audio_has_no_usable_groove(exc)
                                 and variant_plan.get("method") == "repeat_crossfade") else None
                             if widened is None:
-                                raise
-                            self.event(job, f"La parte elegida no conserva el pulso; "
-                                       f"se repite la canción entera en la variante {index + 1}")
-                            extended = work / f"arreglo-completo-{index + 1}.wav"
-                            arrangement = await asyncio.to_thread(
-                                MixerService.extend_timeline, body, extended, widened, config)
-                            timeline = extended
-                            self.cancelled(job)
-                            mastering = await asyncio.to_thread(
-                                MixerService.export_remix, timeline, staged_output, config)
-                            final_seconds = await self.music.verify_audio(staged_output) / 1000
-                            if abs(final_seconds - widened["target_duration_seconds"]) > config.duration_tolerance_seconds:
-                                raise ValueError("La duración final no corresponde al arreglo solicitado")
-                            measured = await asyncio.to_thread(
-                                required_measured_tempo, staged_output, arrangement, config)
-                            variant_plan = widened
-                            repeated_whole_song = True
+                                # [R17] Por pistas que continúa la base: la mezcla ya se
+                                # midió y verificó antes de ampliar. Si la medición final
+                                # del archivo ampliado es incierta, el tempo acreditado
+                                # sigue siendo el de esa base y el trabajo se entrega con
+                                # aviso; ningún corte del detector se baja.
+                                fallback = uncertain_extension_fallback(
+                                    exc, request.scope, variant_plan,
+                                    tempo_after_adjust or tempo_before, config)
+                                if fallback is None:
+                                    raise
+                                measured = fallback
+                                variant_plan["final_tempo_verification"] = "uncertain_after_extension"
+                                variant_plan["final_tempo_verification_error"] = str(exc)
+                                self.event(job, f"El pulso de la ampliación de la variante {index + 1} "
+                                               "no se pudo medir; se conserva el tempo de la base verificado")
+                                warning = ("La ampliación continuó la misma base, pero su pulso no se pudo "
+                                           "volver a medir; el tempo acreditado es el de la base verificada "
+                                           "antes de continuar.")
+                                warnings = job.setdefault("warnings", [])
+                                if warning not in warnings:
+                                    warnings.append(warning)
+                            else:
+                                self.event(job, f"La parte elegida no conserva el pulso; "
+                                           f"se repite la canción entera en la variante {index + 1}")
+                                extended = work / f"arreglo-completo-{index + 1}.wav"
+                                arrangement = await asyncio.to_thread(
+                                    MixerService.extend_timeline, body, extended, widened, config)
+                                timeline = extended
+                                self.cancelled(job)
+                                mastering = await asyncio.to_thread(
+                                    MixerService.export_remix, timeline, staged_output, config)
+                                final_seconds = await self.music.verify_audio(staged_output) / 1000
+                                if abs(final_seconds - widened["target_duration_seconds"]) > config.duration_tolerance_seconds:
+                                    raise ValueError("La duración final no corresponde al arreglo solicitado")
+                                measured = await asyncio.to_thread(
+                                    required_measured_tempo, staged_output, arrangement, config)
+                                variant_plan = widened
+                                repeated_whole_song = True
                     else:
                         measured = await asyncio.to_thread(self.measure_bpm, staged_output)
                     self.cancelled(job)
