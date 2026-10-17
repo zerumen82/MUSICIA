@@ -3029,7 +3029,19 @@ ahí estaba el desfase que oía el usuario.
 - **REVIEWER — APPROVE** (pasada propia separada).
 - **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
 
-## Resumen de toda la sesión (10 commits)
+## 2026-10-17 (CLXXIII) — Arranque rápido y liberación automática de VRAM
+
+- **Qué se pidió**: el usuario quiere que al arrancar Musicia se libere la VRAM de la GPU automáticamente (sin parámetros manuales) y que la UI aparezca rápido sin esperar tanto al motor.
+- **Qué se hizo**:
+  1. `scripts/ensure_local.ps1`: por defecto (sin parámetros) mata el motor ACE-Step existente antes de arrancar uno limpio, liberando la VRAM de la GPU. Ya no hace falta `-ReiniciarMotor` (parámetro eliminado). El motor se arranca en frío con toda la VRAM disponible.
+  2. `frontend/main.cjs`: `loadWhenReady` ya no bloquea la UI esperando a que `/health` responde. Muestra la pantalla de arranque solo 5 segundos, luego carga la UI directamente. El frontend reintentará la conexión al motor solo cuando esté listo. La ventana aparece en ~5 segundos aunque el motor aún esté cargando.
+- **Medido**: backend 293 passed, 2 skipped; frontend `node --test` 62/62; eslint 0; `npm run build` OK.
+- **Commits**: `051d236` (optimización VRAM y rendimiento anterior) + `77b51dc` (arranque rápido + liberación automática de VRAM).
+- **TESTER — PASS**: suite backend completa + frontend + lint + build, todo verde.
+- **REVIEWER — APPROVE** (pasada propia separada).
+- **Cierre**: B6 sigue abierto — falta PASS/APPROVE final con audio real de usuario. B7 sigue abierto — requiere escucha. R9/R10 siguen abiertos.
+
+## Resumen de toda la sesión (11 commits)
 
 | Commit | Qué arregla |
 |--------|-------------|
@@ -3043,6 +3055,7 @@ ahí estaba el desfase que oía el usuario.
 | `a05379a` | UI: botón COPIAR en cada stream de logs del diálogo Procesos |
 | `ff6c236` | UI: error claro si findJob devuelve vacío tras reinicio de API |
 | `051d236` | `finish_continuation` con NumPy (vectorizado); comprobación de VRAM antes de enviar al motor; `-ReiniciarMotor` en ensure_local.ps1 |
+| `77b51dc` | Liberación automática de VRAM al arrancar (por defecto); UI carga en ~5s sin esperar al motor |
 
 - **Qué se pidió**: el glosario se quedaba "cargando vocabulario" para siempre si la API estaba caída, y el groove final decía "incierto" tras el remix.
 - **Qué se hizo**:
