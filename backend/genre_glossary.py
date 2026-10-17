@@ -28,6 +28,7 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
 _CACHE: dict[str, Any] = {"mtime": -1.0, "items": [], "lower": []}
+_STYLES_CACHE: dict[str, Any] = {"mtime": -1.0, "styles": None}
 _LOCK = threading.Lock()
 _WARNED = False
 
@@ -117,6 +118,11 @@ def catalog_styles(vocab_lower: set[str] | None = None) -> list[dict[str, Any]]:
     if vocab_lower is None:
         _, lower = _vocab()
         vocab_lower = set(lower)
+        # Cachear por mtime del vocab: no recalcular en cada búsqueda del glosario.
+        mtime = VOCAB_PATH.stat().st_mtime if VOCAB_PATH.exists() else -1.0
+        with _LOCK:
+            if mtime == _STYLES_CACHE["mtime"] and _STYLES_CACHE["styles"] is not None:
+                return _STYLES_CACHE["styles"]
     estilos = []
     for rule in STYLE_RULES:
         genre = None
@@ -135,6 +141,10 @@ def catalog_styles(vocab_lower: set[str] | None = None) -> list[dict[str, Any]]:
             "name": rule["name"], "bpm": rule.get("bpm"), "text": rule.get("style", ""),
             "keys": list(rule.get("keys", ())), "genre": genre,
         })
+    if vocab_lower is None:
+        with _LOCK:
+            _STYLES_CACHE["mtime"] = mtime
+            _STYLES_CACHE["styles"] = estilos
     return estilos
 
 
