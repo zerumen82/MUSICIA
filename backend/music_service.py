@@ -217,13 +217,29 @@ class MusicService:
             raise MusicEngineError(
                 f"VRAM insuficiente: solo {libre} MB libres, se necesitan al menos "
                 f"{minimo_mb} MB. Cierra otras aplicaciones que usen la GPU o reinicia el "
-                f"motor (scripts\\ensure_local.ps1 -ReiniciarMotor).")
+                f"motor (scripts\\ensure_local.ps1).")
 
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
             raise MusicEngineError("MusicService no inicializado: llama a start() primero")
         return self._client
+
+    # -- reinicio automático del motor --------------------------------------
+
+    @staticmethod
+    def _restart_engine() -> None:
+        """Mata el motor ACE-Step existente y arranca uno limpio para liberar VRAM."""
+        import subprocess as _subprocess
+        import sys as _sys
+        raiz = str(Path(__file__).resolve().parents[1])
+        ps = _subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-Command", f"& '{raiz}\\scripts\\ensure_local.ps1'"],
+            capture_output=True, text=True, timeout=60,
+        )
+        logger.warning(f"Motor reiniciado automáticamente: rc={ps.returncode} "
+                       f"stdout={ps.stdout[:200]} stderr={ps.stderr[:200]}")
 
     # -- transporte ----------------------------------------------------------
 
@@ -249,6 +265,21 @@ class MusicService:
             ) from exc
         except httpx.HTTPError as exc:
             detail = str(exc).strip() or repr(exc)
+            # Si el motor se cae (ConnectError), intenta reiniciarlo una vez
+            # y reintentar la petición. Esto evita que un corte transitorio de
+            # VRAM o CUDA deje la API colgada para siempre.
+            if isinstance(exc, httpx.ConnectError):
+                try:
+                    self._restart_engine()
+                    await asyncio.sleep(2)
+                    response = await self.client.request(method, path, **kwargs)
+                    response.raise_for_status()
+                    payload = response.json()
+                    if payload.get("code") != 200 or payload.get("error"):
+                        raise MusicEngineError(str(payload.get("error") or f"Error del motor en {path}"))
+                    return payload.get("data")
+                except Exception:
+                    pass
             raise MusicEngineError(
                 f"El motor ACE-Step no responde ({path}): {type(exc).__name__}: {detail}"
             ) from exc
