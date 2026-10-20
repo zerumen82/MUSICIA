@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -34,6 +35,19 @@ CHEQUEO_TIMEOUT_S = 120
 # 2026-10-10: el negativo caduca y se vuelve a comprobar; el positivo no.
 NEGATIVO_TTL_S = 60.0
 _CHEQUEO = threading.Lock()
+
+
+def _ace_step_active() -> bool:
+    """Comprueba si el motor ACE-Step está arriba (cargado en GPU).
+
+    Si está activo, demucs se fuerza a CPU para no pelear por los 8 GB de VRAM.
+    La separación será más lenta pero no se corta ni deja el motor colgado.
+    """
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8001/health", timeout=3) as r:
+            return r.status == 200
+    except Exception:
+        return False
 
 
 def _instalado() -> bool:
@@ -224,6 +238,9 @@ class SeparatorService:
         device = pick_device() if settings.demucs_device == "auto" else settings.demucs_device
         if device not in {"cpu", "cuda"}:
             raise ValueError("remix.demucs_device debe ser auto, cpu o cuda")
+        if device == "cuda" and _ace_step_active():
+            device = "cpu"
+            logger.info("ACE-Step activo en GPU: demucs forzado a CPU para evitar contención de VRAM (8 GB)")
         out_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="musicia-groups-", dir=out_dir) as work:
             cmd = [
@@ -285,6 +302,9 @@ class SeparatorService:
         if cancelled and cancelled():
             raise RuntimeError("Cancelado por el usuario")
         device = pick_device() if settings.demucs_device == "auto" else settings.demucs_device
+        if device == "cuda" and _ace_step_active():
+            device = "cpu"
+            logger.info("ACE-Step activo en GPU: demucs forzado a CPU para evitar contención de VRAM (8 GB)")
         logger.info(f"Separando {source.name} en {device} (VRAM libre: {free_vram_mb()} MB)")
 
         out_dir.mkdir(parents=True, exist_ok=True)

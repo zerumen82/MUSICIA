@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AudioWaveform, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut } from 'lucide-react';
+import { AudioWaveform, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut, Loader2 } from 'lucide-react';
 import Composer from './components/Composer';
 import Library from './components/Library';
 import Uploads from './components/Uploads';
@@ -13,7 +13,7 @@ import ProcessLogs from './components/ProcessLogs';
 // vía POST /audio/mix). Sequencer sigue retirado (deuda T2 de spec/03).
 const TABS = [
   { id: 'composer', icon: AudioWaveform, label: 'CREAR', hint: 'canciones IA' },
-  { id: 'uploads', icon: FileUp, label: 'SUBIR', hint: 'tu audio + remix' },
+  { id: 'uploads', icon: FileUp, label: 'REMIX', hint: 'tu audio + remix' },
   { id: 'mix', icon: SlidersHorizontal, label: 'MEZCLA', hint: 'base + voz cantada' },
   { id: 'library', icon: LibraryIcon, label: 'BIBLIOTECA', hint: 'tus MP3' },
 ];
@@ -22,7 +22,7 @@ const POLL_HEALTH_MS = 10000;
 
 function App() {
   const [tab, setTab] = useState('composer');
-  const [engine, setEngine] = useState({ checked: false, ok: false });
+  const [engine, setEngine] = useState({ checked: false, ok: false, idle: false });
   const [models, setModels] = useState(null);
   const [activeJob, setActiveJob] = useState(null);
   const [recentJob, setRecentJob] = useState(null);
@@ -56,14 +56,36 @@ function App() {
     let alive = true;
     const check = async () => {
       const health = await api.engineHealth();
-      if (!alive) return;
+      if (!alive) return false;
+      const lifecycle = health?.engine_lifecycle;
+      if (lifecycle?.state === 'idle') {
+        setEngine({ checked: true, ok: false, idle: true });
+        setModels(null);
+        return false;
+      }
+      if (lifecycle?.state === 'error') {
+        setEngine({ checked: true, ok: false, idle: false, error: lifecycle.error });
+        setModels(null);
+        return false;
+      }
+      if (['starting', 'stopping', 'reconciling'].includes(lifecycle?.state)) {
+        setEngine({
+          checked: true,
+          ok: false,
+          idle: false,
+          starting: lifecycle.state !== 'stopping',
+          stopping: lifecycle.state === 'stopping',
+        });
+        return false;
+      }
       if (health?.engine?.reachable) {
-        setEngine({ checked: true, ok: true });
-        return;
+        setEngine({ checked: true, ok: true, idle: false });
+        return true;
       }
       // Sin respuesta, motor ocupado o canción en curso: no se pinta apagado.
-      if (health?.engine?.unknown || health?.engine?.busy || activeJobRef.current) return;
-      setEngine({ checked: true, ok: false });
+      if (health?.engine?.unknown || health?.engine?.busy || activeJobRef.current) return false;
+      setEngine({ checked: true, ok: false, idle: false });
+      return false;
     };
     // Modelo y VRAM se refrescan con el mismo ritmo que la salud: un VRAM
     // congelado en el arranque mentiría durante una generación.
@@ -73,12 +95,11 @@ function App() {
         setModels(info);
       }).catch(() => {});
     };
-    check();
-    loadModels();
-    const t = setInterval(() => {
-      check();
-      loadModels();
-    }, POLL_HEALTH_MS);
+    const refresh = async () => {
+      if (await check()) loadModels();
+    };
+    refresh();
+    const t = setInterval(refresh, POLL_HEALTH_MS);
     return () => { alive = false; clearInterval(t); };
   }, []);
 
@@ -160,18 +181,32 @@ function App() {
         {/* Estado del motor (real, con polling) */}
         <div className="mt-3 px-1">
           <div className="panel-2 px-3 py-2.5 flex items-center gap-2.5">
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                !engine.checked
-                  ? 'bg-[var(--faint)]'
-                  : engine.ok
-                    ? 'bg-[var(--acc)] shadow-[0_0_8px_var(--acc)]'
-                    : 'bg-[var(--err)]'
-              }`}
-            />
+            {engine.starting || engine.stopping
+              ? <Loader2 size={13} className="shrink-0 text-[var(--acc)] animate-spin" aria-label={engine.stopping ? 'Deteniendo motor' : 'Conectando con el motor'} />
+              : <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  !engine.checked
+                    ? 'bg-[var(--faint)]'
+                    : engine.ok
+                      ? 'bg-[var(--acc)] shadow-[0_0_8px_var(--acc)]'
+                      : engine.idle
+                        ? 'bg-[var(--faint)]'
+                        : 'bg-[var(--err)]'
+                }`}
+              />}
             <span className="mono text-[9.5px] tracking-[0.1em] uppercase text-[var(--muted)] leading-tight">
               <span className="block">
-                {!engine.checked ? 'MOTOR' : engine.ok ? 'MOTOR ACTIVO' : 'MOTOR APAGADO'}
+                {!engine.checked
+                  ? 'MOTOR'
+                  : engine.ok
+                    ? 'MOTOR ACTIVO'
+                    : engine.idle
+                      ? 'MOTOR EN REPOSO'
+                      : engine.stopping
+                        ? 'DETENIENDO EL MOTOR · ESPERA'
+                        : engine.starting
+                          ? 'CONECTANDO CON EL MODELO · ESPERA'
+                        : 'ERROR DEL MOTOR'}
               </span>
               {models ? (
                 <span className="block normal-case tracking-normal text-[var(--faint)]">
@@ -220,15 +255,17 @@ function App() {
               <span className={`mono text-[10.5px] tracking-[0.12em] px-2.5 py-1 border ${
                 engine.ok
                   ? 'text-[var(--acc)] border-[var(--acc-line)]'
-                  : 'text-[var(--err)] border-[rgba(255,92,92,0.45)]'
+                  : engine.idle || engine.starting || engine.stopping
+                    ? 'text-[var(--muted)] border-[var(--line)]'
+                    : 'text-[var(--err)] border-[rgba(255,92,92,0.45)]'
               }`}>
-                {engine.ok ? 'ACTIVO' : 'APAGADO'}
+                {engine.ok ? 'ACTIVO' : engine.idle ? 'EN REPOSO' : engine.stopping ? 'DETENIENDO' : engine.starting ? 'CONECTANDO' : 'ERROR'}
               </span>
             )}
           </div>
         </header>
 
-        <ProcessLogs open={logsOpen} onClose={() => setLogsOpen(false)} />
+        <ProcessLogs key={logsOpen ? 'open' : 'closed'} open={logsOpen} onClose={() => setLogsOpen(false)} />
         <main className="flex-1 min-h-0 overflow-hidden">
           {/* Montadas siempre: cambiar de pestaña no borra la letra ni el sondeo. */}
           <div data-panel="composer" data-active={tab === 'composer'} className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} /></div>

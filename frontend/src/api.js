@@ -39,21 +39,20 @@ export const TRANSLATION_REQUEST_TIMEOUT_MS = 120000
 /** La vista previa espera la carga y la frase. No crea un trabajo. */
 export const PREVIEW_TIMEOUT_MS = TRANSLATION_LOAD_TIMEOUT_MS + TRANSLATION_REQUEST_TIMEOUT_MS
 /**
- * El envío traduce antes de responder y después espera al motor
- * (acestep.request_timeout, 60 s) y a /health. Los 90 s cubren esa espera.
- * El cliente no puede cortar antes: el servidor sigue y puede reservar el trabajo.
+ * Cubre hasta 300 s de arranque del motor, 300 s de petición al LM y margen
+ * para health y transporte. El servidor mantiene la lease durante todo ello.
  */
-export const GENERATE_SUBMIT_TIMEOUT_MS = PREVIEW_TIMEOUT_MS + 90000
+export const LYRICS_TIMEOUT_MS = 660000
+/**
+ * El envío espera la traducción y después el arranque del motor y su petición
+ * de aceptación. El plazo de letras cubre arranque, petición y margen; el
+ * cliente no debe cortar antes porque el servidor puede seguir y encolar.
+ */
+export const GENERATE_SUBMIT_TIMEOUT_MS = PREVIEW_TIMEOUT_MS + LYRICS_TIMEOUT_MS
 const previewClient = axios.create({ baseURL: API_BASE_URL, timeout: PREVIEW_TIMEOUT_MS })
 
 const client = axios.create({ baseURL: API_BASE_URL, timeout: 30000 })
 
-/**
- * El LM local del motor tarda bastante en componer una letra (carga el modelo
- * la primera vez y luego generates). Con el timeout normal de 30 s el botón
- * "escribir la letra por mí" moria siempre, así que usa su propio cliente.
- */
-export const LYRICS_TIMEOUT_MS = 300000
 const lyricsClient = axios.create({ baseURL: API_BASE_URL, timeout: LYRICS_TIMEOUT_MS })
 
 /** Las operaciones de estudio (análisis rítmico, separación) tardan minutos. */

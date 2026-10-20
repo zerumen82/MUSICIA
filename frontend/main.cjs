@@ -12,7 +12,7 @@ const PRELOAD_PATH = path.join(__dirname, 'preload.cjs');
 const STOP_SCRIPT = path.join(__dirname, '..', 'scripts', 'stop_local.ps1');
 const ENSURE_SCRIPT = path.join(__dirname, '..', 'scripts', 'ensure_local.ps1');
 const STOP_FLAG = path.join(__dirname, '..', 'logs', 'stop.flag');
-// Con la ventana viva, si el proceso del motor o de la API desaparece, se vuelve a arrancar.
+// El watchdog repone la API y el motor solo cuando no hay marca de reposo.
 const ENSURE_INTERVAL_MS = 20000;
 
 let willQuit = false;
@@ -34,15 +34,16 @@ const bootHtml = (message) => `data:text/html;charset=utf-8,${encodeURIComponent
 </style></head>
 <body><p>${message}</p><small>Música generada en tu máquina, nada se envía a la nube.</small></body></html>`)}`;
 
-const BOOT_HTML = bootHtml('ARRANCANDO EL MOTOR LOCAL…');
+const BOOT_HTML = bootHtml('ARRANCANDO MUSICIA…');
 
-function ensureServices(rearme) {
+function ensureServices(rearme, startIdle = false) {
   if (willQuit) return;
   if (!rearme && fs.existsSync(STOP_FLAG)) return;
   if (ensuring) return;
   ensuring = true;
   const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ENSURE_SCRIPT];
   if (rearme) args.push('-Rearme');
+  if (startIdle) args.push('-IdleEngine');
   let child;
   try {
     child = spawn('powershell.exe', args, { windowsHide: true, stdio: 'ignore' });
@@ -358,7 +359,7 @@ app.whenReady().then(() => {
 
   try { fs.unlinkSync(STOP_FLAG); } catch { /* no había una parada anterior */ }
   createWindow();
-  ensureServices(true);
+  ensureServices(true, false);
   ensureTimer = setInterval(() => ensureServices(false), ENSURE_INTERVAL_MS);
 });
 

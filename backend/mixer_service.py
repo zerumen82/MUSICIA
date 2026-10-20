@@ -492,6 +492,8 @@ class MixerService:
     @staticmethod
     def inspect_pcm(source: Path) -> dict:
         """Comprueba las muestras float reales, incluso NaN que pydub oculta."""
+        import numpy as np
+
         probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
                                 "-show_entries", "stream=sample_rate,channels,codec_name",
                                 "-of", "json", str(source)], capture_output=True, text=True)
@@ -510,7 +512,7 @@ class MixerService:
         samples.frombytes(proc.stdout)
         if sys.byteorder != "little":
             samples.byteswap()
-        if not all(math.isfinite(value) for value in samples):
+        if not np.isfinite(np.frombuffer(samples, dtype=np.float32)).all():
             raise ValueError(f"PCM con muestras no finitas: {source.name}")
         channels, rate = int(info["channels"]), int(info["sample_rate"])
         if channels <= 0 or rate <= 0 or len(samples) % channels:
@@ -675,10 +677,8 @@ class MixerService:
         El recorte sale de la base ya creada. Entra donde empieza lo que sobra.
         No se repite ni se estira.
 
-        Usa pydub (ffmpeg en C) para cargar y recortar, y NumPy para la
-        superposición de muestras (suma pura, vectorizada). Esto evita los
-        bucles de Python muestra-por-muestra que eran órdenes de magnitud más
-        lentos.
+        Lee PCM float con ffmpeg y usa vistas NumPy para sumar el recorte.
+        Solo copia el tramo de salida; no duplica las dos grabaciones enteras.
         """
         import numpy as np
 
@@ -691,7 +691,7 @@ class MixerService:
         cont = MixerService.inspect_pcm(continued)
         rate = cont["sample_rate"]
         channels = cont["channels"]
-        cont_samples = np.array(cont["samples"], dtype=np.float32)
+        cont_samples = np.frombuffer(cont["samples"], dtype=np.float32)
 
         target_frames = round(target_seconds * rate)
         frame_count = len(cont_samples) // channels
@@ -705,7 +705,7 @@ class MixerService:
             bed = MixerService.inspect_pcm(original_bed)
             if bed["sample_rate"] != rate or bed["channels"] != channels:
                 raise ValueError("El recorte no tiene el formato de la base continuada")
-            bed_samples = np.array(bed["samples"], dtype=np.float32)
+            bed_samples = np.frombuffer(bed["samples"], dtype=np.float32)
             start, end = sample.get("start"), sample.get("end")
             if (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
                     or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)

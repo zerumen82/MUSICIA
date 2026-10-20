@@ -30,16 +30,30 @@ Con las dependencias y pesos ya instalados:
 # Desde la raíz: motor + API + ventana Electron
 powershell -ExecutionPolicy Bypass -File scripts/open_musicia.ps1
 
-# Solo servicios
+# API con el motor en reposo (se inicia al enviar trabajo)
 powershell -ExecutionPolicy Bypass -File scripts/start_local.ps1
+
+# Solo para calentar ACE-Step explícitamente
+powershell -ExecutionPolicy Bypass -File scripts/start_local.ps1 -ConMotor
 
 # Parar servicios
 powershell -ExecutionPolicy Bypass -File scripts/stop_local.ps1
 ```
 
-Después de cambiar el frontend, ejecutar `npm run build` dentro de `frontend/`: la API sirve `frontend/dist` en `/`. Para desarrollo con HMR, usar `npm run dev` en ese directorio. La X se ignora: no cierra ni esconde la ventana. SALIR detiene los servicios y cierra la aplicación. PARAR actúa sobre un trabajo, con reinicio del motor cuando la operación lo requiere.
+Después de cambiar el frontend, ejecutar `npm run build` dentro de `frontend/`: la API sirve `frontend/dist` en `/`. Para desarrollo con HMR, usar `npm run dev` en ese directorio. La X se ignora: no cierra ni esconde la ventana. SALIR detiene los servicios y cierra la aplicación. PARAR marca la operación cancelada; el motor propio se detiene al terminar la última operación activa.
 
-Requisitos del entorno: Windows, ffmpeg/ffprobe en PATH, los venv del backend y motor, Node compatible con el Vite instalado y GPU NVIDIA recomendada. La instalación de paquetes o modelos requiere aprobación explícita; la primera descarga de pesos del motor y de Demucs necesita red.
+Requisitos del entorno: Windows, ffmpeg/ffprobe en PATH, los venv del backend y motor, Node compatible con el Vite instalado y GPU NVIDIA recomendada. El lanzador usa el entorno ACE-Step Python 3.11 en `vendor/ACE-Step-1.5/.venv311`; para recrearlo:
+
+```powershell
+Push-Location vendor\ACE-Step-1.5
+$env:UV_PROJECT_ENVIRONMENT = '.venv311'
+uv sync --python 3.11 --locked --no-dev --no-install-project
+Pop-Location
+```
+
+La instalación fijada incluye Triton y FlashAttention para Windows; el entorno `.venv` existente queda disponible como alternativa mediante `acestep.python_path` en `backend/config.json`. La instalación inicial descarga varios GB de dependencias y los pesos del motor y de Demucs necesitan red.
+
+El arranque usa directamente el modelo y LM configurados. Los ajustes `acestep.offload_to_cpu`, `offload_dit_to_cpu` y `lm_offload_to_cpu` están activos para compartir la GPU de 8 GB; no cambian SFT/50 pasos/guidance 9/lote 2. NumPy figura en los requisitos del backend para procesar audio sin duplicar grabaciones enteras. El supervisor preserva el motor presente aunque `/health` tarde; para recuperar uno realmente bloqueado se necesita rearme explícito.
 
 ## Verificación
 

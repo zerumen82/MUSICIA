@@ -8,6 +8,12 @@
     "http://127.0.0.1:5173"
   ],
   "acestep": {
+    "python_path": "vendor/ACE-Step-1.5/.venv311/Scripts/python.exe",
+    "lifecycle_start_timeout_seconds": 300.0,
+    "lifecycle_stop_timeout_seconds": 15.0,
+    "offload_to_cpu": true,
+    "offload_dit_to_cpu": false,
+    "lm_offload_to_cpu": true,
     "base_url": "http://127.0.0.1:8001",
     "request_timeout": 60.0,
     "health_timeout": 3.0,
@@ -234,7 +240,7 @@
     "model_id": "facebook/nllb-200-distilled-600M",
     "target_lang": "eng_Latn",
     "device": "cpu",
-    "python_path": "vendor/ACE-Step-1.5/.venv/Scripts/python.exe",
+    "python_path": "vendor/ACE-Step-1.5/.venv311/Scripts/python.exe",
     "worker_script": "backend/style_translator_worker.py",
     "language_map": "backend/nllb_languages.json",
     "term_fixes": "backend/style_term_fixes.json",

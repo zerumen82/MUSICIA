@@ -17,6 +17,7 @@ from remix_project import (RemixProjectRequest, RemixProjectRuntime, timeline_pl
                            groups_tempo_ratio, apply_groups_mix_tempo, tempo_after_repetition,
                            continuation_spans, continuation_generation, continuation_limits,
                            uncertain_extension_fallback,
+                           uncertain_mix_notice, mark_uncertain_mix_tempo,
                            verify_requested_tempo, require_measured_tempo)
 from separator_service import SeparatorService
 
@@ -498,6 +499,44 @@ class RemixTimelineTest(unittest.TestCase):
         self.assertIn(notice, prepared["warnings"])
         self.assertFalse(any("produce un error" in item for item in prepared["warnings"]))
         self.assertFalse(any(item == notice for item in groups["warnings"]))
+
+    def test_uncertain_mix_delivers_with_notice_only_for_groove_errors(self):
+        groove = ValueError("El groove es incierto: el período elegido no destaca "
+                            "sobre los tempos vecinos")
+        notice = uncertain_mix_notice(groove, 170)
+        self.assertIn("no se ajustó al BPM pedido", notice)
+        self.assertIn("170", notice)
+        self.assertIn("no queda garantizado", notice)
+        self.assertIsNone(uncertain_mix_notice(groove, None))
+        self.assertIsNone(uncertain_mix_notice(
+            ValueError("El BPM final medido 99.42 no cumple el pedido 170 (tolerancia 2 BPM)"), 170))
+        self.assertIsNone(uncertain_mix_notice(
+            ValueError("Configuración de evidencia de pico de groove inválida"), 170))
+        self.assertIsNone(uncertain_mix_notice(RuntimeError("El groove es incierto"), 170))
+
+    def test_uncertain_mix_marks_the_plan_without_inventing_a_bpm(self):
+        plan = {"natural_duration_seconds": 16, "method": "repeat_crossfade"}
+        mark_uncertain_mix_tempo(plan, ValueError("El groove es incierto: meseta"))
+        self.assertIsNone(plan["beat_clock_bpm"])
+        self.assertEqual(plan["beat_clock_origin"], "unverified_uncertain_groove")
+        self.assertEqual(plan["tempo_verification"], "uncertain_at_mix")
+        self.assertIn("meseta", plan["tempo_verification_error"])
+        self.assertNotIn("bpm_measured", plan)
+
+    def test_groups_preview_announces_delivery_when_the_mix_has_no_reliable_pulse(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "source.wav"
+            MixerService._write_float_wav(source, array("f", [0.1] * 16000), 8000, 2)
+            runtime = RemixProjectRuntime.__new__(RemixProjectRuntime)
+            runtime.settings = self.settings
+            runtime.music = MusicService(self.settings)
+            runtime.find_audio = lambda _name, _kind: source
+            with_bpm = asyncio.run(runtime.preview(self.request(
+                bpm=150, source_bpm=120, prompt="A track with techno")))
+            without_bpm = asyncio.run(runtime.preview(self.request(
+                prompt="A track with techno")))
+        self.assertTrue(any("no queda garantizado" in item for item in with_bpm["warnings"]))
+        self.assertFalse(any("no queda garantizado" in item for item in without_bpm["warnings"]))
 
 
 class UnmeasuredVariantRetryTest(unittest.TestCase):

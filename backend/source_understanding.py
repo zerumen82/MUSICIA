@@ -152,7 +152,8 @@ async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSetti
 
 
 def register_source_understanding(app: Any, music: Any, settings: Any,
-                                  find_audio: Callable, gpu_busy: Callable | None = None):
+                                  find_audio: Callable, gpu_busy: Callable | None = None,
+                                  lifecycle: Any = None):
     from remix_project import COMPUTE_LOCK
 
     async def run(job_id: str, source: Path):
@@ -177,6 +178,8 @@ def register_source_understanding(app: Any, music: Any, settings: Any,
         busy = gpu_busy() if gpu_busy else active_analysis()
         if busy:
             raise HTTPException(409, detail="Hay una operación en curso; analiza al terminar")
+        if lifecycle is not None:
+            await lifecycle.ensure_awake()
         if not (await music.health()).get("reachable"):
             raise HTTPException(503, detail="El motor local de análisis no está activo")
         # Health yields to concurrent requests: reserve only after rechecking.

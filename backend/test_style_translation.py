@@ -43,15 +43,35 @@ class EnglishStyleStaysTest(unittest.TestCase):
                 self.assertEqual(style_for_engine(prompt), prompt)
         self.assertFalse(translation_worker_running())
 
-    def test_unknown_language_is_not_sent(self):
+    def test_language_without_code_is_sent_unchanged(self):
+        # Un idioma que el traductor no conoce (el latín, p. ej.) no corta
+        # la generación: el texto escrito viaja tal cual al motor.
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         path = Path(folder.name) / "map.json"
         path.write_text(json.dumps({"codes": {"en": "eng_Latn"}}), encoding="utf-8")
         settings = AppSettings()
         settings.style_translation.language_map = str(path)
-        with self.assertRaisesRegex(ValueError, "no tiene código"):
-            style_for_engine("Cambia la batería", settings)
+        self.assertEqual(
+            style_for_engine("Cambia la batería", settings), "Cambia la batería"
+        )
+        self.assertFalse(translation_worker_running())
+
+    def test_broken_language_map_still_stops(self):
+        # El mapa ausente o vacío es instalación rota, no un idioma sin código:
+        # eso sigue cortando, para no enviar el estilo sin traducir por accidente.
+        missing = AppSettings()
+        missing.style_translation.language_map = "backend/no-esta-nllb_languages.json"
+        with self.assertRaisesRegex(ValueError, "mapa de idiomas"):
+            style_for_engine("Cambia la batería", missing)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "map.json"
+        path.write_text(json.dumps({"codes": {}}), encoding="utf-8")
+        empty = AppSettings()
+        empty.style_translation.language_map = str(path)
+        with self.assertRaisesRegex(ValueError, "vacío"):
+            style_for_engine("Cambia la batería", empty)
         self.assertFalse(translation_worker_running())
 
 

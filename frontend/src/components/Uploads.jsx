@@ -195,12 +195,12 @@ export default function Uploads({ onChanged }) {
         {/* Cabecera + zona de subida */}
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">AUDIO PROPIO</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">sube una canción: la analizo y tú decides</span>
+          <span className="mono text-[12px] text-[var(--faint)]">remix: arrastra una canción aquí, o haz clic</span>
           <button onClick={refresh} className="btn btn-ghost h-8 px-3 ml-auto"><RefreshCw size={12} /> ACTUALIZAR</button>
         </div>
 
         <div
-          role="button" tabIndex={uploading ? -1 : 0} aria-label="Subir archivo MP3 o WAV" aria-disabled={uploading}
+          role="button" tabIndex={uploading ? -1 : 0} aria-label="Remix: archivo MP3 o WAV" aria-disabled={uploading}
           className={`border border-dashed border-[var(--line-strong)] flex flex-col items-center cursor-pointer hover:border-[var(--acc-line)] transition-colors ${lastAnalysis ? 'py-4 gap-2' : 'py-14 gap-4'}`}
           onClick={() => { if (!uploading) inputRef.current?.click(); }}
           onKeyDown={(e) => {
@@ -229,7 +229,7 @@ export default function Uploads({ onChanged }) {
               <Upload size={22} className="text-[var(--muted)]" />
               <span className="text-[13.5px] text-[var(--muted)] text-center px-4">
                 {lastAnalysis
-                  ? 'Subir otro .mp3 o .wav'
+                  ? 'Remix: otro .mp3 o .wav'
                   : <>Arrastra un <b className="text-zinc-300">.mp3</b> o <b className="text-zinc-300">.wav</b> aquí, o haz clic (máx. 50 MB)</>}
               </span>
             </>
@@ -279,11 +279,11 @@ export default function Uploads({ onChanged }) {
 
         {/* ===== Lista de subidas previas ===== */}
         <div className="flex items-center gap-4">
-          <span className="label">SUBIDAS · {items.length}</span>
+          <span className="label">REMIX · {items.length}</span>
         </div>
         {loading && <p className="mono text-[11px] text-[var(--muted)] animate-pulse py-4">CARGANDO…</p>}
         {!loading && items.length === 0 && (
-          <p className="mono text-[10px] text-[var(--faint)] py-4">AÚN NO HAS SUBIDO NADA.</p>
+          <p className="mono text-[10px] text-[var(--faint)] py-4">NINGÚN REMIX AÚN.</p>
         )}
         <div className="flex flex-col">
           {items.map((item) => (
@@ -367,5 +367,3 @@ export default function Uploads({ onChanged }) {
 
 /* Panel de remix DSP: sliders de tempo/pitch/gain + reverse + fades. */
 /* Panel de re-creación con IA: ahora es RemixIAPanel (compartido con BIBLIOTECA). */
-
-

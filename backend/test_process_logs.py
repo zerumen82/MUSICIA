@@ -50,6 +50,31 @@ class ProcessLogTailTest(unittest.TestCase):
             self.assertNotIn("linea-0000", shown)
             self.assertIn("linea-0049", shown)
 
+    def test_backup_rotation_is_shown_below_the_live_file(self):
+        """ensure_local trunca el vivo al arrancar: la copia .bak se enseña."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            logs = root / "logs"
+            logs.mkdir()
+            (logs / "acestep-api.log").write_text("vivo-uno\nvivo-dos\n", encoding="utf-8")
+            (logs / "acestep-api.log.bak").write_text("sesion-anterior\n", encoding="utf-8")
+            settings = ProcessLogSettings(tail_lines=5, max_tail_lines=10, line_char_budget=50)
+            streams = {item["id"]: item for item in collect_process_logs(settings, root)}
+            engine = streams["engine_stdout"]
+            self.assertEqual(engine["text"], "vivo-uno\nvivo-dos")
+            self.assertTrue(engine["backup_present"])
+            self.assertEqual(engine["backup_text"], "sesion-anterior")
+            self.assertFalse(streams["api_stderr"]["backup_present"])
+            self.assertEqual(streams["api_stderr"]["backup_text"], "")
+
+    def test_a_backup_suffix_outside_the_log_name_is_rejected(self):
+        settings = ProcessLogSettings(backup_suffix="../pepe")
+        with self.assertRaises(ValueError):
+            collect_process_logs(settings, Path("."))
+        settings = ProcessLogSettings(backup_suffix="")
+        with self.assertRaises(ValueError):
+            collect_process_logs(settings, Path("."))
+
     def test_a_path_outside_logs_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

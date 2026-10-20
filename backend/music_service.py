@@ -19,7 +19,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -169,6 +168,7 @@ class MusicService:
         self.defaults: GenerationDefaults = self.settings.generation
         self._client: httpx.AsyncClient | None = None
         self._staged: dict[str, list[str]] = {}
+        self.engine_lifecycle = None
 
     # -- ciclo de vida -------------------------------------------------------
 
@@ -187,38 +187,6 @@ class MusicService:
     def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.engine.api_key}"} if self.engine.api_key else {}
 
-    # -- comprobación de VRAM --------------------------------------------------
-
-    @staticmethod
-    def _vram_free_mb() -> int | None:
-        """Devuelve la VRAM libre de la GPU en MB, o None si no se puede leer."""
-        try:
-            resultado = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if resultado.returncode == 0 and resultado.stdout.strip():
-                return int(resultado.stdout.strip().splitlines()[0])
-        except Exception:
-            pass
-        return None
-
-    @staticmethod
-    def _ensure_vram_disponible(minimo_mb: int = 2048) -> None:
-        """Verifica que haya suficiente VRAM libre antes de enviar al motor.
-
-        Lanza MusicEngineError con un mensaje claro si no, en lugar de
-        fallar a mitad de la generación con un error críptico de CUDA.
-        """
-        libre = MusicService._vram_free_mb()
-        if libre is None:
-            return  # No se pudo leer; deja que el motor intente y falle por su cuenta
-        if libre < minimo_mb:
-            raise MusicEngineError(
-                f"VRAM insuficiente: solo {libre} MB libres, se necesitan al menos "
-                f"{minimo_mb} MB. Cierra otras aplicaciones que usen la GPU o reinicia el "
-                f"motor (scripts\\ensure_local.ps1).")
-
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -229,10 +197,12 @@ class MusicService:
 
     @staticmethod
     def _restart_engine() -> None:
-        """Mata el motor ACE-Step existente y arranca uno limpio para liberar VRAM.
+        """Pide a ensure_local.ps1 recuperar el motor y espera a /health.
 
-        Espera hasta 60 s a que el nuevo motor responda /health antes de
-        retornar, para que el llamador no se encuentre con él todavía caído.
+        El script arranca un motor ausente y conserva uno presente aunque
+        /health tarde mientras trabaja. Espera a que el
+        motor responda /health antes de retornar. Ir en hilo (to_thread)
+        desde los llamadores: puede tardar y no debe bloquear el event loop.
         """
         import subprocess as _subprocess
         import time as _time
@@ -262,23 +232,42 @@ class MusicService:
 
     # -- transporte ----------------------------------------------------------
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+    async def _request(
+        self, method: str, path: str, *, check_alive: bool = True, **kwargs: Any
+    ) -> Any:
         """Petición HTTP al motor, validando su envoltorio {data, code, error}.
 
-        Antes de cada petición comprueba que el motor esté vivo; si no, lo
-        reinicia y espera a que esté listo. Ante ConnectError, reintenta una
-        vez tras reiniciar.
+        Con ``check_alive`` (por defecto) comprueba antes ``/health``: si el
+        motor no responde, lo reinicia en un hilo y espera. Un motor
+        ``busy`` es el estado normal mientras genera (``health`` lo pinta
+        así ante un timeout): no se reinicia, se continúa — matarlo a mitad
+        de tarea corta el trabajo. Los sondeos de ``status`` pasan con
+        ``check_alive=False``: ``_wait_loop`` ya tiene su propia
+        recuperación ante cortes de sondeo. Ante ConnectError, reintenta
+        una vez tras reiniciar.
         """
-        # Asegurar que el motor esté vivo antes de enviar.
-        try:
-            salud = await self.health()
-            if not salud.get("reachable") or salud.get("busy"):
-                logger.warning(f"Motor no reachable o ocupado antes de {path}; reiniciando")
-                self._restart_engine()
+        if self.engine_lifecycle is not None and path in {
+            self.engine.submit_path, self.engine.format_input_path,
+        }:
+            await self.engine_lifecycle.ensure_awake()
+
+        if check_alive:
+            try:
+                salud = await self.health()
+            except Exception as exc:  # noqa: BLE001 - el chequeo es orientativo
+                # Si el propio sondeo falla (transporte raro, servicio sin
+                # arrancar), no se reinicia nada: el error real lo dirá la
+                # petición que viene detrás.
+                logger.warning(f"El chequeo de vida del motor falló ({exc}); se continúa")
+                salud = {"reachable": True}
+            if salud.get("busy"):
+                logger.info(f"Motor ocupado generando antes de {path}; se continúa sin reiniciar")
+            elif not salud.get("reachable"):
+                logger.warning(f"Motor no reachable antes de {path}; reiniciando")
+                # ensure_local puede tardar: en hilo para no bloquear el
+                # event loop (la API dejaría de responder en :8000).
+                await asyncio.to_thread(self._restart_engine)
                 await asyncio.sleep(2)
-        except Exception:
-            self._restart_engine()
-            await asyncio.sleep(2)
 
         ultimo_error = None
         for intento in range(2):
@@ -305,10 +294,12 @@ class MusicService:
                 raise ultimo_error from exc
             except httpx.ConnectError as exc:
                 ultimo_error = exc
-                # Motor caído: reiniciar y reintentar una vez.
+                # Motor caído: reiniciar y reintentar una vez. El reinicio
+                # corre en un hilo: ensure_local puede tardar y el event
+                # loop no se puede bloquear (dejaría la API sin responder).
                 if intento == 0:
                     logger.warning(f"ConnectError en {path}; reiniciando motor y reintentando")
-                    self._restart_engine()
+                    await asyncio.to_thread(self._restart_engine)
                     await asyncio.sleep(3)
                     continue
                 raise MusicEngineError(
@@ -604,7 +595,6 @@ class MusicService:
 
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""
-        self._ensure_vram_disponible()
         payload = self.build_payload(request)
         staged: list[str] = []
         try:
@@ -636,9 +626,15 @@ class MusicService:
         return task_id, str(data.get("status", "queued"))
 
     async def status(self, task_id: str) -> EngineStatus:
-        """Consulta el estado real de una tarea y parsea sus pistas."""
+        """Consulta el estado real de una tarea y parsea sus pistas.
+
+        Sin chequeo de vida previo: el sondeo es el que tolera cortes
+        (``_wait_loop``) y un /health previo en cada sondeo reiniciaba el
+        motor sobre su propia generación.
+        """
         data = await self._request(
-            "POST", self.engine.result_path, json={"task_id_list": [task_id]}
+            "POST", self.engine.result_path, json={"task_id_list": [task_id]},
+            check_alive=False,
         )
         if not data:
             return EngineStatus(task_id=task_id, status=STATUS_PENDING)

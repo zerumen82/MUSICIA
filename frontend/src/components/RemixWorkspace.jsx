@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
-import { ACTIONS, CONVERTING, REPAINT, SCOPE_WHY, SECTIONS, actionWhy, remixBusyLine } from '../remix_sections';
+import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
 import { joinStyleAndTracks } from '../glossary_pick';
 import Glossary from './Glossary';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
@@ -64,6 +64,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [references, setReferences] = useState([]);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState(REMIX_SUBMITTING);
   const [job, setJob] = useState(null);
   const [outputs, setOutputs] = useState([]);
   const [error, setError] = useState(null);
@@ -297,11 +298,11 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     }
     return null;
   };
-  const execute = async (operation) => {
-    setBusy(true); setError(null); setNotice(null); setSolo(null); setJob(null);
+  const execute = async (operation, waitingMessage = REMIX_SUBMITTING) => {
+    setBusy(true); setPendingMessage(waitingMessage); setError(null); setNotice(null); setSolo(null); setJob(null);
     try { await operation(); }
     catch (err) { if (alive.current) setError(actionError(err.message)); }
-    finally { currentJob.current = null; if (alive.current) setBusy(false); }
+    finally { currentJob.current = null; if (alive.current) { setBusy(false); setPendingMessage(REMIX_SUBMITTING); } }
   };
   const separate = () => execute(async () => {
     const started = await api.remixSeparate({ file_name: fileName, source_kind: sourceKind });
@@ -311,7 +312,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     if (!Array.isArray(actual) || !actual.length) throw new Error('La separación terminó sin grupos disponibles');
     setGroups(actual); setActions(Object.fromEntries(actual.map((group) => [group.id, 'keep'])));
     setNotice('Pistas separadas. Escucha cada grupo y elige su acción.');
-  });
+  }, SEPARATION_SUBMITTING);
   const trackPhrase = scope === 'groups'
     ? joinStyleAndTracks(prompt, groups.filter((group) => actions[group.id] === 'transform').map((group) => trackText[group.id] ?? ''))
     : '';
@@ -365,7 +366,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const local = (operation) => execute(async () => {
     const result = await operation();
     if (alive.current) { setOutputs([result.file_name]); setNotice(`Guardado: ${result.file_name}`); onDone?.(result.file_name); }
-  });
+  }, ADJUST_SUBMITTING);
   const voiceBacking = (request) => execute(async () => {
     await api.remixAiPreview(request);
     const started = await api.remixAi(request);
@@ -374,7 +375,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     const variants = done.result?.variants ?? [done.result?.mix].filter(Boolean);
     if (!variants.length) throw new Error('La operación terminó sin variantes de voz y base disponibles');
     setOutputs(variants); setNotice('Voz original y base nueva guardadas. Escucha y compara las variantes.'); onDone?.(variants[0]);
-  });
+  }, VOICE_SUBMITTING);
   const cancel = async () => {
     if (!currentJob.current) return;
     try { await api.cancelJob(currentJob.current); setNotice('Cancelación solicitada. Esperando confirmación.'); }
@@ -400,7 +401,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const scopeWhy = remixing ? (activeScope?.why || SCOPE_WHY[scope]) : actionWhy(action);
   const phase = deskPhase(job?.phase, '');
   const ratio = job?.progress_ratio;
-  const spoken = remixBusyLine(phase, action, ratio);
+  const spoken = remixBusyLine(phase, action, ratio, !!job, pendingMessage);
   const busyLine = spoken || job?.error || 'La operación no se completó';
   const percent = movingPercent(phase, ratio);
   const comparisonTracks = useMemo(() => [{ id: 'original', label: 'ORIGINAL', url: originalUrl, duration },
@@ -513,7 +514,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </div>
       <RemixPanel fileName={fileName} sourceKind={sourceKind} nudgeStep={nudgeStep} busy={busy} onRun={(params) => local(() => api.remix({ file_name: fileName, source_kind: sourceKind, ...params }))} />
     </div>}
-    {busy && <div aria-live="polite" className="flex items-center gap-3">
+    {busy && <div role="status" aria-live="polite" className="flex items-center gap-3">
+      <Loader2 size={14} className="animate-spin shrink-0" aria-hidden="true" />
       <p className="text-[13px]">{busyLine}</p>
       {percent != null && <>
         <progress className="flex-1 min-w-[120px]" max="1" value={ratio} />
@@ -565,4 +567,3 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     </div>}
   </div>;
 }
-

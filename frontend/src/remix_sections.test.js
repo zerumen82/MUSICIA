@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIONS, CONVERTING, REPAINT, SCOPE_BUSY, SCOPE_WHY, SECTIONS, actionWhy, remixBusyLine } from './remix_sections.js';
+import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_BUSY, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from './remix_sections.js';
 
 test('un desplegable elige la acción', () => {
   assert.deepEqual(ACTIONS.map((item) => item.id), ['full', 'region', 'groups', 'voice', 'adjust']);
@@ -23,6 +23,11 @@ test('los títulos de sección no cambian: las sondas los pulsan', () => {
 });
 
 test('la línea de trabajo dice el ámbito y, al 100 %, la conversión', () => {
+  assert.equal(remixBusyLine('', 'voice', null, false), REMIX_SUBMITTING);
+  assert.equal(remixBusyLine('', 'groups', null, false, SEPARATION_SUBMITTING), SEPARATION_SUBMITTING);
+  assert.equal(remixBusyLine('', 'adjust', null, false, ADJUST_SUBMITTING), ADJUST_SUBMITTING);
+  assert.equal(remixBusyLine('', 'voice', null, false, VOICE_SUBMITTING), VOICE_SUBMITTING);
+  assert.equal(remixBusyLine('', 'voice', null), SCOPE_BUSY.voice);
   assert.equal(remixBusyLine('Rehaciendo el audio', 'full', 0.4), SCOPE_BUSY.full);
   assert.equal(remixBusyLine('Rehaciendo el audio', 'region', 0.2), SCOPE_BUSY.region);
   assert.equal(remixBusyLine('Rehaciendo el audio', 'full', 1), CONVERTING);

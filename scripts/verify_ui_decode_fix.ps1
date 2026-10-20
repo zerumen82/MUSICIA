@@ -38,8 +38,8 @@ $oldProbeApi = $env:MUSICIA_API_URL
 $oldProbeTimeout = $env:MUSICIA_PROBE_TIMEOUT_MS
 $env:TEMP = $testTemp
 $env:TMP = $testTemp
-$backendPython = Join-Path $projectRoot 'backend\venv\Scripts\python.exe'
-$enginePython = Join-Path $projectRoot 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe'
+$backend = Join-Path $projectRoot 'backend'
+$backendPython = Join-Path $backend 'venv\Scripts\python.exe'
 $electronExe = Join-Path $projectRoot 'frontend\node_modules\electron\dist\electron.exe'
 $report = [ordered]@{ status='RUNNING'; started_at=(Get-Date).ToString('o'); checks=@(); evidence=$runDir }
 
@@ -158,10 +158,23 @@ try {
         $report.frontend_checks = 'Skipped by explicit runner option; use separate recorded lint/build/Node evidence'
     }
     Check-Native 'backend' $backendPython @('-m','unittest','discover','-p','test_*.py') (Join-Path $projectRoot 'backend')
+    $enginePythonLines = & $backendPython -c "import sys; sys.path.insert(0, r'$backend'); from config import get_settings; print(get_settings().acestep.python_path)"
+    if ($LASTEXITCODE -ne 0 -or -not $enginePythonLines) {
+        throw 'Could not read the configured engine Python executable'
+    }
+    $enginePython = [string](@($enginePythonLines) | Select-Object -Last 1)
+    $enginePython = $enginePython.Trim()
+    if (-not [System.IO.Path]::IsPathRooted($enginePython)) {
+        $enginePython = Join-Path $projectRoot $enginePython
+    }
+    if (-not (Test-Path -LiteralPath $enginePython -PathType Leaf)) {
+        throw "Configured engine Python executable is missing: $enginePython"
+    }
     Check-Native 'vae-patch' $enginePython @('-m','unittest','scripts.test_acestep_vae_patch','-v') $projectRoot
     # Inline PowerShell avoids a native stdout pipeline inherited by the
     # detached services. Stop only our previous runner, never its children.
     $startLog = Join-Path $runDir 'start-musicia.log'
+    Remove-Item (Join-Path $projectRoot 'logs\stop.flag') -Force -ErrorAction SilentlyContinue
     & (Join-Path $PSScriptRoot 'ensure_local.ps1') -Rearme *> $startLog
     $startSucceeded = $?
     $report.checks += @{ name='start-musicia'; command=(Join-Path $PSScriptRoot 'ensure_local.ps1'); arguments=@('-Rearme'); exit_code=([int](-not $startSucceeded)); log=$startLog }

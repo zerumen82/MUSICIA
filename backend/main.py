@@ -21,11 +21,8 @@ import json
 import mimetypes
 import os
 import re
-import signal
-import socket
 import subprocess
 import time
-import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
@@ -41,6 +38,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from config import BACKEND_DIR, PROJECT_ROOT, get_settings
+from engine_lifecycle import EngineLifecycle, EngineLifecycleMiddleware
 from process_logs import collect_process_logs
 from audio_analysis import analyze_audio, detect_groove
 from audio_service import (
@@ -83,6 +81,67 @@ from source_understanding import active_analysis, register_source_understanding
 settings = get_settings()
 music = MusicService(settings)
 
+
+async def _engine_control(action: str) -> str:
+    """Use the supervisor's PID-verified lifecycle controls."""
+    script = PROJECT_ROOT / "scripts" / "ensure_local.ps1"
+    timeout = settings.acestep.lifecycle_stop_timeout_seconds
+    if action == "WakeEngine":
+        timeout = settings.acestep.lifecycle_start_timeout_seconds
+    command = [
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(script), f"-{action}",
+    ]
+    if action in {"WakeEngine", "IdleEngine"}:
+        command += [
+            "-StartTimeoutSeconds" if action == "WakeEngine" else "-StopTimeoutSeconds",
+            str(max(1, int(timeout))),
+        ]
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run, command, capture_output=True, text=True,
+            timeout=max(30, timeout + 30),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"ensure_local {action} failed: {exc}") from exc
+    if result.returncode:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(f"ensure_local {action} exited {result.returncode}: {detail}")
+    return result.stdout.strip()
+
+
+async def _reconcile_engine_lifecycle() -> None:
+    """Adopt process state only after the supervisor verifies its ownership."""
+    response = await _engine_control("InspectEngine")
+    try:
+        status = json.loads(response)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"ensure_local InspectEngine returned invalid JSON: {response}") from exc
+    if not isinstance(status, dict):
+        raise RuntimeError("ensure_local InspectEngine returned an invalid status")
+    engine_lifecycle.reconcile(
+        str(status.get("state") or ""),
+        str(status["error"]) if status.get("error") else None,
+    )
+
+
+async def _wake_engine() -> str:
+    """Despierta (o relanza) el motor verificado antes de una operación real."""
+    return await _engine_control("WakeEngine")
+
+
+async def _idle_engine() -> str:
+    """Reposo del motor al terminar la última operación admitida (R18)."""
+    return await _engine_control("IdleEngine")
+
+
+engine_lifecycle = EngineLifecycle(
+    enabled=True,
+    wake=_wake_engine,
+    pause=_idle_engine,
+)
+music.engine_lifecycle = engine_lifecycle
+
 # Seguimiento de generaciones en curso. El motor es quien decide el estado real;
 # aquí solo guardamos la salida descargada y los datos de la tarea.
 jobs: dict[str, dict[str, Any]] = {}
@@ -95,12 +154,34 @@ _ADMIT_GENERATION = asyncio.Lock()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _load_history()
     await music.start()
+    engine_lifecycle.activate()
+    app.state.engine_lifecycle = engine_lifecycle
+    try:
+        await _reconcile_engine_lifecycle()
+    except Exception as exc:
+        engine_lifecycle.report_error(f"Startup engine reconciliation failed: {exc}")
+        logger.error(engine_lifecycle.error)
     logger.info("Musicia API lista | motor ACE-Step: " + settings.acestep.base_url)
-    yield
-    await music.aclose()
+    try:
+        yield
+    finally:
+        engine_lifecycle.deactivate()
+        await music.aclose()
 
 
 app = FastAPI(title="Musicia API", lifespan=lifespan)
+ENGINE_OPERATION_PATHS = (
+    "/audio/remix/ai",
+    "/music/generate",
+    "/music/remix/analyze",
+    "/music/remix/project",
+    "/music/write_lyrics",
+)
+app.add_middleware(
+    EngineLifecycleMiddleware,
+    lifecycle=engine_lifecycle,
+    paths=ENGINE_OPERATION_PATHS,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -705,11 +786,46 @@ async def root() -> dict[str, Any]:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Estado real del motor: si no responde, lo decimos claramente."""
-    engine_status = await music.health()
+    if engine_lifecycle.active and engine_lifecycle.state == "reconciling":
+        try:
+            await _reconcile_engine_lifecycle()
+        except Exception as exc:
+            engine_lifecycle.report_error(f"Engine state reconciliation failed: {exc}")
+            logger.error(engine_lifecycle.error)
+    idle = engine_lifecycle.active and engine_lifecycle.state == "idle"
+    engine_status = (
+        {"reachable": False, "idle": True}
+        if idle else await music.health()
+    )
+    if (
+        engine_lifecycle.active
+        and engine_lifecycle.state == "starting"
+        and engine_lifecycle.operation_count == 0
+        and engine_status.get("reachable")
+    ):
+        engine_lifecycle.reconcile("awake")
+    elif (
+        engine_lifecycle.active
+        and engine_lifecycle.state in {"awake", "starting"}
+        and engine_lifecycle.operation_count == 0
+        and not engine_status.get("reachable")
+    ):
+        try:
+            await _reconcile_engine_lifecycle()
+        except Exception as exc:
+            engine_lifecycle.report_error(f"Engine state reconciliation failed: {exc}")
+            logger.error(engine_lifecycle.error)
+        if engine_lifecycle.state == "idle":
+            engine_status = {"reachable": False, "idle": True}
     return {
         "api": "ok",
         "engine_url": settings.acestep.base_url,
         "engine": engine_status,
+        "engine_lifecycle": {
+            "state": engine_lifecycle.state,
+            "error": engine_lifecycle.error,
+            "active_operations": engine_lifecycle.operation_count,
+        },
     }
 
 
@@ -1111,6 +1227,7 @@ async def audio_remix_ai(request: AiRemixRequest, background_tasks: BackgroundTa
     source, groove, prepared = await _prepare_ai_preview(request)
     if (busy := _gpu_busy()):
         raise HTTPException(status_code=409, detail=busy)
+    await engine_lifecycle.ensure_awake()
     health = await music.health()
     if not health.get("reachable"):
         raise HTTPException(
@@ -1344,7 +1461,20 @@ async def _run_ai_remix(
             _throw_if_cancelled(job)
             prev = job.get("engine_phase") or ""
             job["engine_progress"] = status.progress
-            job["progress_ratio"] = status.moving_progress()
+            ratio = status.moving_progress()
+            # Si el motor no da moving_progress (None o congelado en 0.8),
+            # intentar extraer progreso real de progress_text (ej. "Sampling 12/50").
+            if ratio is None or ratio >= 1.0:
+                text = (status.progress_text or status.stage or "").strip()
+                m = re.search(r'(\d+)\s*/\s*(\d+)', text)
+                if m:
+                    try:
+                        n, d = int(m.group(1)), int(m.group(2))
+                        if d > 0 and 0 < n <= d:
+                            ratio = n / d
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            job["progress_ratio"] = ratio
             text = (status.progress_text or status.stage or "").strip()
             job["engine_phase"] = text
             # La UI pinta `phase`. Un corte del sondeo no puede dejarla en Error.
@@ -1590,6 +1720,38 @@ async def music_models() -> dict[str, Any]:
     No cambia el modelo. Cargar otro descargaría el turbo y, con el XL o el
     base, puede no caber en 8 GB.
     """
+    if engine_lifecycle.active:
+        state = engine_lifecycle.state
+        if state != "awake":
+            return _idle_model_status(state)
+        async with engine_lifecycle.operation():
+            if engine_lifecycle.state != "awake":
+                return _idle_model_status(engine_lifecycle.state)
+            return await _read_engine_models()
+    return await _read_engine_models()
+
+
+def _idle_model_status(state: str) -> dict[str, Any]:
+    idle = state == "idle"
+    return {
+        "configured": settings.generation.model,
+        "allowed": list(settings.generation.allowed_models),
+        "remix_model": settings.generation.remix_model,
+        "loaded": None,
+        "loaded_lm": None,
+        "available": [],
+        "vram_free_mb": None,
+        "error": engine_lifecycle.error,
+        "idle": idle,
+        "lifecycle_state": state,
+        "note": (
+            "El motor está en reposo; la siguiente operación lo iniciará."
+            if idle else "El motor está cambiando de estado."
+        ),
+    }
+
+
+async def _read_engine_models() -> dict[str, Any]:
     configured = settings.generation.model
     allowed = list(settings.generation.allowed_models)
     available: list[str] = []
@@ -1717,6 +1879,7 @@ async def generate_music(
         _remember(jobs, job_id, job)
         _save_history()
     try:
+        await engine_lifecycle.ensure_awake()
         health = await music.health()
         if not health.get("reachable"):
             raise HTTPException(
@@ -1818,6 +1981,15 @@ _SEPARATE_KEPT = (
     "job_id", "status", "phase", "source", "prompt", "device", "vocals",
     "base", "created_at", "completed_at", "elapsed_seconds", "error", "result", "source_digest", "source_kind",
 )
+
+
+def _job_uses_motor(job: dict[str, Any], store: str) -> bool:
+    """Indica si cancelar este trabajo dependerá de la lease ACE-Step activa."""
+    if store in {"music", "remix"} and "engine_active" in job:
+        return job.get("status") in _GPU_ACTIVE and bool(job.get("engine_active"))
+    if job.get("status") != "running" or store == "separate":
+        return False
+    return not (store == "remix" and str(job.get("phase") or "").startswith("Separando"))
 
 
 def _throw_if_cancelled(job: dict[str, Any]) -> None:
@@ -1999,97 +2171,11 @@ def _library_version() -> str:
     return _audio_list_version(settings.outputs_dir, {".mp3"})
 
 
-def _job_uses_motor(job: dict[str, Any], store: str) -> bool:
-    """¿Merece la pena matar el motor al cancelar? Solo si estaba trabajando:
-    una generación en marcha sí; una separación (demucs local) o algo aún en
-    cola, no. Un remix separando la voz tampoco: el motor sigue libre."""
-    if store in {"music", "remix"} and "engine_active" in job:
-        return job.get("status") in _GPU_ACTIVE and bool(job.get("engine_active"))
-    if job.get("status") != "running":
-        return False
-    if store == "separate":
-        return False
-    if store == "remix" and str(job.get("phase") or "").startswith("Separando"):
-        return False
-    return True
-
-
-def _motor_pid_on_port(port: int) -> int | None:
-    """PID escuchando en el puerto (stdlib: netstat). None si no hay nadie."""
-    try:
-        proc = subprocess.run(
-            ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=15,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    for line in proc.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 5 or parts[0] != "TCP" or parts[3] != "LISTENING":
-            continue
-        host_port = parts[1].rsplit(":", 1)
-        if len(host_port) != 2 or host_port[1] != str(port):
-            continue
-        try:
-            return int(parts[4])
-        except ValueError:
-            continue
-    return None
-
-
-def _port_is_free(port: int) -> bool:
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.settimeout(1.0)
-    try:
-        probe.connect(("127.0.0.1", port))
-        return False
-    except OSError:
-        return True
-    finally:
-        probe.close()
-
-
-async def _restart_engine_after_cancel() -> str:
-    """Mata el proceso del motor y pide su rearranque con ensure_local
-    (el script ya sabe no duplicar y respetar HOLD de SALIR). Devuelve la
-    nota honesta para el job: recargar el modelo tarda minutos."""
-    try:
-        port = urllib.parse.urlsplit(settings.acestep.base_url).port or 8001
-    except ValueError:
-        port = 8001
-    pid = await asyncio.to_thread(_motor_pid_on_port, port)
-    if pid is None:
-        note = "El motor ya no estaba corriendo."
-    else:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError as exc:
-            return f"No se pudo parar el motor (PID {pid}): {exc}"
-        for _ in range(20):
-            if await asyncio.to_thread(_port_is_free, port):
-                break
-            await asyncio.sleep(0.5)
-        note = f"Motor parado (PID {pid})."
-    script = PROJECT_ROOT / "scripts" / "ensure_local.ps1"
-    try:
-        subprocess.Popen(  # noqa: S603,S607 - script propio del proyecto, ruta fija
-            ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script)],
-            cwd=str(PROJECT_ROOT),
-            stdout=open(PROJECT_ROOT / "logs" / "ensure-relaunch.log", "a", encoding="utf-8"),
-            stderr=subprocess.STDOUT,
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
-        )
-        note += " Rearranque pedido: si no vuelve solo, reabre Musicia."
-    except OSError as exc:
-        note += f" No se pudo pedir el rearranque: {exc}"
-    logger.info(f"Motor reiniciado tras cancelar: {note}")
-    return note
-
-
 @app.post("/music/jobs/{job_id}/cancel")
 async def cancel_job(job_id: str) -> dict[str, Any]:
     """Para un trabajo en curso (spec/02 [Q2]): se suelta sin descargar nada.
-    El motor no sabe cancelar: si estaba trabajando se mata su proceso y se
-    relanza (recargar el modelo tarda minutos); si no, solo se marca."""
+    El motor no ofrece cancelación de tarea; la lease detiene el proceso
+    propio cuando la operación cancelada deja de sondear y no hay otra activa."""
     for store_name, store in (("music", jobs), ("remix", remix_jobs), ("separate", separate_jobs)):
         if job_id in store:
             job = store[job_id]
@@ -2098,11 +2184,13 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Ese trabajo no existe")
     if job.get("status") not in _GPU_ACTIVE:
         raise HTTPException(status_code=409, detail="El trabajo ya terminó")
+    engine_was_active = _job_uses_motor(job, store_name)
     job["cancelled"] = True
-    note = ""
-    if _job_uses_motor(job, store_name):
-        note = await _restart_engine_after_cancel()
-    error = CANCELLED_MESSAGE + (f" {note}" if note else "")
+    note = (
+        "El motor se detendrá al cerrar la operación activa."
+        if engine_was_active else "No había una tarea ACE-Step activa."
+    )
+    error = CANCELLED_MESSAGE
     job.update(status="failed", phase="Cancelado", error=error, completed_at=_now())
     _save_history()
     logger.info(f"Trabajo {job_id[:8]} cancelado ({store_name}){': ' + note if note else ''}")
@@ -2592,6 +2680,7 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
             ),
         }
 
+    await engine_lifecycle.ensure_awake()
     health = await music.health()
     if not health.get("reachable"):
         raise HTTPException(
@@ -2736,8 +2825,10 @@ _remix_runtime = RemixProjectRuntime(
     app, music, settings, remix_jobs, separate_jobs, _find_audio, _gpu_busy,
     _remember, _public_side_job, _push_event, _save_history, _unique_output_path,
     _safe_name, _carry_ficha, _measure_bpm, _now, _throw_if_cancelled,
+    lifecycle=engine_lifecycle,
 )
-register_source_understanding(app, music, settings, _find_audio, _gpu_busy)
+register_source_understanding(app, music, settings, _find_audio, _gpu_busy,
+                              lifecycle=engine_lifecycle)
 if _DIST.is_dir():
     app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="ui")
     logger.info(f"UI de escritorio servida desde {_DIST}")

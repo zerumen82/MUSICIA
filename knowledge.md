@@ -4,6 +4,8 @@ Aplicación de escritorio para crear, mezclar y remixar música en el PC del usu
 
 ## Estado vigente (2026-10-15)
 
+**Actualización de estabilidad, 2026-10-18**: Python del motor `.venv311` (3.11), arranque directo del modelo/LM configurados y offload CPU configurable para 8 GB. El supervisor no mata un motor presente por timeout de health. NumPy instalado y declarado; PCM vectorizado con vistas. El ensanchamiento por repetición no sustituye una continuación R17. Pruebas y límites de esta corrección en las últimas entradas de memory; R18 de liberación automática es todavía un plan pendiente. Los apartados siguientes conservan el contexto funcional fechado y no acreditan cierres nuevos.
+
 - **B7, obediencia (memory CXLI y CXLII)**: ninguna opción de QUÉ HACER ni de CREAR garantiza que el audio sea lo pedido. Rehacer la canción y cambiar un trozo siguen el texto con el peso del original. Por pistas, conservar deja esa grabación y quitar la saca. Si solo una pista está en transformar, esa pista monta la generación sin doblar la voz conservada y sin devolver lo quitado; el cuerpo que el separador archiva en otro grupo se queda ahí. Si varias pistas se transforman con la misma ganancia, la mezcla usa una sola base: la generación menos la voz nueva, si se conserva, y menos lo quitado; el golpe archivado fuera de su grupo se queda. Si las ganancias no coinciden, cada pista sigue saliendo de su stem. Dejar la voz crea música nueva debajo de la voz grabada. Ajustar tempo, tono, recorte o loop no genera estilo. En CREAR el cuadro viaja tal cual; Género, Añadir, Variantes y Glosario arman «A track with … · …»; el mood en español no se envía. Una etiqueta o esa lista no fija el estilo. Falta oír un remix rehecho y pistas nuevas de Crear.
 
 - **B6 en corrección (memory CXXXIII)**: «continua» y aprobación explícita de ajuste DSP en canción completa. Se corrigen octava del detector, BPM original revisable y mínimo de duración; cada variante full se medirá y ajustará sin cambiar el tono antes del arreglo. Tramo conserva BPM orientativo. El 2026-10-15 (memory CLI) Por pistas con BPM pedido mide la mezcla, aplica un solo atempo solo fuera de la tolerancia y no publica un groove incierto. Todavía sin PASS/APPROVE final de B6; el diagnóstico y los cierres anteriores se mantienen como historia.
@@ -28,7 +30,7 @@ La corrección de entrega de `memory.md` CL conserva recibos verificables del lo
 |---|---|---|
 | Electron | `frontend/main.cjs` | — |
 | API/UI | `backend/venv` (Python 3.10 del equipo) | 8000 |
-| ACE-Step | `vendor/ACE-Step-1.5/.venv` (Python 3.12 del equipo) | 8001 |
+| ACE-Step | `vendor/ACE-Step-1.5/.venv311` (Python 3.11 del equipo; ruta configurable) | 8001 |
 | Demucs | `backend/demucs-venv` | invocado por API |
 
 Arranque con ventana: `scripts/open_musicia.ps1`. Solo servicios: `scripts/start_local.ps1`. Parada: `scripts/stop_local.ps1`. Humo real: `scripts/verify_e2e.ps1`.

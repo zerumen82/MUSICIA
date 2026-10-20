@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Clipboard } from 'lucide-react';
 import { api, actionError, JOB_POLL_INTERVAL_MS } from '../api';
+import { currentProcessLogStreams } from '../process_log_view';
 
 const LABELS = {
   engine_stdout: 'Salida del motor',
@@ -21,7 +22,7 @@ export default function ProcessLogs({ open, onClose }) {
       try {
         const data = await api.processLogs();
         if (!active) return;
-        setStreams(data.streams ?? []);
+        setStreams(currentProcessLogStreams(data.streams ?? []));
         setError('');
       } catch (failure) {
         if (active) setError(actionError(failure.message) ?? '');
@@ -62,7 +63,7 @@ export default function ProcessLogs({ open, onClose }) {
         className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-[var(--surface)] border border-[var(--line)] p-5 flex flex-col gap-4"
         onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[13px] text-[var(--text)]">Salida y error, tal como se escribieron.</p>
+          <p className="text-[13px] text-[var(--text)]">Salida y error de la ejecución actual.</p>
           <button type="button" onClick={onClose} className="btn btn-ghost h-8 px-3">CERRAR</button>
         </div>
         {error && <p role="alert" className="mono text-[11px] st-err">{error}</p>}

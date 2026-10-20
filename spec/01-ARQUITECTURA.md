@@ -10,12 +10,14 @@ Electron (frontend/main.cjs)
 FastAPI (backend/venv, Python 3.10 del equipo)
     → sirve frontend/dist en /
     → HTTP local al motor ACE-Step 1.5 :8001
-        vendor/ACE-Step-1.5/.venv (Python 3.12, torch)
+        vendor/ACE-Step-1.5/.venv311 (Python 3.11, torch cu128)
     → proceso Demucs en backend/demucs-venv
     → ffmpeg/ffprobe y archivos locales
 ```
 
 La GPU verificada es RTX 3060 Ti de 8 GB. El perfil aprobado usa SFT en toda la app, 50 pasos/guidance 9/batch 2, LM 0.6B, `thinking` y `use_format` apagados; configuración y valores explícitos de la petición determinan los parámetros efectivos. No hay instalaciones nuevas en R9/R10. Generación, separación y análisis se coordinan para evitar solapamientos de GPU.
+
+Actualización de estabilidad del 2026-10-18: `engine_launch_config` deriva Python, modelo inicial, LM, backend, timeout y offload de la misma configuración de la API; los lanzadores no cargan Turbo antes de SFT. `acestep.offload_to_cpu`, `offload_dit_to_cpu` y `lm_offload_to_cpu` están activados para el perfil de 8 GB y se pueden configurar. El supervisor periódico preserva un motor con proceso presente o puerto abierto aunque `/health` tarde; un bloqueo real requiere rearme explícito. NumPy es dependencia del backend para DSP vectorizado. El entorno `.venv` anterior se conserva como alternativa configurable. La liberación automática por trabajo es el plan R18 pendiente de aprobación, no una capacidad implementada.
 
 El arranque local aplica `scripts/patches/acestep_vae_cpu_dtype.patch` mediante `scripts/apply_acestep_patches.py` antes de importar un motor ausente. El parche usa la política CPU del VAE para convertir modelo y latentes, y restaura dispositivo y dtype incluso tras error; no cambia el perfil de generación. El aplicador acepta bloques originales o ya corregidos, conserva saltos de línea, escribe de forma atómica y rechaza implementaciones desconocidas. Un motor presente no se modifica. Esto permite reproducir la corrección pese a que `vendor/` no se versiona. Réplica CPU y UI/CREAR verificadas con PASS/APPROVE en memory CXVII; no equivalen al cierre R9/R10 entero.
 

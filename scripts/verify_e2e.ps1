@@ -58,15 +58,31 @@ if (-not (Test-Endpoint 'http://127.0.0.1:8001/health')) {
         exit 1
     }
     $backend = Join-Path $raiz 'backend'
-    & (Join-Path $backend 'venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'apply_acestep_patches.py')
+    $backendPython = Join-Path $backend 'venv\Scripts\python.exe'
+    $engineLaunchLines = & $backendPython -c "import sys,json; sys.path.insert(0, r'$backend'); from config import engine_launch_config; print(json.dumps(engine_launch_config()))"
+    if ($LASTEXITCODE -ne 0 -or -not $engineLaunchLines) {
+        Write-Host '   no se pudo leer el Python configurado del motor'
+        exit 1
+    }
+    $engineLaunch = ([string](@($engineLaunchLines) | Select-Object -Last 1)) | ConvertFrom-Json -ErrorAction Stop
+    $enginePython = ([string]$engineLaunch.python_path).Trim()
+    if (-not $enginePython -or -not $engineLaunch.environment) {
+        Write-Host '   configuracion de arranque incompleta'
+        exit 1
+    }
+    if (-not [System.IO.Path]::IsPathRooted($enginePython)) {
+        $enginePython = Join-Path $raiz $enginePython
+    }
+    if (-not (Test-Path -LiteralPath $enginePython -PathType Leaf)) {
+        Write-Host "   falta el Python configurado del motor: $enginePython"
+        exit 1
+    }
+    & $backendPython (Join-Path $PSScriptRoot 'apply_acestep_patches.py')
     if ($LASTEXITCODE -ne 0) { Write-Host '   correccion del motor no aplicable'; exit 1 }
-    $topeLineas = & (Join-Path $backend 'venv\Scripts\python.exe') -c "import sys; sys.path.insert(0, r'$backend'); from config import engine_launch_timeout_seconds; print(engine_launch_timeout_seconds())"
-    $tope = @($topeLineas) | Where-Object { "$_" -match '^\d+$' } | Select-Object -Last 1
-    if (-not $tope) { Write-Host '   no se pudo leer el tiempo de generacion'; exit 1 }
-    $env:ACESTEP_GENERATION_TIMEOUT = "$tope"
-    $env:ACESTEP_LM_BACKEND = 'pt'
-    $env:ACESTEP_ON_DEMAND_MODEL_LOAD = 'true'
-    Start-Process -FilePath (Join-Path $raiz 'vendor\ACE-Step-1.5\.venv\Scripts\python.exe') `
+    foreach ($setting in $engineLaunch.environment.PSObject.Properties) {
+        [Environment]::SetEnvironmentVariable($setting.Name, [string]$setting.Value, 'Process')
+    }
+    Start-Process -FilePath $enginePython `
         -ArgumentList '-m', 'acestep.api_server' `
         -WorkingDirectory (Join-Path $raiz 'vendor\ACE-Step-1.5') `
         -RedirectStandardOutput (Join-Path $logs 'acestep-api.log') `

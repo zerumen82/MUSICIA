@@ -37,6 +37,7 @@ DEFAULT_CONFIG_FILE = BACKEND_DIR / "config.json"
 class AcestepSettings:
     """Conexión con el motor local ACE-Step 1.5 (proceso separado en :8001)."""
 
+    python_path: str = "vendor/ACE-Step-1.5/.venv311/Scripts/python.exe"
     base_url: str = "http://127.0.0.1:8001"
     health_path: str = "/health"
     submit_path: str = "/release_task"
@@ -54,6 +55,15 @@ class AcestepSettings:
     # El motor trae 600 s. Con SFT, 50 pasos y batch 2, un original de 81 s
     # llegó al paso 49 y la UI mostró «sin audio válido» (2026-10-13).
     job_timeout: float = 1800.0
+    lifecycle_start_timeout_seconds: float = 300.0
+    lifecycle_stop_timeout_seconds: float = 15.0
+    # Perfil de 8 GB: el servidor REST no debe fijar el DiT en CUDA por
+    # sus defaults de arranque; también descarga VAE/texto y LM a CPU.
+    # offload_dit_to_cpu se mantiene en False para no descargar el DiT a CPU
+    # tras la difusión, permitiendo que la decodificación VAE sea rápida y estable.
+    offload_to_cpu: bool = True
+    offload_dit_to_cpu: bool = False
+    lm_offload_to_cpu: bool = True
     api_key: str | None = None
 
     def endpoint(self, path: str) -> str:
@@ -293,7 +303,7 @@ class StyleTranslationSettings:
     model_id: str = "facebook/nllb-200-distilled-600M"
     target_lang: str = "eng_Latn"
     device: str = "cpu"
-    python_path: str = "vendor/ACE-Step-1.5/.venv/Scripts/python.exe"
+    python_path: str = "vendor/ACE-Step-1.5/.venv311/Scripts/python.exe"
     worker_script: str = "backend/style_translator_worker.py"
     language_map: str = "backend/nllb_languages.json"
     # «batería» salió battery y «bombo» salió bumper el 2026-10-16.
@@ -331,11 +341,15 @@ class ProcessLogSettings:
 
     tail_lines es lo que se enseña. line_char_budget acota la lectura de un
     fichero largo. max_tail_lines impide pedir el registro entero.
+    backup_suffix señala la copia rotada que ensure_local.ps1 crea al
+    arrancar un proceso: el panel la enseña debajo del vivo para que un
+    reinicio no borre lo que se estaba mirando.
     """
 
     engine_stdout: str = "logs/acestep-api.log"
     engine_stderr: str = "logs/acestep-api.err.log"
     api_stderr: str = "logs/musicia-api.err.log"
+    backup_suffix: str = ".bak"
     tail_lines: int = 200
     max_tail_lines: int = 2000
     line_char_budget: int = 400
@@ -472,6 +486,33 @@ def engine_launch_timeout_seconds(settings: AppSettings | None = None) -> int:
     """
     chosen = settings or get_settings()
     return max(1, int(chosen.acestep.job_timeout))
+
+
+def engine_launch_config(settings: AppSettings | None = None) -> dict:
+    """Perfil efectivo que el supervisor exporta al iniciar el motor local.
+
+    El modelo principal, LM y offload se fijan antes de cargar pesos para
+    evitar una carga inicial distinta de la configuración de Musicia.
+    """
+    chosen = settings or get_settings()
+    engine, generation = chosen.acestep, chosen.generation
+    return {
+        "python_path": engine.python_path,
+        "lifecycle": {
+            "start_timeout_seconds": max(1, int(engine.lifecycle_start_timeout_seconds)),
+            "stop_timeout_seconds": max(1, int(engine.lifecycle_stop_timeout_seconds)),
+        },
+        "environment": {
+            "ACESTEP_CONFIG_PATH": generation.model,
+            "ACESTEP_LM_MODEL_PATH": generation.lm_model,
+            "ACESTEP_LM_BACKEND": generation.lm_backend,
+            "ACESTEP_GENERATION_TIMEOUT": str(engine_launch_timeout_seconds(chosen)),
+            "ACESTEP_ON_DEMAND_MODEL_LOAD": "true",
+            "ACESTEP_OFFLOAD_TO_CPU": str(engine.offload_to_cpu).lower(),
+            "ACESTEP_OFFLOAD_DIT_TO_CPU": str(engine.offload_dit_to_cpu).lower(),
+            "ACESTEP_LM_OFFLOAD_TO_CPU": str(engine.lm_offload_to_cpu).lower(),
+        },
+    }
 
 
 def build_settings() -> AppSettings:

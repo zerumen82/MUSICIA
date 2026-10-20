@@ -243,18 +243,17 @@ class AdmissionCancellationTest(unittest.TestCase):
                     patch.object(main, "HISTORY_FILE", Path(folder) / "history.json"), \
                     patch.object(main.music, "wait", new=wait), patch.object(main.music, "download", new=download), \
                     patch.object(main.music, "verify_audio", new=AsyncMock(return_value=1000)), \
-                    patch.object(main, "_measure_bpm", new=measure), \
-                    patch.object(main, "_restart_engine_after_cancel", new=AsyncMock(return_value="test restart")) as restart:
+                    patch.object(main, "_measure_bpm", new=measure):
                 task = asyncio.create_task(main._finalize_generation(job["job_id"]))
                 await entered.wait()
                 try:
                     self.assertTrue(job["compute_active"])
                     self.assertEqual(job["engine_active"], phase == "wait")
                     await main.cancel_job(job["job_id"])
+                    self.assertEqual(job["status"], "failed")
                     with self.assertRaises(HTTPException) as caught:
                         await main.generate_music(main.MusicGenRequest(prompt="techno"), BackgroundTasks())
                     self.assertEqual(caught.exception.status_code, 409)
-                    self.assertEqual(restart.await_count, 1 if phase == "wait" else 0)
                 finally:
                     release.set()
                     threaded_release.set()
@@ -313,15 +312,13 @@ class AdmissionCancellationTest(unittest.TestCase):
                    "engine_active": False, "phase": "Separando voz"}
             with patch.object(main, "jobs", {}), patch.object(main, "separate_jobs", {}), \
                     patch.object(main, "remix_jobs", {"cleanup": job}), \
-                    patch.object(main, "HISTORY_FILE", Path(folder) / "history.json"), \
-                    patch.object(main, "_restart_engine_after_cancel", new=AsyncMock()) as restart:
+                    patch.object(main, "HISTORY_FILE", Path(folder) / "history.json"):
                 client = TestClient(main.app)
                 cancelled = client.post("/music/jobs/cleanup/cancel")
                 self.assertEqual(cancelled.status_code, 200)
                 self.assertEqual(job["status"], "failed")
                 blocked = client.post("/music/generate", json={"prompt": "techno"})
                 self.assertEqual(blocked.status_code, 409)
-                restart.assert_not_awaited()
                 self.assertEqual(main.jobs, {})
                 job["compute_active"] = False
                 self.assertIsNone(main._gpu_busy())

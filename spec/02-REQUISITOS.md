@@ -759,6 +759,7 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 
 - [x] Con un trabajo en curso, el progreso de arriba es un botón. El panel muestra el texto de esos tres ficheros y se actualiza mientras sigue abierto. El bundle es `index-D9i2yOj7.js`. La ventana no se ha pulsado.
 - [x] Un fichero ausente se dice. No se inventan líneas. Una ruta fuera de `logs/` lanza el error que la ruta convierte en 422. `test_process_logs`, 4 OK.
+- [x] Un reinicio no borra lo que el panel enseñaba: cada stream lleva también la copia rotada (`<fichero>.bak`, la que `ensure_local.ps1` escribe al arrancar un proceso) debajo del vivo, con su propio COPIAR. `test_process_logs` cubre vivo + copia y el rechazo de un sufijo con separadores. Bundle `index-DNWC9fKU.js`. La ventana no se ha pulsado.
 - [x] En rehacer, tramo y pistas, el nombre se escribe al lado de REMIX y viaja en `output_name`. Vacío sigue usando el nombre del original con `-remix`. La vista del nombre pedido, OK.
 
 ## [R16] Lo que sobra continúa la base y el recorte entra una vez — pedido 2026-10-16
@@ -785,4 +786,25 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 - [ ] El recorte sigue entrando una sola vez. Los cortes del detector (hombro 1,25, confianza 0,12) no se bajan.
 - [ ] `repeat_crossfade` y el scope full conservan su comportamiento actual (ensanchamiento y reintentos).
 - [ ] Pruebas nuevas de la rama incierta y de la rama concluyente; suite verde.
+
+## Corrección de estabilidad con GPU compartida — autorizada 2026-10-18
+
+El usuario autoriza corregir los tres hallazgos de la revisión actual y optimizar estabilidad, instalar NumPy exclusivamente en `backend/venv` y ejecutar una generación real de Musicia compartiendo la GPU ocupada. No amplía esta entrega a los criterios técnicos anteriores R9/R10/B6/Q2. ComfyUI y sus procesos se preservan. Continúa el perfil SFT/50 pasos/guidance 9/lote 2 y la traducción en CPU.
+
+- [x] El supervisor periódico preserva un motor con proceso presente o puerto abierto aunque `/health` tarde; solo arranca uno ausente. Se mantienen HOLD, exclusión entre supervisores y rearme explícito. Prueba CPU con HTTP retardado y PID propio estable, sin tocar procesos ajenos.
+- [x] El arranque usa el modelo SFT y LM configurados desde el principio: no carga Turbo para cambiar después. La política de offload del perfil de 8 GB se configura explícitamente para evitar que el servidor REST mantenga el DiT en GPU por su default; no cambia pasos/guidance/lote.
+- [x] NumPy figura en requirements y se importa realmente con el Python de la API. La continuación usa vistas PCM y validación vectorizada para reducir copias y trabajo Python, preservando muestras, canales, duración y rechazo de NaN/Inf. Medición CPU antes/después sobre el mismo audio real.
+- [x] R17 conserva continuación y recorte ante pulso final incierto usando únicamente la medición previa verificada con procedencia y aviso; un BPM final concluyente fuera de tolerancia falla. Regresión del flujo completo con recorte menor que la canción.
+- [x] Suites backend/frontend, lint/build y reviewer/tester explícitos (PASS CPU 312/0/2, frontend 62/62, build/lint 0). Generación real ejecutada con perfil aprobado: PID 17108 estable ante 3 sondeos de ensure_local; la difusión completó los 50 pasos a las 11:47:11 (402,4 s), pero el trabajo falló por timeout a las 12:05:18 (1800 s) durante la decodificación VAE (tiled_decode) por contención con ComfyUI (~11 GB RAM/GPU activa). Registrado el fallo real en job-final.json y e2e.log sin cerrar aplicaciones ajenas. Procesos del motor propio terminados y VRAM liberada a las 12:07:41.
+
+## [R18] Musicia libera su GPU al acabar — autorizado 2026-10-18, en implementación
+
+**Petición y aprobación**: al terminar su trabajo, Musicia debe liberar la GPU; el usuario aprueba «Sí, liberar por completo al terminar». **Plan autorizado**: detener exclusivamente el proceso del motor propio cuando terminen todas las operaciones de Musicia que lo necesitan (éxito, fallo o cancelación); mantener API y ventana disponibles. La siguiente petición arranca el motor bajo exclusión y espera su disponibilidad real. El supervisor respeta la pausa de reposo y no lo relanza periódicamente. Separación termina su proceso propio como hasta ahora; otros programas GPU se preservan.
+
+**Implementación prevista**: coordinación del ciclo del motor en backend, señal de reposo y PID propio en scripts de arranque/supervisión, estado de reposo visible y envío permitido desde frontend. Configuración central para política/tiempos; sin endpoints ficticios de descarga ni cambios al perfil SFT. La pausa de reposo no sustituye a SALIR ni borra su marca. Se comprueban operaciones solapadas y carreras inicio/fin antes de parar un motor.
+
+- [ ] El último trabajo que usó el motor deja su proceso detenido y su VRAM liberada, incluida terminación con error/cancelación; no interrumpe otra operación ni confunde una separación con una generación.
+- [ ] El watchdog respeta reposo. Nueva petición vuelve a arrancar exactamente un motor; UI distingue reposo de error y conserva uso normal. API y biblioteca siguen disponibles.
+- [ ] Solo se actúa sobre PID identificado como motor de este proyecto; ComfyUI permanece vivo. Medir VRAM/procesos antes, durante y después, sin atribuir a Musicia memoria de otros procesos.
+- [ ] Regresiones de concurrencia y reposo, lint/build, tester PASS/reviewer APPROVE y recorrido real de generación → liberación → nueva disponibilidad. La recarga del modelo añade latencia al siguiente trabajo y debe declararse.
 

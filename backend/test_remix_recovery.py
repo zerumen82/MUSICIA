@@ -191,7 +191,8 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
                                seed=1, seed_origin="engine.seed")])
 
         async def download(_remote, path):
-            Sine(220).to_audio_segment(duration=5000).set_channels(2).export(path, format="wav").close()
+            Sine(220, sample_rate=self.settings.remix.sample_rate).to_audio_segment(
+                duration=5000).set_channels(2).export(path, format="wav").close()
             return path
 
         return submitted, submit, wait, download
@@ -243,6 +244,177 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job["status"], "failed")
         self.assertEqual(published, [])
         self.assertEqual(self.job["error"], "Real second-stage failure")
+
+    async def finish_tempo_extension(self, final_groove):
+        """Ejecuta recuperación, mezcla, continuación y MP3 reales con sample corto.
+
+        Solo el motor, la separación y el detector se controlan: la política
+        ante sus lecturas y todos los pasos DSP pertenecen al runtime real.
+        """
+        self.request = self.request.model_copy(update={
+            "bpm": 120, "source_bpm": 120, "repeat_start": 0.25, "repeat_end": 1.5})
+        self.job["project"] = self.request.model_dump()
+        self.job["operations"]["timeline"] = timeline_plan(self.request, 2, self.settings)
+        self.job["effective_parameters"] = self.music.build_payload(project_generation(
+            self.request, self.work / "material-a-transformar.wav", None, self.settings))
+        self.receipt = build_receipt(self.job, self.source, None, self.request, 2,
+                                    self.settings, self.generated, self.originals)
+        self.job["operations"]["downloaded_batch_sha256"] = receipt_digest(self.receipt)
+        published, measured_paths = [], []
+        runtime = self.runtime(published)
+        manifest = {"groups": [{"id": key, "file_name": path.name}
+                               for key, path in self.originals.items()]}
+        submitted, submit, wait, download = self.continuation()
+
+        def measure(path, **_options):
+            measured_paths.append(path.name)
+            if path.name.startswith("mezcla-"):
+                return {"bpm": 120.7, "confidence": 0.417}
+            if isinstance(final_groove, Exception):
+                raise final_groove
+            return final_groove
+
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
+                patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)), \
+                patch("remix_project.detect_groove", side_effect=measure):
+            await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
+        return published, submitted, measured_paths
+
+    async def finish_uncertain_mix(self, final_groove):
+        """Recorrido completo con la medición de la mezcla siempre incierta.
+
+        Es el recorrido del trabajo 8094eccf (decisión 2026-10-19): la mezcla no
+        tiene pulso fiable, el cuadre de bombo tampoco lo resuelve y el trabajo
+        se entrega con su aviso en vez de morir. Solo el motor, la separación y
+        el detector se controlan: la política ante sus lecturas y todos los
+        pasos DSP pertenecen al runtime real.
+        """
+        self.request = self.request.model_copy(update={
+            "bpm": 120, "source_bpm": 120, "repeat_start": 0.25, "repeat_end": 1.5})
+        self.job["project"] = self.request.model_dump()
+        self.job["operations"]["timeline"] = timeline_plan(self.request, 2, self.settings)
+        self.job["effective_parameters"] = self.music.build_payload(project_generation(
+            self.request, self.work / "material-a-transformar.wav", None, self.settings))
+        self.receipt = build_receipt(self.job, self.source, None, self.request, 2,
+                                    self.settings, self.generated, self.originals)
+        self.job["operations"]["downloaded_batch_sha256"] = receipt_digest(self.receipt)
+        published, measured_paths = [], []
+        runtime = self.runtime(published)
+        manifest = {"groups": [{"id": key, "file_name": path.name}
+                               for key, path in self.originals.items()]}
+        submitted, submit, wait, download = self.continuation()
+        error = ValueError("El groove es incierto: el período elegido no destaca "
+                           "sobre los tempos vecinos")
+
+        def measure(path, **_options):
+            measured_paths.append(path.name)
+            if path.name.startswith("exportada-"):
+                if isinstance(final_groove, Exception):
+                    raise final_groove
+                return final_groove
+            # La mezcla y todo lo demás: el detector nunca se fía.
+            raise error
+
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
+                patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)), \
+                patch("remix_project.detect_groove", side_effect=measure):
+            await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
+        return published, submitted, measured_paths
+
+    async def test_uncertain_extension_with_short_sample_preserves_continuation_and_base_tempo(self):
+        error = ValueError("El groove es incierto: el período elegido no destaca sobre los tempos vecinos")
+        published, submitted, measured_paths = await self.finish_tempo_extension(error)
+        self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
+        self.assertEqual(len(published), 2)
+        self.assertEqual(len(submitted), 2)
+        self.assertEqual(measured_paths, ["mezcla-1.wav", "exportada-1.mp3",
+                                          "mezcla-2.wav", "exportada-2.mp3"])
+        self.assertTrue(any("base verificada" in notice for notice in self.job["warnings"]))
+        self.assertFalse(any("repitió" in notice for notice in self.job["warnings"]))
+        for path, ficha in published:
+            self.assertGreater(path.stat().st_size, 0)
+            self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
+            arrangement = ficha["arrangement"]
+            self.assertEqual(arrangement["method"], "continue_bed")
+            self.assertEqual(arrangement["repetitions"], 0)
+            self.assertEqual(len(arrangement["chunks"]), 1)
+            self.assertEqual(arrangement["sample"], {
+                "placed": True, "at_seconds": 2.0, "seconds": 1.25,
+                "source_start_seconds": 0.25, "source_end_seconds": 1.5})
+            operations = ficha["operations"]
+            self.assertEqual(operations["timeline"]["method"], "continue_bed")
+            self.assertEqual(operations["timeline"]["mapped_repeat_start"], 0.25)
+            self.assertEqual(operations["timeline"]["mapped_repeat_end"], 1.5)
+            self.assertEqual(operations["timeline"]["final_tempo_verification"], "uncertain_after_extension")
+            self.assertEqual(operations["timeline"]["final_tempo_verification_error"], str(error))
+            self.assertEqual(operations["tempo_after"], operations["tempo_before"])
+            self.assertEqual(ficha["bpm_measured"], 120.7)
+            self.assertEqual(ficha["bpm_confidence"], 0.417)
+
+    async def test_conclusive_extension_outside_tolerance_fails_without_publication(self):
+        final_bpm = self.request.bpm or 120
+        final_bpm += self.settings.remix.tempo_verify_tolerance_bpm + 1
+        published, submitted, measured_paths = await self.finish_tempo_extension(
+            {"bpm": final_bpm, "confidence": 0.417})
+        self.assertEqual(self.job["status"], "failed")
+        self.assertIn(f"El BPM final medido {final_bpm:g} no cumple el pedido 120", self.job["error"])
+        self.assertEqual(published, [])
+        self.assertEqual(len(submitted), 1)
+        self.assertEqual(measured_paths, ["mezcla-1.wav", "exportada-1.mp3"])
+
+    async def test_conclusive_extension_within_tolerance_uses_final_measurement(self):
+        published, submitted, _measured_paths = await self.finish_tempo_extension(
+            {"bpm": 121.4, "confidence": 0.3})
+        self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
+        self.assertEqual(len(published), 2)
+        self.assertEqual(len(submitted), 2)
+        for path, ficha in published:
+            self.assertGreater(path.stat().st_size, 0)
+            self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
+            self.assertEqual(ficha["bpm_measured"], 121.4)
+            self.assertEqual(ficha["bpm_confidence"], 0.3)
+            self.assertNotIn("final_tempo_verification", ficha["operations"]["timeline"])
+            self.assertEqual(ficha["arrangement"]["method"], "continue_bed")
+
+    async def test_uncertain_mix_delivers_both_variants_with_the_honest_notice(self):
+        error = ValueError("El groove es incierto: el período elegido no destaca sobre los tempos vecinos")
+        published, submitted, measured_paths = await self.finish_uncertain_mix(error)
+        self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
+        self.assertEqual(len(published), 2)
+        self.assertEqual(len(submitted), 2)
+        self.assertIn("mezcla-1.wav", measured_paths)
+        notices = self.job["warnings"]
+        self.assertTrue(any("no se ajustó al BPM pedido" in notice for notice in notices))
+        self.assertTrue(any("no queda garantizado" in notice for notice in notices))
+        for path, ficha in published:
+            self.assertGreater(path.stat().st_size, 0)
+            self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
+            timeline = ficha["operations"]["timeline"]
+            self.assertEqual(timeline["tempo_verification"], "uncertain_at_mix")
+            self.assertEqual(timeline["final_tempo_verification"], "uncertain_at_mix")
+            self.assertIsNone(timeline["beat_clock_bpm"])
+            self.assertEqual(timeline["beat_clock_origin"], "unverified_uncertain_groove")
+            self.assertIsNone(ficha["operations"]["tempo_after"])
+            self.assertNotIn("bpm_measured", ficha)
+
+    async def test_uncertain_mix_delivers_even_when_the_final_measurement_falls_outside_tolerance(self):
+        out_of_tolerance = 120 + self.settings.remix.tempo_verify_tolerance_bpm + 1
+        published, _submitted, _measured = await self.finish_uncertain_mix(
+            {"bpm": out_of_tolerance, "confidence": 0.3})
+        self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
+        self.assertEqual(len(published), 2)
+        notices = self.job["warnings"]
+        self.assertTrue(any("no queda garantizado" in notice for notice in notices))
+        for path, ficha in published:
+            self.assertGreater(path.stat().st_size, 0)
+            # La medición real se informa tal cual; el aviso dice que el pedido
+            # no está garantizado y no se reclama cumplimiento de tolerancia.
+            self.assertEqual(ficha["bpm_measured"], out_of_tolerance)
+            self.assertEqual(ficha["operations"]["timeline"]["tempo_verification"], "uncertain_at_mix")
 
     async def test_prepublication_guard_prevents_a_partial_delivery(self):
         published = []
@@ -323,7 +495,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             for command_line, executable in (
                     (f'python "{cli.ROOT / "backend" / "main.py"}"', "C:\\Python\\python.exe"),
                     ("python main.py", str(cli.ROOT / "backend" / "venv" / "Scripts" / "python.exe")),
-                    ("python -m acestep.api_server", str(cli.ROOT / "vendor" / "ACE-Step-1.5" / ".venv" / "Scripts" / "python.exe")),
+                    ("python -m acestep.api_server", str(cli.ROOT / "vendor" / "ACE-Step-1.5" / ".venv311" / "Scripts" / "python.exe")),
                     (f'python "{cli.ROOT / "scripts" / "complete_downloaded_remix.py"}"', "C:\\Python\\python.exe")):
                 query.return_value = SimpleNamespace(stdout=json.dumps([{
                     "ProcessId": 999999, "CommandLine": command_line, "ExecutablePath": executable}]))

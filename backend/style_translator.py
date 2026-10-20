@@ -2,7 +2,9 @@
 
 La letra cantada no entra aquí. El cuadro sigue mostrando lo que escribió
 la persona; la frase que se envía y el payload usan esta misma función.
-Si el idioma no se reconoce o el traductor falla, no se manda el texto original.
+Si el traductor falla, no se manda nada inventado y la petición se detiene.
+Un idioma que el traductor no conoce (el latín, p. ej.) se envía tal cual:
+no corta la generación por una detección que el modelo no puede resolver.
 """
 
 from __future__ import annotations
@@ -301,16 +303,15 @@ def _source_iso(text: str, settings: AppSettings) -> str | None:
     return None
 
 
-def _flores(iso: str, settings: AppSettings) -> str:
+def _flores(iso: str, settings: AppSettings) -> str | None:
+    """Código FLORES del idioma, o None si el traductor no lo conoce (el latín, p. ej.).
+
+    Un idioma sin código no corta la generación: el texto viaja tal cual.
+    Que el mapa falle o esté vacío sí corta, eso lo decide _require_file.
+    """
     config = settings.style_translation
     mapping = _language_map(str(_require_file(_path(config.language_map), "el mapa de idiomas")))
-    code = mapping.get(iso)
-    if not code:
-        raise ValueError(
-            f"El idioma «{iso or 'desconocido'}» no tiene código de traducción configurado. "
-            "No se envía el estilo sin pasarlo al inglés."
-        )
-    return code
+    return mapping.get(iso)
 
 
 def _read_line(proc: subprocess.Popen, timeout: float) -> str:
@@ -435,6 +436,11 @@ def _piece(chunk: str, settings: AppSettings) -> str:
         return chunk
     _load_term_fixes(settings)
     source = _flores(iso, settings)
+    if source is None:
+        # El traductor no conoce este idioma (el latín, p. ej.): el texto
+        # escrito viaja tal cual. Cortar aquí tumba la generación entera
+        # por una detección que el modelo no puede resolver.
+        return chunk
     if source == settings.style_translation.target_lang:
         return chunk
     # NLLB lee mal el español en mayúsculas: «CONTUNDENTES» sale contents
@@ -500,9 +506,10 @@ def style_for_engine(prompt: str, settings: AppSettings | None = None) -> str:
     else:
         translated = "".join(_piece(part, chosen) for part in _segments(text)).strip()
     if not translated:
-        raise ValueError(
-            "El traductor local devolvió un estilo vacío. No se envía el texto sin pasarlo al inglés."
-        )
+        # Inalcanzable hoy: _piece ya corta si una traducción sale vacía.
+        # Si alguna refactor lo alcanzara, el texto escrito viaja tal cual en
+        # vez de tumbar la generación (decisión del 2026-10-19: siempre entrega).
+        return text.strip()
     with _CACHE_LOCK:
         _CACHE[key] = translated
         _CACHE[_cache_key(chosen, translated)] = translated

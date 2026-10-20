@@ -19,6 +19,7 @@ import { glossPrompt } from '../prompt_gloss';
 import { applyModelTerm, ensureModelTerm, modelTerms, sinBpmEnFrase } from '../glossary_pick';
 import { moodClauses, moodTooltip } from '../mood_clauses';
 import { CATALOG_GENRES, findGenre } from '../genres';
+import { canAttemptEngineOperation, generationWaitMessage } from '../engine_generation';
 
 const UI = {
   minDuration: 10,
@@ -464,7 +465,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   };
 
   const busy = job?.status === 'queued' || job?.status === 'running';
-  const canGenerate = engine.ok && !busy && buildPrompt().length > 1
+  const canGenerate = canAttemptEngineOperation(engine) && !busy && buildPrompt().length > 1
     && (mode === 'music' || lyrics.trim().length > 0);
   const statusInfo = job ? STATUS[job.status] : null;
   const stepIdx = busy ? (job?.status === 'running' ? 1 : 0) : (job?.status === 'succeeded' ? 3 : -1);
@@ -518,7 +519,17 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             {enhancing ? <Loader2 size={13} className="animate-spin" /> : <WandSparkles size={13} />} MEJORAR PROMPT
           </button>
           {engine.checked && !engine.ok && (
-            <span className="ml-auto label st-err">MOTOR APAGADO</span>
+            <span className={`ml-auto label ${engine.idle || engine.starting || engine.stopping ? 'text-[var(--muted)]' : 'st-err'}`}>
+              {engine.idle
+                ? 'MOTOR EN REPOSO · SE INICIARÁ AL GENERAR'
+                : engine.stopping
+                  ? 'DETENIENDO EL MOTOR · ESPERA'
+                  : engine.starting
+                  ? 'CONECTANDO CON EL MODELO · ESPERA'
+                  : engine.error
+                    ? 'ERROR DEL MOTOR · GENERAR PARA REINTENTAR'
+                    : 'MOTOR APAGADO'}
+            </span>
           )}
         </div>
 
@@ -627,7 +638,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                   <button onClick={autoWriteLyrics} disabled={writingLyrics}
                     title="Construye la canción a partir de las frases que hayas escrito; el motor intenta ampliarlas"
                     className="btn btn-ghost h-8 px-3">
-                    {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> EL MOTOR ESCRIBE (hasta 5 min)…</>
+                    {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> ESPERANDO AL MODELO (hasta 11 min)…</>
                       : <><Feather size={12} /> ESCRIBIRLA POR MÍ</>}
                   </button>
                 </div>
@@ -682,7 +693,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         {(busy || error || job?.status === 'failed') && (
           <div className="flex flex-col gap-2.5 py-4 border-y border-[var(--line)]">
             <div className="flex items-center gap-4">
-              {busy && <div className="eq shrink-0"><span /><span /><span /><span /><span /><span /></div>}
+              {busy && (generationWaitMessage(job, engine)
+                ? <Loader2 size={14} className="shrink-0 text-[var(--acc)] animate-spin" aria-label="Esperando conexión con el motor" />
+                : <div className="eq shrink-0"><span /><span /><span /><span /><span /><span /></div>)}
               {job?.status === 'failed' && <AlertTriangle size={16} className="st-err shrink-0" />}
               <span className={`mono text-[11px] tracking-[0.1em] shrink-0 ${statusInfo?.cls ?? ''}`}>{statusInfo?.label}</span>
               {busy && (
@@ -713,7 +726,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     <i style={{ width: `${Math.round((Number(job?.progress_ratio) || 0) * 100)}%` }} />
                   </div>}
                 <p className="text-[13px] text-zinc-300">
-                  {job?.phase ?? 'Trabajando en el motor…'}
+                  {generationWaitMessage(job, engine) ?? job?.phase ?? 'Trabajando en el motor…'}
                   {!createConverting && job?.progress_ratio > 0 && (
                     <span className="num ml-3">{Math.round(job.progress_ratio * 100)}%</span>
                   )}
@@ -740,7 +753,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
         )}
 
         {/* Motor caído */}
-        {engine.checked && !engine.ok && (
+        {engine.checked && !engine.ok && !engine.idle && !engine.starting && !engine.stopping && (
           <div className="flex items-start gap-3 py-4 border-y border-[rgba(255,92,92,0.35)]">
             <AlertTriangle size={16} className="st-err mt-0.5 shrink-0" />
             <div>

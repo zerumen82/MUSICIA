@@ -50,6 +50,7 @@ export function deskPhase(text, fallback) {
   return fallback;
 }
 
+/** Fases con progreso congelado: su ratio no es avance y no se enseña como %. */
 const FROZEN_PERCENT = new Set([...CONVERT_PHASES, ...ERROR_PHASES]);
 
 export function movingPercent(phase, ratio) {

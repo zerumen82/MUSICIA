@@ -24,6 +24,10 @@ export const SCOPE_BUSY = {
 };
 
 export const CONVERTING = 'Convirtiendo el audio a archivo';
+export const REMIX_SUBMITTING = 'Enviando la solicitud de remix…';
+export const SEPARATION_SUBMITTING = 'Enviando la solicitud de separación…';
+export const ADJUST_SUBMITTING = 'Aplicando el ajuste de audio…';
+export const VOICE_SUBMITTING = 'Enviando la solicitud de voz y base…';
 
 export const SECTIONS = {
   advanced: { title: 'REFERENCIA Y AVANZADOS', why: 'Opcional. Timbre de otra pista, voz y semilla.' },
@@ -53,7 +57,8 @@ const CONVERT_PHASE = new Set(CONVERT_PHASES);
 const ERROR_PHASE = new Set(ERROR_PHASES);
 
 /** La frase genérica del motor se sustituye por el ámbito. La conversión no lleva porcentaje. */
-export function remixBusyLine(shown, scope, ratio) {
+export function remixBusyLine(shown, scope, ratio, hasJob = true, pendingMessage = REMIX_SUBMITTING) {
+  if (!hasJob) return pendingMessage;
   if (CONVERT_PHASE.has(shown)) return CONVERTING;
   if (ERROR_PHASE.has(shown)) return '';
   if (shown && shown !== REMIX_FALLBACK) return shown;

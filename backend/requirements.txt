@@ -6,6 +6,7 @@ aiofiles
 loguru
 httpx
 lingua-language-detector
+numpy>=2.2.6,<3
 
 # El traductor de estilo (NLLB) NO se instala aquí: corre en el Python del
 # motor, vendor/ACE-Step-1.5, porque ese entorno ya tiene torch.

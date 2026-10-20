@@ -398,6 +398,32 @@ def uncertain_extension_fallback(exc: BaseException, scope: str, plan: dict | No
     return measured
 
 
+def uncertain_mix_notice(exc: BaseException, requested_bpm) -> str | None:
+    """Aviso de entrega cuando la mezcla de grupos no tiene pulso medible.
+
+    Decisión del usuario, 2026-10-19: si tras intentar cuadrar el bombo la
+    mezcla sigue sin ritmo fiable, el trabajo se entrega y este aviso dice
+    que su tempo no se ajustó al pedido ni queda garantizado. None si el
+    error no es de groove (configuración, BPM medido fuera de tolerancia) o
+    si no se pidió BPM: esos casos siguen fallando como antes. No convierte
+    una lectura incierta en un BPM ni afirma que el audio no sufrió ningún
+    procesado: el tempo común de Por pistas y el cuadre de bombo pueden haber
+    corrido antes; lo que no se hizo es ajustar la mezcla al BPM pedido.
+    """
+    if requested_bpm is None or not audio_has_no_usable_groove(exc):
+        return None
+    return (f"El ritmo de la mezcla no se pudo medir con fiabilidad; su tempo no se "
+            f"ajustó al BPM pedido. El BPM pedido ({requested_bpm:g}) no queda garantizado.")
+
+
+def mark_uncertain_mix_tempo(plan: dict, exc: BaseException) -> None:
+    """Deja escrito en el plan que el tempo de la mezcla no está acreditado."""
+    plan["beat_clock_bpm"] = None
+    plan["beat_clock_origin"] = "unverified_uncertain_groove"
+    plan["tempo_verification"] = "uncertain_at_mix"
+    plan["tempo_verification_error"] = str(exc)
+
+
 def _shift_audio_to_kick(source: Path, output: Path, delay_ms: float) -> Path:
     """Coloca el golpe en el instante del bombo de referencia. Un desfase mínimo no se toca."""
     if abs(delay_ms) < MIN_PHASE_SHIFT_MS:
@@ -729,10 +755,22 @@ def _visible_phase(status) -> str:
 def project_generation(request, source, reference, settings) -> GenerationRequest:
     """Contrato único para el preview y el envío tras preparar el material."""
     config = settings.remix
+    lyrics = request.lyrics
+    instrumental = request.instrumental
+    external_voice = False
+    if request.scope == "groups":
+        voice_action = (request.groups or {}).get("vocals")
+        if voice_action == "keep":
+            external_voice = True
+            instrumental = True
+            lyrics = None
+        elif voice_action == "remove":
+            instrumental = True
+            lyrics = None
     return GenerationRequest(
         prompt=style_for_engine(request.prompt, settings),
         constraint_prompt=style_caption(request.prompt),
-        lyrics=request.lyrics, instrumental=request.instrumental,
+        lyrics=lyrics, instrumental=instrumental,
         task_type="repaint" if request.scope == "region" else "cover", source_path=str(source),
         reference_path=str(reference) if reference else None,
         duration_seconds=None, bpm=request.bpm, seed=request.seed,
@@ -744,14 +782,16 @@ def project_generation(request, source, reference, settings) -> GenerationReques
         repaint_strength=config.repaint_strength if request.repaint_strength is None else request.repaint_strength,
         repaint_wav_crossfade_sec=config.repaint_wav_crossfade_sec if request.repaint_wav_crossfade_sec is None else request.repaint_wav_crossfade_sec,
         repaint_latent_crossfade_frames=config.repaint_latent_crossfade_frames if request.repaint_latent_crossfade_frames is None else request.repaint_latent_crossfade_frames,
+        external_voice=external_voice,
     )
 
 
 class RemixProjectRuntime:
     def __init__(self, app, music, settings, remix_jobs, separate_jobs, find_audio,
                  busy, remember, public_job, event, save, unique_output, safe_name,
-                 carry_ficha, measure_bpm, now, cancelled):
+                 carry_ficha, measure_bpm, now, cancelled, lifecycle=None):
         self.music, self.settings = music, settings
+        self.lifecycle = lifecycle
         self.remix_jobs, self.separate_jobs = remix_jobs, separate_jobs
         self.find_audio, self.busy = find_audio, busy
         self.remember, self.public_job, self.event, self.save = remember, public_job, event, save
@@ -874,6 +914,12 @@ class RemixProjectRuntime:
             result["warnings"].append("La separación es estimada: acompañamiento agrupa instrumentos; la mezcla transformada depende de material aún por preparar.")
             if timeline["tempo_ratio"] != 1:
                 result["warnings"].append("El BPM común procesa también las grabaciones conservadas, sin cambiar el tono. El BPM original medido se puede revisar.")
+            if request.bpm:
+                result["warnings"].append(
+                    "Con BPM pedido se mide la mezcla y se ajusta su tempo sin cambiar el tono. "
+                    "Si el ritmo de la mezcla no se puede medir con fiabilidad, su tempo no se "
+                    "ajusta al pedido y el trabajo se entrega con un aviso: el BPM pedido no "
+                    "queda garantizado.")
         if request.scope == "full" and request.bpm:
             result["warnings"].append(full_bpm_preview_notice())
             result["pending_material"].append({"parameter": "variant_tempo", "path": None,
@@ -930,8 +976,16 @@ class RemixProjectRuntime:
                    operations=prepared["operations"], pending_material=prepared["pending_material"])
         self.remember(self.remix_jobs, job["job_id"], job)
         self.save()
-        background_tasks.add_task(self.run, job, source, reference, request, duration)
+        runner = self._run_with_engine_lease if prepared["operations"]["engine_required"] else self.run
+        background_tasks.add_task(runner, job, source, reference, request, duration)
         return {"job_id": job["job_id"], "status": job["status"]}
+
+    async def _run_with_engine_lease(self, *args, **kwargs) -> None:
+        if self.lifecycle is None:
+            await self.run(*args, **kwargs)
+            return
+        async with self.lifecycle.operation():
+            await self.run(*args, **kwargs)
 
     async def separate(self, request: SeparateGroupsRequest, background_tasks: BackgroundTasks) -> dict:
         source = self.find_audio(request.file_name, request.source_kind)
@@ -1337,6 +1391,7 @@ class RemixProjectRuntime:
                     if request.scope == "groups" and request.bpm is not None:
                         self.event(job, f"Comprobando el tempo de la mezcla {index + 1}")
                         aligned = None
+                        mix_uncertain = None
                         try:
                             mix_measured = await asyncio.to_thread(required_measured_tempo, timeline)
                         except ValueError as exc:
@@ -1346,50 +1401,82 @@ class RemixProjectRuntime:
                             for piece, _gain in parts:
                                 if piece in transformed.values() and piece not in movable:
                                     movable.append(piece)
-                            if (not audio_has_no_usable_groove(exc) or reference is None
-                                    or new_kick is None or not movable):
-                                raise
-                            self.event(job, f"Cuadrando el bombo de la variante {index + 1} con el original")
-                            squared = await asyncio.to_thread(
-                                square_mix_on_original_kick, parts, movable, reference, new_kick,
-                                work / f"mezcla-cuadrada-{index + 1}.wav", work, index + 1,
-                                natural_duration, config)
-                            if squared is None:
-                                raise
-                            timeline = squared["timeline"]
-                            aligned = squared
-                            mix_measured = await asyncio.to_thread(required_measured_tempo, timeline)
+                            squared = None
+                            if (audio_has_no_usable_groove(exc) and reference is not None
+                                    and new_kick is not None and movable):
+                                self.event(job, f"Cuadrando el bombo de la variante {index + 1} con el original")
+                                squared = await asyncio.to_thread(
+                                    square_mix_on_original_kick, parts, movable, reference, new_kick,
+                                    work / f"mezcla-cuadrada-{index + 1}.wav", work, index + 1,
+                                    natural_duration, config)
+                            if squared is not None:
+                                timeline = squared["timeline"]
+                                aligned = squared
+                                try:
+                                    mix_measured = await asyncio.to_thread(required_measured_tempo, timeline)
+                                except ValueError as recheck:
+                                    if not audio_has_no_usable_groove(recheck):
+                                        raise
+                                    mix_uncertain = recheck
+                                    mix_measured = None
+                            else:
+                                # Entrega pedida (2026-10-19): si la mezcla no tiene
+                                # pulso fiable, el trabajo sale con un aviso honesto de
+                                # que no se ajustó al BPM pedido. Un error ajeno al
+                                # groove sigue fallando.
+                                mix_uncertain = exc
+                                mix_measured = None
                         self.cancelled(job)
-                        measured_bpm = require_measured_tempo(mix_measured, config, "en la mezcla de grupos")
-                        if aligned is not None:
-                            variant_plan["kick_alignment_delay_ms"] = aligned["delay_ms"]
-                            variant_plan["kick_alignment_tempo_ratio"] = aligned["tempo_ratio"]
-                            warning = ("La mezcla no tenía un pulso propio; "
-                                       "el bombo nuevo se cuadró con el original.")
+                        if mix_uncertain is not None:
+                            notice = uncertain_mix_notice(mix_uncertain, request.bpm)
+                            if notice is None:
+                                raise mix_uncertain
+                            mark_uncertain_mix_tempo(variant_plan, mix_uncertain)
                             warnings = job.setdefault("warnings", [])
-                            if warning not in warnings:
-                                warnings.append(warning)
-                        ratio = groups_tempo_ratio(measured_bpm, request.bpm, config)
-                        tempo_before = mix_measured
-                        if ratio is not None:
-                            seconds = await self.music.verify_audio(timeline) / 1000
-                            adjusted_plan = apply_groups_mix_tempo(
-                                variant_plan, seconds, ratio, request.duration_seconds, config)
-                            adjusted = work / f"tempo-mezcla-{index + 1}.wav"
-                            self.event(job, f"Ajustando el BPM de la variante {index + 1} sin cambiar el tono")
-                            tempo_processing = await asyncio.to_thread(
-                                MixerService.tempo_audio, timeline, adjusted, ratio,
-                                adjusted_plan["natural_duration_seconds"], config)
-                            tempo_processing.update(input_path=str(timeline), output_path=str(adjusted))
-                            tempo_after_adjust = await asyncio.to_thread(required_measured_tempo, adjusted)
-                            verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
-                            variant_plan = adjusted_plan
-                            variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
-                            variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
-                            timeline = adjusted
+                            if aligned is not None:
+                                # El cuadre sí alteró el audio: la ficha lo dice aunque
+                                # la medición siga sin fiarse.
+                                variant_plan["kick_alignment_delay_ms"] = aligned["delay_ms"]
+                                variant_plan["kick_alignment_tempo_ratio"] = aligned["tempo_ratio"]
+                                warning = ("La mezcla no tenía un pulso propio; "
+                                           "el bombo nuevo se cuadró con el original.")
+                                if warning not in warnings:
+                                    warnings.append(warning)
+                            if notice not in warnings:
+                                warnings.append(notice)
+                            self.event(job, f"El ritmo de la mezcla {index + 1} no se pudo medir; "
+                                            "se entrega sin ajustarla al BPM pedido, con aviso")
                         else:
-                            variant_plan["beat_clock_bpm"] = mix_measured["bpm_measured"]
-                            variant_plan["beat_clock_origin"] = "generated_measurement"
+                            measured_bpm = require_measured_tempo(mix_measured, config, "en la mezcla de grupos")
+                            if aligned is not None:
+                                variant_plan["kick_alignment_delay_ms"] = aligned["delay_ms"]
+                                variant_plan["kick_alignment_tempo_ratio"] = aligned["tempo_ratio"]
+                                warning = ("La mezcla no tenía un pulso propio; "
+                                           "el bombo nuevo se cuadró con el original.")
+                                warnings = job.setdefault("warnings", [])
+                                if warning not in warnings:
+                                    warnings.append(warning)
+                            ratio = groups_tempo_ratio(measured_bpm, request.bpm, config)
+                            tempo_before = mix_measured
+                            if ratio is not None:
+                                seconds = await self.music.verify_audio(timeline) / 1000
+                                adjusted_plan = apply_groups_mix_tempo(
+                                    variant_plan, seconds, ratio, request.duration_seconds, config)
+                                adjusted = work / f"tempo-mezcla-{index + 1}.wav"
+                                self.event(job, f"Ajustando el BPM de la variante {index + 1} sin cambiar el tono")
+                                tempo_processing = await asyncio.to_thread(
+                                    MixerService.tempo_audio, timeline, adjusted, ratio,
+                                    adjusted_plan["natural_duration_seconds"], config)
+                                tempo_processing.update(input_path=str(timeline), output_path=str(adjusted))
+                                tempo_after_adjust = await asyncio.to_thread(required_measured_tempo, adjusted)
+                                verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
+                                variant_plan = adjusted_plan
+                                variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
+                                variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
+                                timeline = adjusted
+                            else:
+                                variant_plan["beat_clock_bpm"] = mix_measured["bpm_measured"]
+                                variant_plan["beat_clock_origin"] = "generated_measurement"
                         self.cancelled(job)
                     arrangement = {"method": "original", "repetitions": 0,
                                    "duration_seconds": variant_plan["natural_duration_seconds"],
@@ -1421,71 +1508,87 @@ class RemixProjectRuntime:
                             measured = await asyncio.to_thread(
                                 required_measured_tempo, staged_output, arrangement, config)
                         except ValueError as exc:
-                            widened = whole_song_repeat_plan(variant_plan, config) if (
-                                audio_has_no_usable_groove(exc)
-                                and variant_plan.get("method") in {"repeat_crossfade", "continue_bed"}) else None
-                            if widened is None:
-                                # [R17] Por pistas que continúa la base: la mezcla ya se
-                                # midió y verificó antes de ampliar. Si la medición final
-                                # del archivo ampliado es incierta, el tempo acreditado
-                                # sigue siendo el de esa base y el trabajo se entrega con
-                                # aviso; ningún corte del detector se baja.
-                                fallback = uncertain_extension_fallback(
-                                    exc, request.scope, variant_plan,
-                                    tempo_after_adjust or tempo_before, config)
-                                if fallback is None:
-                                    raise
-                                measured = fallback
-                                variant_plan["final_tempo_verification"] = "uncertain_after_extension"
+                            if (variant_plan.get("tempo_verification") == "uncertain_at_mix"
+                                    and audio_has_no_usable_groove(exc)):
+                                # La mezcla ya se entregaba sin tempo acreditado (decisión
+                                # 2026-10-19): si la medición final tampoco se fía, el
+                                # trabajo sigue con ese mismo aviso, sin repetir la
+                                # canción entera ni bajar ningún corte del detector.
+                                measured = None
+                                variant_plan["final_tempo_verification"] = "uncertain_at_mix"
                                 variant_plan["final_tempo_verification_error"] = str(exc)
-                                self.event(job, f"El pulso de la ampliación de la variante {index + 1} "
-                                               "no se pudo medir; se conserva el tempo de la base verificado")
-                                warning = ("La ampliación continuó la misma base, pero su pulso no se pudo "
-                                           "volver a medir; el tempo acreditado es el de la base verificada "
-                                           "antes de continuar.")
-                                warnings = job.setdefault("warnings", [])
-                                if warning not in warnings:
-                                    warnings.append(warning)
-                                if request.bpm is not None:
-                                    ratio_after = groups_tempo_ratio(
-                                        measured["bpm_measured"], request.bpm, config)
-                                    if ratio_after is not None:
-                                        adjusted_final = work / f"tempo-final-{index + 1}.wav"
-                                        self.event(job, f"Ajustando el BPM final de la variante {index + 1} sin cambiar el tono")
-                                        await asyncio.to_thread(
-                                            MixerService.tempo_audio, staged_output, adjusted_final, ratio_after,
-                                            variant_plan["target_duration_seconds"], config)
-                                        staged_output = adjusted_final
-                                        final_seconds = await self.music.verify_audio(staged_output) / 1000
-                                        try:
-                                            measured = await asyncio.to_thread(
-                                                required_measured_tempo, staged_output, arrangement, config)
-                                        except ValueError:
-                                            measured = fallback
-                                            variant_plan["final_tempo_verification"] = "uncertain_after_extension_and_atempo"
-                                # fall through to verify_requested_tempo below
+                                self.event(job, f"El BPM final de la variante {index + 1} "
+                                               "sigue sin verificarse; se entrega con aviso")
                             else:
-                                self.event(job, f"La parte elegida no conserva el pulso; "
-                                           f"se repite la canción entera en la variante {index + 1}")
-                                extended = work / f"arreglo-completo-{index + 1}.wav"
-                                arrangement = await asyncio.to_thread(
-                                    MixerService.extend_timeline, body, extended, widened, config)
-                                timeline = extended
-                                self.cancelled(job)
-                                mastering = await asyncio.to_thread(
-                                    MixerService.export_remix, timeline, staged_output, config)
-                                final_seconds = await self.music.verify_audio(staged_output) / 1000
-                                if abs(final_seconds - widened["target_duration_seconds"]) > config.duration_tolerance_seconds:
-                                    raise ValueError("La duración final no corresponde al arreglo solicitado")
-                                measured = await asyncio.to_thread(
-                                    required_measured_tempo, staged_output, arrangement, config)
-                                variant_plan = widened
-                                repeated_whole_song = True
+                                widened = whole_song_repeat_plan(variant_plan, config) if (
+                                    audio_has_no_usable_groove(exc)
+                                    and variant_plan.get("method") == "repeat_crossfade") else None
+                                if widened is None:
+                                    # [R17] Por pistas que continúa la base: la mezcla ya se
+                                    # midió y verificó antes de ampliar. Si la medición final
+                                    # del archivo ampliado es incierta, el tempo acreditado
+                                    # sigue siendo el de esa base y el trabajo se entrega con
+                                    # aviso; ningún corte del detector se baja.
+                                    fallback = uncertain_extension_fallback(
+                                        exc, request.scope, variant_plan,
+                                        tempo_after_adjust or tempo_before, config)
+                                    if fallback is None:
+                                        raise
+                                    measured = fallback
+                                    variant_plan["final_tempo_verification"] = "uncertain_after_extension"
+                                    variant_plan["final_tempo_verification_error"] = str(exc)
+                                    self.event(job, f"El pulso de la ampliación de la variante {index + 1} "
+                                                   "no se pudo medir; se conserva el tempo de la base verificado")
+                                    warning = ("La ampliación continuó la misma base, pero su pulso no se pudo "
+                                               "volver a medir; el tempo acreditado es el de la base verificada "
+                                               "antes de continuar.")
+                                    warnings = job.setdefault("warnings", [])
+                                    if warning not in warnings:
+                                        warnings.append(warning)
+                                    if request.bpm is not None:
+                                        ratio_after = groups_tempo_ratio(
+                                            measured["bpm_measured"], request.bpm, config)
+                                        if ratio_after is not None:
+                                            adjusted_final = work / f"tempo-final-{index + 1}.wav"
+                                            self.event(job, f"Ajustando el BPM final de la variante {index + 1} sin cambiar el tono")
+                                            await asyncio.to_thread(
+                                                MixerService.tempo_audio, staged_output, adjusted_final, ratio_after,
+                                                variant_plan["target_duration_seconds"], config)
+                                            staged_output = adjusted_final
+                                            final_seconds = await self.music.verify_audio(staged_output) / 1000
+                                            try:
+                                                measured = await asyncio.to_thread(
+                                                    required_measured_tempo, staged_output, arrangement, config)
+                                            except ValueError:
+                                                measured = fallback
+                                                variant_plan["final_tempo_verification"] = "uncertain_after_extension_and_atempo"
+                                    # fall through to verify_requested_tempo below
+                                else:
+                                    self.event(job, f"La parte elegida no conserva el pulso; "
+                                               f"se repite la canción entera en la variante {index + 1}")
+                                    extended = work / f"arreglo-completo-{index + 1}.wav"
+                                    arrangement = await asyncio.to_thread(
+                                        MixerService.extend_timeline, body, extended, widened, config)
+                                    timeline = extended
+                                    self.cancelled(job)
+                                    mastering = await asyncio.to_thread(
+                                        MixerService.export_remix, timeline, staged_output, config)
+                                    final_seconds = await self.music.verify_audio(staged_output) / 1000
+                                    if abs(final_seconds - widened["target_duration_seconds"]) > config.duration_tolerance_seconds:
+                                        raise ValueError("La duración final no corresponde al arreglo solicitado")
+                                    measured = await asyncio.to_thread(
+                                        required_measured_tempo, staged_output, arrangement, config)
+                                    variant_plan = widened
+                                    repeated_whole_song = True
                     else:
                         measured = await asyncio.to_thread(self.measure_bpm, staged_output)
                     self.cancelled(job)
                     if request.bpm is not None and request.scope in {"full", "groups"}:
-                        if variant_plan.get("final_tempo_verification") == "uncertain_after_extension_and_atempo":
+                        if variant_plan.get("tempo_verification") == "uncertain_at_mix":
+                            # La mezcla se entrega con su aviso de tempo sin acreditar
+                            # (decisión 2026-10-19); no se verifica contra el BPM pedido.
+                            pass
+                        elif variant_plan.get("final_tempo_verification") == "uncertain_after_extension_and_atempo":
                             self.event(job, f"El BPM final de la variante {index + 1} no se pudo verificar tras el ajuste DSP; "
                                            f"se entrega con el tempo acreditado de la base ({measured['bpm_measured']} BPM)")
                         else:

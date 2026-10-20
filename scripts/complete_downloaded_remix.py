@@ -74,7 +74,10 @@ def require_offline(settings) -> dict:
         executable = (process.get("ExecutablePath") or "").lower().replace("/", "\\")
         workspace = str(ROOT).lower()
         backend_python = str(ROOT / "backend" / "venv" / "Scripts" / "python.exe").lower()
-        engine_python = str(ROOT / "vendor" / "ACE-Step-1.5" / ".venv" / "Scripts" / "python.exe").lower()
+        engine_python_path = Path(settings.acestep.python_path).expanduser()
+        if not engine_python_path.is_absolute():
+            engine_python_path = ROOT / engine_python_path
+        engine_python = str(engine_python_path.resolve()).lower()
         own_api = (str(ROOT / "backend" / "main.py").lower() in command_line
                    or (executable == backend_python and ("main.py" in command_line or "main:app" in command_line))
                    or ("main:app" in command_line and workspace in command_line))

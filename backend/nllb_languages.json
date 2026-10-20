@@ -1,5 +1,5 @@
 {
-  "_doc": "ISO 639-1 que devuelve el detector local, al código FLORES de facebook/nllb-200-distilled-600M. El chino no separa simplificado y tradicional: se usa zho_Hans. El albanés usa als_Latn, el letón lvs_Latn, el suajili swh_Latn, el persa pes_Arab, el malayo zsm_Latn y el mongol khk_Cyrl. El latín no está en este modelo: si el detector lo elige, el envío se detiene y no sale el texto original.",
+  "_doc": "ISO 639-1 que devuelve el detector local, al código FLORES de facebook/nllb-200-distilled-600M. El chino no separa simplificado y tradicional: se usa zho_Hans. El albanés usa als_Latn, el letón lvs_Latn, el suajili swh_Latn, el persa pes_Arab, el malayo zsm_Latn y el mongol khk_Cyrl. El latín no está en este modelo: si el detector lo elige, el texto se envía tal cual sin traducir y no se corta la generación.",
   "codes": {
     "af": "afr_Latn",
     "sq": "als_Latn",

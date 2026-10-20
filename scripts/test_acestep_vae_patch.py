@@ -1,6 +1,6 @@
 """Regression tests for the exact vendor patch and real torch CPU conversions.
 
-Run with vendor/ACE-Step-1.5/.venv/Scripts/python.exe -m unittest
+Run with vendor/ACE-Step-1.5/.venv311/Scripts/python.exe -m unittest
 scripts.test_acestep_vae_patch. No checkpoints or CUDA contexts are loaded.
 """
 
