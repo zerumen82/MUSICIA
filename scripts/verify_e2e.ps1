@@ -50,61 +50,28 @@ function Test-Port([int]$puerto) {
 
 Write-Host "== 1/5 motor ACE-Step =="
 if (-not (Test-Endpoint 'http://127.0.0.1:8001/health')) {
-    # Si aún carga, no modificar vendor ni lanzar otro motor en paralelo.
-    $motorPresente = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like '*acestep.api_server*' }).Count -gt 0 -or (Test-Port 8001)
-    if ($motorPresente) {
-        Write-Host '   motor arrancando: esperar health antes de repetir la prueba'
-        exit 1
-    }
-    $backend = Join-Path $raiz 'backend'
-    $backendPython = Join-Path $backend 'venv\Scripts\python.exe'
-    $engineLaunchLines = & $backendPython -c "import sys,json; sys.path.insert(0, r'$backend'); from config import engine_launch_config; print(json.dumps(engine_launch_config()))"
-    if ($LASTEXITCODE -ne 0 -or -not $engineLaunchLines) {
-        Write-Host '   no se pudo leer el Python configurado del motor'
-        exit 1
-    }
-    $engineLaunch = ([string](@($engineLaunchLines) | Select-Object -Last 1)) | ConvertFrom-Json -ErrorAction Stop
-    $enginePython = ([string]$engineLaunch.python_path).Trim()
-    if (-not $enginePython -or -not $engineLaunch.environment) {
-        Write-Host '   configuracion de arranque incompleta'
-        exit 1
-    }
-    if (-not [System.IO.Path]::IsPathRooted($enginePython)) {
-        $enginePython = Join-Path $raiz $enginePython
-    }
-    if (-not (Test-Path -LiteralPath $enginePython -PathType Leaf)) {
-        Write-Host "   falta el Python configurado del motor: $enginePython"
-        exit 1
-    }
-    & $backendPython (Join-Path $PSScriptRoot 'apply_acestep_patches.py')
-    if ($LASTEXITCODE -ne 0) { Write-Host '   correccion del motor no aplicable'; exit 1 }
-    foreach ($setting in $engineLaunch.environment.PSObject.Properties) {
-        [Environment]::SetEnvironmentVariable($setting.Name, [string]$setting.Value, 'Process')
-    }
-    Start-Process -FilePath $enginePython `
-        -ArgumentList '-m', 'acestep.api_server' `
-        -WorkingDirectory (Join-Path $raiz 'vendor\ACE-Step-1.5') `
-        -RedirectStandardOutput (Join-Path $logs 'acestep-api.log') `
-        -RedirectStandardError (Join-Path $logs 'acestep-api.err.log') `
-        -WindowStyle Hidden | Out-Null
+    # El motor se arranca por la ruta del producto (ensure_local.ps1): él aplica
+    # los parches, resuelve la configuración y escribe la identidad del motor en
+    # logs\engine.pid.json, que R18 necesita para poder pausarlo al terminar.
+    # Un Start-Process directo deja un motor "ajeno" que IdleEngine preserva por
+    # diseño (incidente 2026-10-20 13:15:50: fase 2 del e2e no alcanzada).
+    # Si responde MOTOR=idle (flag de reposo R18) el motor NO se arranca aquí:
+    # la primera peticion lo despierta sola, igual que en la app real.
+    Remove-Item (Join-Path $logs 'stop.flag') -Force -ErrorAction SilentlyContinue
+    & (Join-Path $PSScriptRoot 'ensure_local.ps1')
 }
 $limite = (Get-Date).AddMinutes(4)
 while (-not (Test-Endpoint 'http://127.0.0.1:8001/health') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 5 }
 $resultado.motor_ok = Test-Endpoint 'http://127.0.0.1:8001/health'
-Write-Host "   motor responde: $($resultado.motor_ok)"
-if (-not $resultado.motor_ok) { $resultado | ConvertTo-Json | Set-Content (Join-Path $logs 'e2e-result.json'); exit 1 }
+Write-Host "   motor responde: $($resultado.motor_ok) (False con reposo R18 no corta: lo despierta la peticion)"
 
 Write-Host "== 2/5 API Musicia =="
 if (-not (Test-Endpoint 'http://127.0.0.1:8000/health')) {
-    Start-Process -FilePath (Join-Path $raiz 'backend\venv\Scripts\python.exe') `
-        -ArgumentList 'backend\main.py' `
-        -WorkingDirectory $raiz `
-        -RedirectStandardOutput (Join-Path $logs 'musicia-api.log') `
-        -RedirectStandardError (Join-Path $logs 'musicia-api.err.log') `
-        -WindowStyle Hidden | Out-Null
+    # La API también se arranca por la ruta del producto (mismo motivo arriba).
+    Remove-Item (Join-Path $logs 'stop.flag') -Force -ErrorAction SilentlyContinue
+    & (Join-Path $PSScriptRoot 'ensure_local.ps1')
 }
-$limite = (Get-Date).AddSeconds(60)
+$limite = (Get-Date).AddSeconds(90)
 while (-not (Test-Endpoint 'http://127.0.0.1:8000/health') -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 3 }
 $resultado.api_ok = Test-Endpoint 'http://127.0.0.1:8000/health'
 Write-Host "   api responde: $($resultado.api_ok)"
@@ -112,7 +79,10 @@ if (-not $resultado.api_ok) { $resultado | ConvertTo-Json | Set-Content (Join-Pa
 
 Write-Host "== 3/5 generando musica ($Seconds s) =="
 $cuerpo = @{ prompt = $Prompt; duration_seconds = $Seconds; instrumental = $true } | ConvertTo-Json
-$peticion = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/music/generate' -Method Post -Body $cuerpo -ContentType 'application/json' -TimeoutSec 60
+# 900 s: si el motor está en reposo, esta misma peticion lo despierta (R18) y
+# arranca en frío antes de encolar; el plazo del cliente no debe cortar esa
+# espera (la UI usa GENERATE_SUBMIT_TIMEOUT_MS = 960 s).
+$peticion = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/music/generate' -Method Post -Body $cuerpo -ContentType 'application/json' -TimeoutSec 900
 $resultado.job_id = $peticion.job_id
 Write-Host "   job: $($peticion.job_id) (tarea motor $($peticion.engine_task_id))"
 
@@ -127,6 +97,11 @@ do {
 } while ($estado.status -in @('queued', 'running') -and (Get-Date) -lt $limite)
 
 $resultado.estado = $estado.status
+# Con reposo R18 el motor despierta durante la peticion: si el trabajo corrió,
+# el motor respondió y el dato del paso 1 pasa a reflejarlo.
+if ($estado.status -in @('queued', 'running', 'succeeded')) {
+    $resultado.motor_ok = $resultado.motor_ok -or (Test-Endpoint 'http://127.0.0.1:8001/health')
+}
 if ($estado.error) { Write-Host "   ERROR: $($estado.error)" }
 if ($estado.output_name) { $resultado.archivo = $estado.output_name }
 if ($estado.duration_seconds) { $resultado.duracion_real_s = $estado.duration_seconds }

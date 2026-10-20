@@ -22,6 +22,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import tempfile
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -97,17 +98,41 @@ async def _engine_control(action: str) -> str:
             "-StartTimeoutSeconds" if action == "WakeEngine" else "-StopTimeoutSeconds",
             str(max(1, int(timeout))),
         ]
-    try:
-        result = await asyncio.to_thread(
-            subprocess.run, command, capture_output=True, text=True,
-            timeout=max(30, timeout + 30),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError(f"ensure_local {action} failed: {exc}") from exc
-    if result.returncode:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(f"ensure_local {action} exited {result.returncode}: {detail}")
-    return result.stdout.strip()
+    def _run_control() -> tuple[int | None, str | None, tuple[str, str]]:
+        """Ejecuta el script; la salida va a ficheros temporales, NUNCA a tuberías.
+
+        Los hijos de larga vida que ensure_local arranca (el motor) heredan
+        los extremos de escritura de una tubería anónima: el lector de
+        subprocess nunca recibiría su EOF y communicate() esperaría para
+        siempre aunque el script ya hubiera salido bien (incidente
+        2026-10-20: el despertar quedó colgado reteniendo la lease R18
+        mientras el motor siguió vivo). Un fichero temporal no se hereda
+        como tubería: la salida se lee al terminar el script.
+        """
+        with tempfile.TemporaryFile() as salida, tempfile.TemporaryFile() as error:
+            codigo: int | None = None
+            fallo: str | None = None
+            try:
+                codigo = subprocess.run(
+                    command, stdout=salida, stderr=error,
+                    timeout=max(30, timeout + 30),
+                ).returncode
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                fallo = f"ensure_local {action} failed: {exc}"
+            salida.seek(0)
+            error.seek(0)
+            texto_salida = salida.read().decode(errors="replace").strip()
+            texto_error = error.read().decode(errors="replace").strip()
+            return codigo, fallo, (texto_salida, texto_error)
+
+    (codigo, fallo, (texto_salida, texto_error)) = await asyncio.to_thread(_run_control)
+    if fallo:
+        detail = (texto_error or texto_salida or "").strip()
+        raise RuntimeError(f"{fallo}: {detail}" if detail else fallo)
+    if codigo:
+        detail = (texto_error or texto_salida or "").strip()
+        raise RuntimeError(f"ensure_local {action} exited {codigo}: {detail}")
+    return texto_salida
 
 
 async def _reconcile_engine_lifecycle() -> None:
