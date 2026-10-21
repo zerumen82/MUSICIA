@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Shuffle, X } from 'lucide-react';
 import { api, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { applyModelTerm, glossaryFoot, glossaryShown, modelTerms, stylesForQuery } from '../glossary_pick';
+import { chooseStyle } from '../style_prompt';
 
 /** Alto máximo del panel. Si no cabe debajo del botón, se abre hacia arriba. */
 const PANEL_MAX_PX = 360;
@@ -13,16 +14,17 @@ const LIMIT = 50;
  * otra versión). Todo lo que se añade está en inglés, que es el idioma de
  * las captions de entrenamiento: ver y enviar, el mismo idioma.
  *
- * - El vocabulario del modelo (`genres_vocab.txt`) sigue siendo la lista.
- *   Cada elección es una línea del vocabulario del modelo. Varias quedan en
- *   una sola caption: «A track with gabber · medieval». El BPM, si el cuadro
- *   iba vacío, pasa a su control y no se escribe en la frase.
+ * - Cada elección es una línea de `genres_vocab.txt`. En los preparadores
+ *   estructurados se guarda por separado con el rol explícito principal o
+ *   matiz. El detalle escrito no cambia al seleccionar ni quitar estilos.
  * - Combinar: eliges dos y solo aparecen combinaciones que existen en ese
  *   vocabulario (techno + hardcore -> «hardcore techno»). Si no existe la
  *   mezcla, no se ofrece nada.
- * - Lo que ya está en tu frase se marca ELEGIDO y vuelve a pulsarlo lo quita.
+ * - Las selecciones se muestran con su rol. Los consumidores antiguos sin
+ *   estado estructurado conservan la selección de términos en su frase.
  */
-export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = null }) {
+export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = null, selection = null, setSelection = null }) {
+  const [role, setRole] = useState('main');
   const [open, setOpen] = useState(false);
   const [box, setBox] = useState(null);
   const [q, setQ] = useState('');
@@ -120,7 +122,9 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
   }, [pick]);
 
   const enCaption = (prompt ?? '').trim().toLowerCase().startsWith('a track with ');
-  const elegido = (text) => enCaption && modelTerms(prompt).some((part) => part.toLowerCase() === String(text).trim().toLowerCase());
+  const elegido = (text) => selection
+    ? [selection.main_style, ...selection.influence_styles].some((part) => String(part ?? '').toLowerCase() === String(text).trim().toLowerCase())
+    : enCaption && modelTerms(prompt).some((part) => part.toLowerCase() === String(text).trim().toLowerCase());
 
   const cerrar = () => {
     setOpen(false);
@@ -131,6 +135,11 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
   };
 
   const meter = (termino, tempo = null) => {
+    if (selection && setSelection) {
+      setSelection((current) => chooseStyle(current, termino, role));
+      cerrar();
+      return;
+    }
     const before = (prompt ?? '').trim();
     const framed = before.toLowerCase().startsWith('a track with ');
     const next = applyModelTerm(prompt, termino);
@@ -158,7 +167,7 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
           className={`flex-1 text-left px-2 py-1 text-[11.5px] truncate ${on ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
           {text}
         </button>
-        {on && <span className="mono text-[7.5px] text-[var(--acc)] shrink-0">ELEGIDO</span>}
+        {on && <span className="mono text-[7.5px] text-[var(--acc)] shrink-0">{selection ? (selection.main_style === text ? 'PRINCIPAL' : 'MATIZ') : 'ELEGIDO'}</span>}
         {extra}
       </div>
     );
@@ -194,7 +203,8 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
             </button>
           </div>
 
-          <input value={q} onChange={(e) => { setQ(e.target.value); setFail(null); }} autoFocus
+          {selection && <label className="label">ELEGIR COMO <select aria-label="Rol del estilo" value={role} onChange={(event) => setRole(event.target.value)} className="desk-select"><option value="main">PRINCIPAL</option><option value="influence">MATIZ</option></select></label>}
+          <input aria-label="Buscar estilo" value={q} onChange={(e) => { setQ(e.target.value); setFail(null); }} autoFocus
             placeholder="Buscar estilo o subestilo…"
             className="w-full bg-transparent border border-[var(--line)] px-2 py-1 text-[12px] text-zinc-100 placeholder:text-[var(--faint)] focus:border-[var(--acc-line)] outline-none" />
 

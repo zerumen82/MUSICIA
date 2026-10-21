@@ -67,7 +67,7 @@ from prompt_enhancer import (
     enhance_prompt,
 )
 from prompt_style import analyze_prompt, style_caption
-from style_translator import style_for_engine
+from style_translator import style_for_engine, translate_style_details
 from genre_glossary import search as glossary_search, combine as glossary_combine
 from music_service import (
     GenerationRequest,
@@ -366,6 +366,9 @@ class EnhancePromptRequest(BaseModel):
 
     prompt: str
     bpm: int | None = None
+    main_style: str | None = None
+    influence_styles: list[str] = Field(default_factory=list)
+    include_descriptions: bool = True
 
 
 class RemixPromptRequest(BaseModel):
@@ -2391,14 +2394,18 @@ def music_genre_glossary_combine(a: str = "", b: str = "", limit: int = 50) -> d
 
 @app.post("/music/enhance_prompt")
 async def music_enhance_prompt(request: EnhancePromptRequest) -> dict[str, Any]:
-    """Borrador fiel de prompt (determinista): no añade recetas de producción.
-
-    Solo puede incorporar un BPM seleccionado explícitamente, y lo declara en
-    `additions`/`warnings`; la UI muestra el borrador para revisarlo antes de
-    aplicarlo (spec/02 [R10]).
-    """
+    """Prepara selecciones explícitas y detalles con procedencia (B9b/R10)."""
     try:
-        return enhance_prompt(request.prompt, bpm=request.bpm)
+        options = {"bpm": request.bpm, "main_style": request.main_style,
+                   "influence_styles": request.influence_styles,
+                   "include_descriptions": request.include_descriptions}
+        # Validar el original antes de traducir. Los detalles se traducen solos:
+        # mezclar primero prosa inglesa y restricciones ES pierde negaciones.
+        prepared = enhance_prompt(request.prompt, **options)
+        if request.main_style and request.prompt.strip():
+            details = await asyncio.to_thread(translate_style_details, request.prompt)
+            prepared = enhance_prompt(request.prompt, details_for_engine=details, **options)
+        return prepared
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

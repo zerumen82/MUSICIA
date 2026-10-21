@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from array import array
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -15,8 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI
+from pydub import AudioSegment
 from pydub.generators import Sine
 from config import AppSettings
+from mixer_service import MixerService
 from music_service import STATUS_SUCCEEDED, EngineStatus, GeneratedTrack, MusicService
 from remix_project import RemixProjectRequest, RemixProjectRuntime, project_generation, timeline_plan
 from remix_recovery import (RECEIPT_NAME, atomic_json, build_receipt, file_digest,
@@ -177,8 +180,14 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             unique, lambda raw, fallback: raw or fallback, publish,
             lambda path: None, lambda: "2026-10-15T00:00:01+00:00", lambda job: None)
 
-    def continuation(self):
-        """El cover ya descargado no se repite. Lo que sobra pide un repaint del final."""
+    def continuation(self, primer_intento_mudo=False):
+        """El cover ya descargado no se repite. Lo que sobra pide un repaint del final.
+
+        El motor fake devuelve pulso real a 160 BPM (bombo de 100 ms cada
+        375 ms), como el SFT en un sorteo con pulso. Con primer_intento_mudo
+        cada segunda muestra vuelve a salir muda (seno plano) para
+        ejercitar los reintentos de B8b.
+        """
         submitted = []
 
         async def submit(generation):
@@ -191,8 +200,33 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
                                seed=1, seed_origin="engine.seed")])
 
         async def download(_remote, path):
-            Sine(220, sample_rate=self.settings.remix.sample_rate).to_audio_segment(
-                duration=5000).set_channels(2).export(path, format="wav").close()
+            # El motor real devuelve el audio completo hasta el fin del trozo
+            # pintado (incluido el margen de cola de B8 que se recorta después).
+            # El cribado previo puede pedir un cover de reemplazo; su duración
+            # procede de la petición o del WAV real, nunca de repaint_end.
+            generation = submitted[-1]
+            if generation.task_type == "repaint":
+                self.assertIsNotNone(generation.repaint_end)
+                segundos = generation.repaint_end
+            elif generation.task_type == "cover":
+                if generation.duration_seconds is not None:
+                    segundos = generation.duration_seconds
+                else:
+                    with Path(generation.source_path).open("rb") as source_audio:
+                        segundos = AudioSegment.from_file(source_audio).duration_seconds
+            else:
+                raise AssertionError(f"Tarea inesperada en el arnés de recuperación: {generation.task_type}")
+            rate = self.settings.remix.sample_rate
+            mudo = primer_intento_mudo and len(submitted) % 2 == 1
+            periodo = 60.0 / 160.0
+            muestras = array("f")
+            for frame in range(round(segundos * rate)):
+                if mudo:
+                    value = 0.1
+                else:
+                    value = 0.6 if (frame / rate) % periodo < 0.10 else 0.04
+                muestras.extend((value, value))
+            MixerService._write_float_wav(path, muestras, rate, 2)
             return path
 
         return submitted, submit, wait, download
@@ -221,6 +255,25 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
             self.assertEqual(ficha["project"], before)
 
+    async def test_grooveless_chunk_asks_a_new_sample_with_another_seed(self):
+        """B8b: un trozo sin pulso se vuelve a sortear con semilla nueva."""
+        published = []
+        runtime = self.runtime(published)
+        manifest = {"groups": [{"id": key, "file_name": path.name} for key, path in self.originals.items()]}
+        submitted, submit, wait, download = self.continuation(primer_intento_mudo=True)
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=wait), \
+                patch.object(self.music, "download", new=download), \
+                patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
+            await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
+        self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
+        # Cada variante pidió dos muestras: la primera muda, la segunda con pulso.
+        self.assertEqual(len(submitted), 4)
+        self.assertEqual([item.seed for item in submitted], [8123, 8124, 7429, 7430])
+        self.assertEqual(len(published), 2)
+        for path, ficha in published:
+            self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
+
     async def test_failure_of_second_export_does_not_publish_first_variant(self):
         published = []
         runtime = self.runtime(published)
@@ -245,6 +298,29 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(published, [])
         self.assertEqual(self.job["error"], "Real second-stage failure")
 
+    def prepare_downloaded_pulse(self):
+        """Estos escenarios parten de un cover con bombo físico al BPM pedido.
+
+        El seno plano de la fixture genérica dispara legítimamente el cribado
+        B8c y añade un cover antes de lo que estos tests estudian: continuación
+        y publicación. Se construye el pulso antes de anclar hashes/recibo; el
+        cribado se ejecuta de verdad y los conteos de reintentos siguen intactos.
+        Los tests de continuación muda y detector incierto se conservan.
+        """
+        self.assertIsNotNone(self.request.bpm)
+        duration_ms = len(self.audio)
+        pulse = Sine(60, sample_rate=self.settings.remix.sample_rate).to_audio_segment(
+            duration=100, volume=-3).fade_out(100).set_channels(2)
+        audio = AudioSegment.silent(duration=duration_ms,
+                                    frame_rate=self.settings.remix.sample_rate).set_channels(2)
+        beat_ms = 60000.0 / self.request.bpm
+        beat = 0
+        while round(beat * beat_ms) < duration_ms:
+            audio = audio.overlay(pulse, position=round(beat * beat_ms))
+            beat += 1
+        for path, _track in self.generated:
+            audio.export(path, format="wav").close()
+
     async def finish_tempo_extension(self, final_groove):
         """Ejecuta recuperación, mezcla, continuación y MP3 reales con sample corto.
 
@@ -253,6 +329,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         """
         self.request = self.request.model_copy(update={
             "bpm": 120, "source_bpm": 120, "repeat_start": 0.25, "repeat_end": 1.5})
+        self.prepare_downloaded_pulse()
         self.job["project"] = self.request.model_dump()
         self.job["operations"]["timeline"] = timeline_plan(self.request, 2, self.settings)
         self.job["effective_parameters"] = self.music.build_payload(project_generation(
@@ -293,6 +370,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         """
         self.request = self.request.model_copy(update={
             "bpm": 120, "source_bpm": 120, "repeat_start": 0.25, "repeat_end": 1.5})
+        self.prepare_downloaded_pulse()
         self.job["project"] = self.request.model_dump()
         self.job["operations"]["timeline"] = timeline_plan(self.request, 2, self.settings)
         self.job["effective_parameters"] = self.music.build_payload(project_generation(
@@ -330,9 +408,18 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         published, submitted, measured_paths = await self.finish_tempo_extension(error)
         self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
         self.assertEqual(len(published), 2)
-        self.assertEqual(len(submitted), 2)
-        self.assertEqual(measured_paths, ["mezcla-1.wav", "exportada-1.mp3",
-                                          "mezcla-2.wav", "exportada-2.mp3"])
+        # Cada trozo pidió tres muestras: el detector parcheado no se fía de
+        # ninguna, y B8b agota sus reintentos antes de continuar.
+        self.assertEqual(len(submitted), 6)
+        self.assertEqual(measured_paths, ["mezcla-1.wav",
+                                          "continuacion-1-1-1-pulso.wav",
+                                          "continuacion-1-1-2-pulso.wav",
+                                          "continuacion-1-1-3-pulso.wav",
+                                          "exportada-1.mp3", "mezcla-2.wav",
+                                          "continuacion-2-1-1-pulso.wav",
+                                          "continuacion-2-1-2-pulso.wav",
+                                          "continuacion-2-1-3-pulso.wav",
+                                          "exportada-2.mp3"])
         self.assertTrue(any("base verificada" in notice for notice in self.job["warnings"]))
         self.assertFalse(any("repitió" in notice for notice in self.job["warnings"]))
         for path, ficha in published:
@@ -363,8 +450,12 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job["status"], "failed")
         self.assertIn(f"El BPM final medido {final_bpm:g} no cumple el pedido 120", self.job["error"])
         self.assertEqual(published, [])
+        # El detector informa pulso con confianza en la región del trozo, así
+        # que el cribado lo acepta a la primera; R11 es quien rechaza el BPM.
         self.assertEqual(len(submitted), 1)
-        self.assertEqual(measured_paths, ["mezcla-1.wav", "exportada-1.mp3"])
+        self.assertEqual(measured_paths, ["mezcla-1.wav",
+                                          "continuacion-1-1-1-pulso.wav",
+                                          "exportada-1.mp3"])
 
     async def test_conclusive_extension_within_tolerance_uses_final_measurement(self):
         published, submitted, _measured_paths = await self.finish_tempo_extension(
@@ -385,7 +476,9 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         published, submitted, measured_paths = await self.finish_uncertain_mix(error)
         self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
         self.assertEqual(len(published), 2)
-        self.assertEqual(len(submitted), 2)
+        # El detector nunca se fía: B8b agota sus reintentos por trozo y
+        # luego se entrega con el aviso honesto de la mezcla incierta.
+        self.assertEqual(len(submitted), 6)
         self.assertIn("mezcla-1.wav", measured_paths)
         notices = self.job["warnings"]
         self.assertTrue(any("no se ajustó al BPM pedido" in notice for notice in notices))

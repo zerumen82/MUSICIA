@@ -223,6 +223,11 @@ class RemixSettings:
     timeline_transition_seconds: float = 0.1
     timeline_max_transition_seconds: float = 2.0
     timeline_min_groove_confidence: float = 0.12
+    # Cobertura mínima de bombo exigida a un trozo o a la base (B8c): fracción
+    # de tiempos del compás pedido con un golpe en la banda 40-120 Hz. El
+    # detector de pulso mira el compás global; esto mira el bombo, que es lo
+    # que oyó el usuario que faltaba. 0 desactiva el cribado.
+    timeline_min_kick_coverage: float = 0.5
     groove_octave_score_ratio: float = 0.9
     groove_octave_lag_tolerance_frames: float = 1.0
     # El flujo de ataques del golpe tiene que superar al del compás por este
@@ -269,6 +274,25 @@ class RemixSettings:
     continuation_max_seconds: float = 90.0
     continuation_max_chunks: int = 200
     continuation_batch_size: int = 1
+    # B8 (2026-10-20): el motor desvanece la cola de cada outpaint y cada
+    # trozo se condiciona sobre el anterior: encadenados sin solape, las
+    # colas muertas se componían (86 -> 70 -> 18 dB medidos) y la ampliación
+    # sonaba a corta-y-pega. Cada valor vive aquí, no en el código.
+    # - overlap: segundos que el trozo siguiente RE-pinta del anterior, con
+    #   contexto real, para eliminar su cola desvanecida.
+    # - tail_margin: segundos extra del último trozo que se generan y se
+    #   recortan (finish_continuation ya recorta) para que el desvanecimiento
+    #   final caiga fuera del audio entregado.
+    # - level_match*: igualación de nivel entre la región repintada y lo
+    #   anterior, con crossfade corta y tope de ganancia.
+    continuation_overlap_seconds: float = 10.0
+    continuation_tail_margin_seconds: float = 12.0
+    continuation_level_match: bool = True
+    continuation_level_match_reference_seconds: float = 8.0
+    continuation_level_match_window_seconds: float = 4.0
+    continuation_level_match_skip_seconds: float = 1.0
+    continuation_level_match_fade_seconds: float = 0.05
+    continuation_level_match_max_gain_db: float = 12.0
     demucs_model: str = "htdemucs"
     demucs_device: str = "auto"
     demucs_shifts: int = 1

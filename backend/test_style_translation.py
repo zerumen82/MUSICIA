@@ -80,6 +80,13 @@ class CorrectedTermsTest(unittest.TestCase):
         stop_style_translation_worker()
         reset_style_translation_cache()
 
+    def test_measured_untranslated_bombo_is_corrected_only_with_spanish_source(self):
+        self.assertEqual(correct_translated_terms("sin bombo", "without bombo"), "without kick")
+        self.assertEqual(correct_translated_terms("sin bombos", "without bombs"), "without kicks")
+        self.assertEqual(correct_translated_terms("without bombs", "without bombs"), "without bombs")
+        self.assertEqual(correct_translated_terms("without kick", "without kick"), "without kick")
+        self.assertEqual(correct_translated_terms("without drums", "a bombo sample"), "a bombo sample")
+
     def test_measured_words_change_and_english_battery_does_not(self):
         self.assertEqual(
             correct_translated_terms("Batería suave al fondo", "Soft battery at the bottom"),
@@ -136,6 +143,78 @@ class CorrectedTermsTest(unittest.TestCase):
 
 
 class LocalTranslationTest(unittest.TestCase):
+    def test_structured_short_exclusions_use_local_translation_and_keep_roles(self):
+        import main
+        from fastapi.testclient import TestClient
+        from prompt_style import selected_style_rule
+
+        client = TestClient(main.app)
+        evidence = []
+        for raw, main_style, noun, compatible in (
+                ("sin bombo", "gabber", r"kick|drum|bass", False),
+                ("sin bajo", "trance", r"bass", False),
+                ("sin voz", "techno", r"voice|vocal", True)):
+            with self.subTest(raw=raw):
+                # Reproduce una abstención ya cacheada del detector general;
+                # la pista fiable B9b no debe reutilizarla como traducción.
+                style_for_engine(raw)
+                body = {"prompt": raw, "main_style": main_style, "include_descriptions": True}
+                response = client.post("/music/enhance_prompt", json=body)
+                self.assertEqual(response.status_code, 200, response.text)
+                result = response.json()
+                english = result["enhanced"].lower()
+                evidence.append({"raw": raw, "result": result})
+                self.assertEqual(result["original"], raw)
+                self.assertIn(f"Predominantly {main_style}.", result["enhanced"])
+                self.assertNotRegex(english, r"\b(?:sin|bombo|bajo|voz)\b")
+                self.assertRegex(english, r"\b(?:no|without)\b")
+                self.assertRegex(english, noun)
+                clause = selected_style_rule(main_style)["style"]
+                self.assertEqual(clause in result["enhanced"], compatible)
+                shown = client.post("/music/style-english", json={"prompt": result["enhanced"]})
+                self.assertEqual(shown.status_code, 200, shown.text)
+                self.assertEqual(shown.json()["prompt"], result["enhanced"])
+                self.assertEqual(client.post("/music/enhance_prompt", json=body).json(), result)
+        self.assertEqual(client.post("/music/enhance_prompt", json={
+            "prompt": "without bass", "main_style": "techno", "include_descriptions": False,
+        }).json()["enhanced"], "Predominantly techno. without bass")
+        print(json.dumps(evidence, ensure_ascii=False, indent=2))
+
+    def test_structured_plural_exclusion_is_measured_with_real_translator(self):
+        import main
+        from fastapi.testclient import TestClient
+
+        result = TestClient(main.app).post("/music/enhance_prompt", json={
+            "prompt": "sin bombos", "main_style": "gabber", "include_descriptions": True,
+        })
+        self.assertEqual(result.status_code, 200, result.text)
+        prepared = result.json()
+        print(json.dumps({"plural_measured": prepared}, ensure_ascii=False, indent=2))
+        self.assertNotRegex(prepared["enhanced"].lower(), r"\b(?:sin|bombos)\b")
+        self.assertRegex(prepared["enhanced"].lower(), r"\b(?:no|without)\b")
+        self.assertRegex(prepared["enhanced"].lower(), r"kick|drum")
+
+    def test_structured_prompt_translates_details_before_english_roles(self):
+        import main
+        from fastapi.testclient import TestClient
+
+        client = TestClient(main.app)
+        body = {"prompt": "sin voz y sin guitarras", "main_style": "techno",
+                "influence_styles": ["trance"], "include_descriptions": True}
+        response = client.post("/music/enhance_prompt", json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["original"], body["prompt"])
+        self.assertIn("Predominantly techno, with subtle influences of trance.", result["enhanced"])
+        self.assertRegex(result["enhanced"].lower(), r"no (?:voice|vocals?)")
+        self.assertIn("no guitars", result["enhanced"].lower())
+        self.assertNotRegex(result["enhanced"].lower(), r"\b(?:sin|voz|guitarras)\b")
+        shown = client.post("/music/style-english", json={"prompt": result["enhanced"]})
+        self.assertEqual(shown.status_code, 200, shown.text)
+        self.assertEqual(shown.json()["prompt"], result["enhanced"])
+        repeated = client.post("/music/enhance_prompt", json=body)
+        self.assertEqual(repeated.json(), result)
+
     def test_spanish_and_the_mixed_phrase_become_stable_english(self):
         spanish = "Batería suave al fondo"
         reset_style_translation_cache()

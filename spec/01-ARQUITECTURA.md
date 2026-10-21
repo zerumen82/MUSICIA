@@ -23,6 +23,12 @@ El arranque local aplica `scripts/patches/acestep_vae_cpu_dtype.patch` mediante 
 
 ## Contratos
 
+### Preparación de estilos B9b (plan aprobado 2026-10-21)
+
+La UI conserva por separado detalles propios, `main_style`, `influence_styles` e `include_descriptions`. `/music/enhance_prompt` prepara una descripción con predominio del principal e influencias secundarias; valida etiquetas literales y exclusiones contra el texto original, traduce sus detalles por separado y compone después las partes inglesas. Omite descripciones de catálogo incompatibles y, conservadoramente, recetas cuyas exclusiones no pueda contrastar. Las plantillas residen en los datos del catálogo. Los matices no autorizan introducir sus instrumentos ni porcentajes ficticios.
+
+El resultado derivado no sobrescribe el campo del usuario ni vuelve a usarse como fuente de selecciones. La preparación se identifica por todas sus entradas; una respuesta anterior no habilita el envío actual. Crear, Remix y campos de grupo consumen ese mismo contrato. El texto efectivo se traduce por el preparador existente de preview/generación, conservando su igualdad; los parámetros de tempo, tono y compás siguen separados. Las peticiones antiguas sin selección conservan su contrato. Implementación y verificación en curso: esta descripción no acredita cierre técnico.
+
 ### Motor ACE-Step (vendor externo)
 
 - `POST /release_task` → tarea aceptada; respuesta envuelta en `{data, code, error}`.

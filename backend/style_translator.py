@@ -20,6 +20,7 @@ from pathlib import Path
 
 from config import PROJECT_ROOT, AppSettings, get_settings
 from genre_glossary import VOCAB_PATH
+from prompt_style import STRUCTURED_DETAILS_SOURCE_LANGUAGE, known_spanish_exclusion_details
 
 _WORD = re.compile(r"[^\W\d_]+", flags=re.UNICODE)
 _LETTERS = re.compile(r"[^\W\d_]", flags=re.UNICODE)
@@ -510,6 +511,39 @@ def style_for_engine(prompt: str, settings: AppSettings | None = None) -> str:
         # Si alguna refactor lo alcanzara, el texto escrito viaja tal cual en
         # vez de tumbar la generación (decisión del 2026-10-19: siempre entrega).
         return text.strip()
+    with _CACHE_LOCK:
+        _CACHE[key] = translated
+        _CACHE[_cache_key(chosen, translated)] = translated
+    return translated
+
+
+def translate_style_details(prompt: str, settings: AppSettings | None = None) -> str:
+    """Traduce detalles B9b aislados, con pista fiable para exclusiones ES cortas.
+
+    El detector general conserva su comportamiento. Esta caché separada no
+    reutiliza una abstención estadística previa como si fuera una traducción.
+    No fabrica texto: las exclusiones reconocidas pasan por el mismo NLLB
+    local y las mismas correcciones verificadas que el resto de la app.
+    """
+    text = (prompt or "").strip()
+    if not known_spanish_exclusion_details(text):
+        return style_for_engine(text, settings)
+    chosen = settings or get_settings()
+    _check(chosen)
+    source_lang = STRUCTURED_DETAILS_SOURCE_LANGUAGE
+    key = ("structured-details-source", source_lang, *_cache_key(chosen, text))
+    with _CACHE_LOCK:
+        cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    source = _flores(source_lang, chosen)
+    if source is None:
+        raise ValueError("El traductor local no tiene código para los detalles españoles; no se envían sin traducir.")
+    _load_term_fixes(chosen)
+    translated = _match_case(text, _translate(text.casefold(), source, chosen).strip())
+    translated = correct_translated_terms(text, translated, chosen)
+    if not translated:
+        raise ValueError("El traductor local devolvió detalles vacíos; no se prepara el prompt sin tus instrucciones.")
     with _CACHE_LOCK:
         _CACHE[key] = translated
         _CACHE[_cache_key(chosen, translated)] = translated

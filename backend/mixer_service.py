@@ -742,6 +742,75 @@ class MixerService:
                 "repetitions": 0, "transition_seconds": 0.0, "sample": placed}
 
     @staticmethod
+    def continuation_level_gain(samples: array, channels: int, rate: int,
+                                start_frame: int, end_frame: int, *,
+                                reference_seconds: float, window_seconds: float,
+                                skip_seconds: float, max_gain_db: float) -> float:
+        """Ganancia en dB (limitada) que iguala la región repintada a lo anterior.
+
+        B8: el repaint del motor genera la región nueva a otro nivel que la
+        base y el borde salta de golpe (~25 dB medidos). Se comparan las
+        medianas de RMS (robustas al desvanecimiento de cola) de ventanas de
+        `window_seconds` entre lo anterior a `start_frame` (los últimos
+        `reference_seconds`) y la región pintada (saltando los primeros
+        `skip_seconds` de costura). Devuelve 0.0 si no hay dato utilizable.
+        """
+        import numpy as np
+
+        if end_frame <= start_frame or channels <= 0 or rate <= 0:
+            return 0.0
+
+        def ventana_db(desde: int, hasta: int):
+            ancho = max(1, int(window_seconds * rate))
+            valores = []
+            frame = desde
+            while frame + ancho <= hasta:
+                trozo = samples[frame * channels:(frame + ancho) * channels]
+                rms = float(np.sqrt(np.mean(
+                    np.frombuffer(trozo, dtype=np.float32).astype(np.float64) ** 2)))
+                valores.append(rms)
+                frame += ancho
+            if not valores:
+                return None
+            mediana = float(np.median(valores))
+            return None if mediana <= 0 else 20.0 * float(np.log10(mediana))
+
+        referencia_desde = max(0, start_frame - int(reference_seconds * rate))
+        referencia = ventana_db(referencia_desde, start_frame)
+        pintado_desde = start_frame + min(int(skip_seconds * rate),
+                                          max(0, (end_frame - start_frame) // 2))
+        pintado = ventana_db(pintado_desde, end_frame)
+        if referencia is None or pintado is None:
+            return 0.0
+        limite = abs(float(max_gain_db))
+        return max(-limite, min(limite, referencia - pintado))
+
+    @staticmethod
+    def apply_region_gain(samples: array, channels: int, start_frame: int,
+                          gain_db: float, fade_seconds: float, rate: int) -> array:
+        """Aplica la ganancia desde start_frame con crossfade raised-cosine."""
+        import numpy as np
+
+        if gain_db == 0.0 or start_frame <= 0:
+            return samples
+        factor = 10.0 ** (gain_db / 20.0)
+        datos = np.frombuffer(samples, dtype=np.float32).copy()
+        originales = np.frombuffer(samples, dtype=np.float32)
+        inicio = start_frame * channels
+        datos[inicio:] = originales[inicio:] * factor
+        fade = max(1, int(fade_seconds * rate))
+        for index in range(fade):
+            frame = start_frame + index
+            if frame * channels >= len(datos):
+                break
+            peso = 0.5 - 0.5 * math.cos(math.pi * index / fade)
+            rebanada = slice(frame * channels, (frame + 1) * channels)
+            datos[rebanada] = originales[rebanada] * (1.0 + (factor - 1.0) * peso)
+        salida = array("f")
+        salida.frombytes(datos.astype(np.float32).tobytes())
+        return salida
+
+    @staticmethod
     def mix_groups(
         tracks: list[tuple[Path, float]], output: Path, duration_seconds: float,
         sample_rate: int,

@@ -7,23 +7,33 @@ Se ejecuta con el venv del backend:
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from prompt_enhancer import enhance_prompt  # noqa: E402
+from genre_glossary import VOCAB_PATH  # noqa: E402
 from prompt_style import (  # noqa: E402
     STYLE_MODIFIERS,
+    STYLE_RULES,
     analyze_prompt,
     find_modifiers,
     find_style,
     find_styles,
+    known_spanish_exclusion_details,
     style_bpm,
     style_caption,
 )
 
 PROMPT = "baterias techno hardcore holandés"
+CLAUSES = {rule["name"]: rule["style"] for rule in STYLE_RULES}
+
+
+def _vocab_lines() -> set[str]:
+    """Líneas literales del vocabulario del modelo (genres_vocab.txt)."""
+    return {line.strip().lower() for line in VOCAB_PATH.read_text(encoding="utf-8").splitlines() if line.strip()}
 
 
 class FindStyleTest(unittest.TestCase):
@@ -307,31 +317,86 @@ class AnalyzePromptTest(unittest.TestCase):
 
 
 class EnhancePromptTest(unittest.TestCase):
-    """Borrador optativo: solo valores elegidos, sin reglas creativas."""
+    """Borrador: valores elegidos + descripción ceñida al modelo (B9).
 
-    def test_genero_no_annade_caracter_instrumentos_o_ritmo(self):
-        for prompt in (PROMPT, "techno", "electrónica", "batería suave al fondo", "jazz con contrabajo"):
+    B9 (2026-10-20, regla del usuario): lo que se añade tiene que ser lo que
+    el modelo declara. Género = línea literal de genres_vocab.txt; descripción
+    = solo cláusula validada del catálogo. Sin estilo reconocido el texto se
+    queda literal, como en B8.
+    """
+
+    def test_sin_estilo_no_annade_nada(self):
+        for prompt in ("batería suave al fondo", "piano con voz susurrada"):
             with self.subTest(prompt=prompt):
                 result = enhance_prompt(prompt)
                 self.assertEqual(result["enhanced"], prompt)
                 self.assertEqual(result["additions"], [])
                 self.assertEqual(result["adaptation"], "literal")
 
-    def test_bpm_elegido_se_propone_sin_preset_de_genero(self):
-        result = enhance_prompt(PROMPT, bpm=175)
-        self.assertEqual(result["enhanced"], f"{PROMPT}, 175 bpm")
-        self.assertEqual(result["additions"], ["175 bpm"])
+    def test_etiqueta_del_modelo_recibe_su_clausula_validada(self):
+        vocab = _vocab_lines()
+        for label in ("gabber", "techno", "lofi", "jazz"):
+            with self.subTest(label=label):
+                result = enhance_prompt(label)
+                self.assertEqual(len(result["genres"]), 1)
+                estilo = result["genres"][0]
+                self.assertIn(estilo["genre"].lower(), vocab)
+                clause = CLAUSES[estilo["name"]]
+                self.assertEqual(result["enhanced"], f"{label}, {clause}")
+                self.assertEqual(result["additions"], [clause])
+
+    def test_clausula_ya_escrita_no_se_duplica(self):
+        clause = CLAUSES["hardcore holandes"]
+        for prompt in (f"gabber, {clause}", clause.upper()):
+            with self.subTest(prompt=prompt[:32]):
+                result = enhance_prompt(prompt)
+                self.assertEqual(result["enhanced"], prompt)
+                self.assertEqual(result["additions"], [])
+
+    def test_negacion_no_annade_el_estilo_negado(self):
+        result = enhance_prompt("sin hardcore, relajado")
+        self.assertEqual([e["name"] for e in result["genres"]], ["ambient"])
+        self.assertNotIn(CLAUSES["hardcore holandes"], result["enhanced"])
+        # La exclusión del género no se puede contrastar con las reglas
+        # instrumentales: el fallback conserva el texto y omite la receta.
+        self.assertEqual(result["enhanced"], "sin hardcore, relajado")
+        self.assertTrue(result["warnings"])
+
+    def test_estilo_sin_linea_del_modelo_no_se_annade_y_se_avisa(self):
+        # Si el modelo no declara el estilo, no se añade su cláusula (NO FAKE).
+        with patch("prompt_enhancer.catalog_styles",
+                   return_value=[{"name": "hardcore holandes", "genre": None}]):
+            result = enhance_prompt("gabber")
+        self.assertEqual(result["enhanced"], "gabber")
+        self.assertEqual(result["additions"], [])
+        self.assertIsNone(result["genres"][0]["genre"])
+        self.assertTrue(any("no es una línea del modelo" in w for w in result["warnings"]))
+
+    def test_varios_estilos_anidan_clausulas_y_avisan(self):
+        # La documentación oficial recomienda repetición o evolución temporal;
+        # combinar opuestos a ciegas degrada. El aviso lo dice la propia app.
+        result = enhance_prompt("gabber y trance")
+        self.assertEqual(result["genres"][0]["name"], "hardcore holandes")
+        self.assertEqual(result["additions"],
+                         [CLAUSES["hardcore holandes"], CLAUSES["trance"]])
+        self.assertTrue(any("Varios estilos" in w for w in result["warnings"]))
+
+    def test_bpm_elegido_se_propone_detras_de_la_clausula(self):
+        result = enhance_prompt("gabber", bpm=175)
+        clause = CLAUSES["hardcore holandes"]
+        self.assertEqual(result["enhanced"], f"gabber, {clause}, 175 bpm")
+        self.assertEqual(result["additions"], [clause, "175 bpm"])
         self.assertEqual(result["suggested_bpm"], 180)
 
     def test_bpm_existente_no_se_duplica(self):
-        for prompt in ("techno 120 BPM", "techno a 120bpm", "techno 120,0 bpm"):
+        for prompt in ("bateria 120 BPM", "piano a 120bpm", "sesion 120,0 bpm"):
             with self.subTest(prompt=prompt):
                 result = enhance_prompt(prompt, bpm=120)
                 self.assertEqual(result["enhanced"], prompt)
                 self.assertEqual(result["additions"], [])
 
     def test_bpm_contradictorio_se_declara_y_no_se_impone(self):
-        for prompt in ("techno a 130 bpm", "120 bpm al inicio y 130 bpm al final"):
+        for prompt in ("piano a 130 bpm", "120 bpm al inicio y 130 bpm al final"):
             with self.subTest(prompt=prompt):
                 result = enhance_prompt(prompt, bpm=120)
                 self.assertEqual(result["enhanced"], prompt)
@@ -353,6 +418,161 @@ class EnhancePromptTest(unittest.TestCase):
     def test_prompt_vacio_se_rechaza(self):
         with self.assertRaises(ValueError):
             enhance_prompt(" ")
+
+    def test_descripciones_no_contradicen_restricciones(self):
+        for prompt in ("gabber sin bombo", "trance sin bajo", "ambient con bateria",
+                       "techno nada de bombo", "techno no añadir bombo",
+                       "trance sin batería, ni bajo"):
+            with self.subTest(prompt=prompt):
+                result = enhance_prompt(prompt)
+                self.assertEqual(result["enhanced"], prompt)
+                self.assertEqual(result["additions"], [])
+                self.assertTrue(result["warnings"])
+
+    def test_no_quiero_estilo_no_lo_activa(self):
+        result = enhance_prompt("no quiero techno")
+        self.assertEqual(result["genres"], [])
+        self.assertEqual(result["enhanced"], "no quiero techno")
+
+    def test_prosa_derivada_no_activa_generos_en_segunda_pasada(self):
+        for prompt in ("techno", "synthwave", "gabber y trance"):
+            with self.subTest(prompt=prompt):
+                first = enhance_prompt(prompt)
+                second = enhance_prompt(first["enhanced"])
+                self.assertEqual(second["enhanced"], first["enhanced"])
+                self.assertEqual(second["genres"], first["genres"])
+                self.assertEqual(second["additions"], [])
+
+    def test_clausula_con_espacios_distintos_no_duplica(self):
+        clause = CLAUSES["techno"]
+        prompt = "techno, " + clause.replace(" ", "  \n")
+        self.assertEqual(enhance_prompt(prompt)["enhanced"], prompt)
+
+
+class StructuredPromptTest(unittest.TestCase):
+    def test_pista_de_idioma_solo_exclusiones_es_completas_conocidas(self):
+        for text in ("sin bombo", "sin bajo", "nada de voz", "sin voz y sin guitarras"):
+            with self.subTest(text=text):
+                self.assertTrue(known_spanish_exclusion_details(text))
+        for text in ("no drums", "without bass", "warm drums, sin bajo", "sin bajo potente",
+                     "sin meditación", "sin voz ni meditación", "sin bombo; warm synths"):
+            with self.subTest(text=text):
+                self.assertFalse(known_spanish_exclusion_details(text))
+
+    def test_traduccion_solo_compone_y_no_reemplaza_validacion_original(self):
+        raw = "sin bajo"
+        result = enhance_prompt(raw, main_style="trance", details_for_engine="no bass")
+        self.assertEqual(result["original"], raw)
+        self.assertIn("no bass", result["enhanced"])
+        self.assertNotIn(raw, result["enhanced"])
+        self.assertNotIn(CLAUSES["trance"], result["enhanced"])
+        self.assertTrue(result["warnings"])
+        self.assertEqual(enhance_prompt(raw, main_style="trance", details_for_engine="no bass"), result)
+        with self.assertRaises(ValueError):
+            enhance_prompt("sin techno", main_style="techno", details_for_engine="different text")
+        with self.assertRaises(ValueError):
+            enhance_prompt("sin voz", main_style="techno", details_for_engine="")
+
+    def test_exclusiones_no_contrastables_omiten_receta_completa(self):
+        for details in ("sin meditación", "nada de energía oscura", "sin voz ni meditación",
+                        "sin voz y sin meditación"):
+            with self.subTest(details=details):
+                result = enhance_prompt(details, main_style="ambient")
+                self.assertIn(details, result["enhanced"])
+                self.assertIn("Predominantly ambient", result["enhanced"])
+                self.assertEqual(len(result["additions"]), 1)
+                self.assertNotIn(CLAUSES["ambient"], result["enhanced"])
+                self.assertTrue(any("no se pueden contrastar" in warning for warning in result["warnings"]))
+                legacy = enhance_prompt(f"ambient {details}")
+                self.assertEqual(legacy["enhanced"], f"ambient {details}")
+
+    def test_exclusiones_instrumentales_completas_compatibles_permiten_ayuda(self):
+        for details in ("sin voz", "sin guitarras", "sin voz ni guitarras",
+                        "sin voz y sin guitarras", "without vocals and without guitars"):
+            for style in ("ambient", "techno"):
+                with self.subTest(details=details, style=style):
+                    result = enhance_prompt(details, main_style=style)
+                    self.assertIn(CLAUSES[style], result["enhanced"])
+                    self.assertFalse(result["warnings"])
+
+    def test_seleccion_negada_se_rechaza_sin_sustituir(self):
+        for details, kwargs in (("sin techno", {"main_style": "techno"}),
+                                ("no quiero trance", {"main_style": "techno", "influence_styles": ["trance"]})):
+            with self.subTest(details=details), self.assertRaises(ValueError):
+                enhance_prompt(details, **kwargs)
+
+    def test_excluir_estilo_vecino_no_rechaza_principal_literal(self):
+        for style, details in (("funk", "sin disco"), ("ambient", "sin meditación")):
+            with self.subTest(style=style):
+                result = enhance_prompt(details, main_style=style)
+                self.assertIn(f"Predominantly {style}", result["enhanced"])
+                self.assertIn(details, result["enhanced"])
+                self.assertEqual(result["selection"]["main_style"], style)
+
+    def test_negaciones_instrumentales_en_datos(self):
+        for details in ("nada de bombo", "no añadir bombo", "sin batería, ni bajo"):
+            with self.subTest(details=details):
+                result = enhance_prompt(details, main_style="techno")
+                self.assertEqual(len(result["additions"]), 1)
+                self.assertNotIn(CLAUSES["techno"], result["enhanced"])
+
+    def test_principal_y_matices_sin_asignar_instrumentos_a_matices(self):
+        result = enhance_prompt("sin voz; batería al fondo", main_style="gabber",
+                                influence_styles=["trance", "jazz"])
+        self.assertIn("Predominantly gabber", result["enhanced"])
+        self.assertIn("subtle influences of trance, jazz", result["enhanced"])
+        self.assertIn("sin voz; batería al fondo", result["enhanced"])
+        self.assertIn(CLAUSES["hardcore holandes"], result["enhanced"])
+        self.assertNotIn(CLAUSES["trance"], result["enhanced"])
+        self.assertNotIn(CLAUSES["jazz"], result["enhanced"])
+        self.assertNotIn("bpm", result["enhanced"])
+        self.assertEqual(result["selection"]["main_style"], "gabber")
+        self.assertEqual(result["original"], "sin voz; batería al fondo")
+
+    def test_estilo_solo_permite_texto_vacio(self):
+        result = enhance_prompt("", main_style="techno")
+        self.assertIn("techno", result["enhanced"])
+        self.assertIn(CLAUSES["techno"], result["enhanced"])
+
+    def test_validacion_no_sustituye_etiquetas(self):
+        for args in ({"main_style": "estilo inventado zzz"},
+                     {"main_style": "techno", "influence_styles": ["estilo inventado zzz"]},
+                     {"influence_styles": ["trance"]}):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                enhance_prompt("detalle", **args)
+
+    def test_etiqueta_valida_sin_ficha_conserva_nombre_y_avisa(self):
+        result = enhance_prompt("", main_style="acid jazz")
+        self.assertIn("acid jazz", result["enhanced"])
+        self.assertNotIn(CLAUSES["jazz"], result["enhanced"])
+        self.assertTrue(result["warnings"])
+
+    def test_exclusiones_impiden_descripcion_pero_conservan_roles(self):
+        for style, details in (("gabber", "sin bombo"), ("trance", "sin bajo"),
+                               ("ambient", "con bateria")):
+            with self.subTest(style=style):
+                result = enhance_prompt(details, main_style=style)
+                self.assertIn(style, result["enhanced"])
+                self.assertIn(details, result["enhanced"])
+                self.assertEqual(len(result["additions"]), 1)
+                self.assertTrue(result["warnings"])
+
+    def test_quitar_ayuda_conserva_principal_matices_y_texto(self):
+        result = enhance_prompt("sin voz", main_style="techno", influence_styles=["trance"],
+                                include_descriptions=False)
+        self.assertIn("Predominantly techno", result["enhanced"])
+        self.assertIn("trance", result["enhanced"])
+        self.assertIn("sin voz", result["enhanced"])
+        self.assertNotIn(CLAUSES["techno"], result["enhanced"])
+
+    def test_preparacion_estable_sin_reanalizar_detalles_como_selecciones(self):
+        kwargs = {"main_style": "techno", "influence_styles": ["synthwave"]}
+        result = enhance_prompt("cinematic, sin voz", **kwargs)
+        self.assertEqual(enhance_prompt("cinematic, sin voz", **kwargs), result)
+        second = enhance_prompt(result["enhanced"], **kwargs)
+        self.assertEqual(second["enhanced"], result["enhanced"])
+        self.assertEqual(second["selection"], result["selection"])
+        self.assertEqual([entry["genre"] for entry in result["genres"]], ["techno", "synthwave"])
 
 
 if __name__ == "__main__":

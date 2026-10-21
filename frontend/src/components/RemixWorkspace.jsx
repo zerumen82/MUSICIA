@@ -3,8 +3,8 @@ import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
 import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
-import { joinStyleAndTracks } from '../glossary_pick';
-import Glossary from './Glossary';
+import useStylePrompt, { usePreparedStylePrompts } from '../useStylePrompt';
+import { emptyStyleSelection, stylePromptRequest } from '../style_prompt';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
 import RemixPanel from './RemixPanel';
@@ -58,6 +58,9 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [groups, setGroups] = useState([]);
   const [actions, setActions] = useState({});
   const [trackText, setTrackText] = useState({});
+  const [trackSelections, setTrackSelections] = useState({});
+  const prepared = useStylePrompt(prompt);
+  const preparedTracks = usePreparedStylePrompts(Object.fromEntries(groups.filter((group) => actions[group.id] === 'transform').map((group) => [group.id, stylePromptRequest(trackText[group.id] ?? '', trackSelections[group.id] ?? emptyStyleSelection())])));
   const [gains, setGains] = useState({});
   const [solo, setSolo] = useState(null);
   const [reference, setReference] = useState('');
@@ -313,10 +316,10 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     setGroups(actual); setActions(Object.fromEntries(actual.map((group) => [group.id, 'keep'])));
     setNotice('Pistas separadas. Escucha cada grupo y elige su acción.');
   }, SEPARATION_SUBMITTING);
-  const trackPhrase = scope === 'groups'
-    ? joinStyleAndTracks(prompt, groups.filter((group) => actions[group.id] === 'transform').map((group) => trackText[group.id] ?? ''))
-    : '';
-  const sentPrompt = scope === 'groups' ? trackPhrase : prompt.trim();
+  const promptsReady = prepared.ready && (scope !== 'groups' || Object.values(preparedTracks).every((item) => item.ready));
+  const sentPrompt = scope === 'groups'
+    ? [prepared.effectivePrompt, ...groups.filter((group) => actions[group.id] === 'transform').map((group) => preparedTracks[group.id]?.effectivePrompt || '')].filter(Boolean).join('\n')
+    : prepared.effectivePrompt;
   const timelineSourceBpm = sourceBpm || measuredRemixBpm(groove, capabilities) || '';
   const naturalDuration = remixNaturalDuration({ scope, sourceDuration: duration, targetBpm: bpm, sourceBpm: timelineSourceBpm });
   const timeline = remixTimelineFields({ scope, targetBpm: bpm, sourceBpm: timelineSourceBpm, sourceBpmOrigin: sourceBpm ? sourceBpmOrigin : 'measurement', minutes: durationMinutes, seconds: durationSeconds,
@@ -348,6 +351,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     ...(chosenReference ? { reference_name: chosenReference.name, reference_kind: chosenReference.kind } : {}),
   };
   const run = () => execute(async () => {
+    if (needsStyle && !promptsReady) throw new Error('Espera a que todos los prompts estén preparados.');
     if (needsStyle && !sentPrompt) throw new Error('Describe los cambios que quieres hacer');
     if (scope === 'groups' && !groups.length) throw new Error('Separa primero las pistas del original');
     if (scope === 'region' && !(Number(region.end ?? duration) > Number(region.start))) throw new Error('Selecciona un tramo con final posterior al inicio');
@@ -446,7 +450,10 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <button type="button" disabled={busy} aria-pressed={solo === group.id} onClick={() => setSolo((current) => current === group.id ? null : group.id)} className="btn btn-ghost h-8 px-2">{solo === group.id ? 'CERRAR SOLO' : 'SOLO'}</button>
         {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
           <input aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} className={`${field} w-full`} />
-          <Glossary prompt={trackText[group.id] ?? ''} setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: next }))} onBpm={(value) => setBpm(value == null || value === '' ? '' : String(value))} bpm={bpm === '' ? null : Number(bpm)} />
+          <PromptTools prompt={trackText[group.id] ?? ''}
+            setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
+            prepared={{ ...preparedTracks[group.id], selection: trackSelections[group.id] ?? emptyStyleSelection(),
+              setSelection: (next) => setTrackSelections((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? emptyStyleSelection()) : next })) }} disabled={busy} />
         </fieldset>}
         {solo === group.id && <audio controls autoPlay src={mediaUrl(group.url, group.file_name)} aria-label={`Escuchar ${group.label}`} className="player w-full" style={{ gridColumn: '1 / -1' }} />}
       </div>)}
@@ -455,8 +462,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
       placeholder={needsCover ? (activeScope?.placeholder || 'Qué quieres cambiar.') : 'Texto de estilo para continuar la base.'} className={`${field} resize-y w-full`} />}
     {remixing && scope === 'groups' && groups.length > 0 && !needsStyle && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
-    {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} bpm={bpm === '' ? null : Number(bpm)} onBpm={(value) => setBpm(value == null || value === '' ? '' : String(value))} disabled={busy} />}
-    {remixing && needsStyle && <StyleEnglish text={sentPrompt} empty={scope === 'groups' ? 'Escribe el estilo en el prompt.' : ''} />}
+    {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />}
+    {remixing && needsStyle && promptsReady && <StyleEnglish text={sentPrompt} empty={scope === 'groups' ? 'Escribe el estilo en el prompt.' : ''} />}
     {remixing && scope !== 'region' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
     {remixing && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
     {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
@@ -501,7 +508,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <input aria-label="Nombre del remix" value={outputName} disabled={busy} onChange={(event) => setOutputName(event.target.value)}
           placeholder={fileName ? `${fileName.replace(/\.[^.]+$/, '')}-remix` : 'Nombre de las variantes'} className={field} />
       </label>
-      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && !sentPrompt)} className="btn btn-signal h-10 px-5">
+      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && (!promptsReady || !sentPrompt))} className="btn btn-signal h-10 px-5">
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {busy ? 'TRABAJANDO…' : 'REMIX'}</button></div>}
     {action === 'voice' && <VoiceBackingPanel fileName={fileName} sourceKind={sourceKind} duration={duration} capabilities={capabilities} busy={busy} onRun={voiceBacking} />}
     {action === 'adjust' && <div className="flex flex-col gap-3">
@@ -553,7 +560,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       {needsStyle && <label className="label">SEMILLA <input aria-label="Semilla del remix" type="number" min={bounds('seed')?.min} max={bounds('seed')?.max} step="1" value={seed} disabled={busy} onChange={(event) => setSeed(event.target.value)} placeholder="Aleatoria" className={`${field} w-44`} /></label>}
       </div>
     </Fold>}
-    {remixing && !requestError && !grooveBusy && (scope !== 'groups' || groups.length > 0) && <EffectivePreview request={payload} loadPreview={api.remixPreview} why={SECTIONS.engine.why} />}
+    {remixing && (!needsStyle || promptsReady) && !requestError && !grooveBusy && (scope !== 'groups' || groups.length > 0) && <EffectivePreview request={payload} loadPreview={api.remixPreview} why={SECTIONS.engine.why} />}
     {remixing && (job?.effective_parameters || job?.result?.metadata || job?.variant_metadata) && <Fold title={SECTIONS.executed.title} why={SECTIONS.executed.why}>
       <pre className="mono text-[10px] whitespace-pre-wrap break-words py-2">{JSON.stringify({ effective_parameters: job.effective_parameters,
         variants: (job.result?.metadata ?? job.variant_metadata ?? []).map(({ file_name, seed, seed_origin, timeline, arrangement }) => ({ file_name, seed, seed_origin, timeline, arrangement })),

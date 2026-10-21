@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
 from pydub import AudioSegment
 
 # Parámetros de análisis (constantes explícitas, nada mágico oculto)
@@ -33,6 +34,21 @@ BPM_MIN, BPM_MAX = 60, 180
 ZCR_VOICE = 0.12              # ZCR medio por muestra por encima de esto sugiere voz
 BASS_MUSIC = 0.55             # ratio de graves por encima de esto sugiere música
 FLATNESS_MUSIC = 0.35         # variabilidad de RMS baja => pista continua (música)
+
+# Cobertura de bombo (B8c, 2026-10-20): mide si hay un golpe de la banda
+# 40-120 Hz en cada tiempo del compás pedido. El oído del usuario detectó
+# trozos «sin batería» aunque el detector de pulso los diera por buenos:
+# ese detector mira el pulso global, no el bombo a negras.
+KICK_BAND_LOW_HZ = 40.0       # extremo grave de la banda del bombo
+KICK_BAND_HIGH_HZ = 120.0     # extremo agudo de la banda del bombo
+KICK_ANALYSIS_RATE = 48000    # Hz, para resolver la banda del bombo
+KICK_FRAME_SAMPLES = 1024     # ~21,3 ms por trama espectral
+KICK_HOP_SAMPLES = 512        # avance entre tramas (solape 50 %)
+KICK_SMOOTH_FRAMES = 5        # media local ~100 ms para el flanco
+KICK_ONSET_STD = 2.0          # flanco de subida sobre media + 2 desviaciones
+KICK_MIN_GAP_MS = 120.0       # dos bombos seguidos más cerca no son dos
+KICK_TOLERANCE_MS = 80.0      # ventana alrededor de cada tiempo del compás
+KICK_PHASE_STEP_MS = 10       # paso del barrido de fase del compás
 
 
 def _bass_ratio(samples: list[int], sample_rate: int) -> float:
@@ -635,4 +651,95 @@ def analyze_audio(path: Path) -> dict:
                 "Confírmala o corrígela tú: decides qué hacer con este audio."
             ),
         },
+    }
+
+
+def _kick_envelope(samples: np.ndarray, rate: int) -> tuple[list[float], float]:
+    """Energía de la banda del bombo (40-120 Hz) por trama, FFT con hamming."""
+    n = KICK_FRAME_SAMPLES
+    if len(samples) < n:
+        return [], float(rate) / KICK_HOP_SAMPLES
+    window = np.hamming(n)
+    freqs = np.fft.rfftfreq(n, 1.0 / rate)
+    band = (freqs >= KICK_BAND_LOW_HZ) & (freqs < KICK_BAND_HIGH_HZ)
+    values = []
+    for start in range(0, len(samples) - n + 1, KICK_HOP_SAMPLES):
+        spectrum = np.abs(np.fft.rfft(samples[start:start + n] * window)) ** 2
+        values.append(float(spectrum[band].sum()))
+    return values, float(rate) / KICK_HOP_SAMPLES
+
+
+def _kick_onsets(envelope: list[float], fps: float, min_gap_ms: float) -> np.ndarray:
+    """Flancos de subida claros de la envolvente del bombo (índices de trama)."""
+    if len(envelope) < KICK_SMOOTH_FRAMES + 3:
+        return np.array([])
+    flux = np.maximum(np.diff(envelope, prepend=envelope[0]), 0.0)
+    threshold = float(np.mean(flux) + KICK_ONSET_STD * np.std(flux))
+    peaks: list[int] = []
+    for index in range(2, len(flux) - 2):
+        if flux[index] > threshold and flux[index] >= flux[index - 1] and flux[index] > flux[index + 1]:
+            if not peaks or (index - peaks[-1]) * 1000.0 / fps >= min_gap_ms:
+                peaks.append(index)
+    return np.array(peaks)
+
+
+def _kick_coverage_phase(onsets_s: np.ndarray, bpm: float, duration: float,
+                         tolerance_ms: float) -> tuple[float, float, np.ndarray]:
+    """Fracción de tiempos del compás pedido con un golpe cerca (±tolerancia).
+
+    La fase del compás se barre para no penalizar un bombo que cae en el
+    tiempo pero desplazado unos milisegundos.
+    """
+    period = 60.0 / bpm
+    best = (0.0, 0.0, np.array([]))
+    for phase_ms in range(0, int(period * 1000), KICK_PHASE_STEP_MS):
+        beats = np.arange(phase_ms / 1000.0, duration, period)
+        if len(beats) == 0:
+            continue
+        hits = 0
+        used: set[int] = set()
+        for beat in beats:
+            candidates = np.where(np.abs(onsets_s - beat) * 1000.0 <= tolerance_ms)[0]
+            free = [int(candidate) for candidate in candidates if int(candidate) not in used]
+            if free:
+                hits += 1
+                used.add(free[0])
+        coverage = hits / len(beats)
+        if coverage > best[0]:
+            best = (coverage, phase_ms / 1000.0, beats)
+    return best
+
+
+def kick_coverage(path: Path, *, bpm: float, tolerance_ms: float = KICK_TOLERANCE_MS,
+                  min_gap_ms: float = KICK_MIN_GAP_MS) -> dict:
+    """Cobertura de bombo: ¿hay un golpe en cada tiempo del compás pedido?
+
+    Devuelve {coverage (0-1), kicks, beats, phase_s, bpm, duration_seconds,
+    tolerance_ms}. `coverage` es la fracción de tiempos del compás que tiene
+    un golpe de la banda 40-120 Hz dentro de `tolerance_ms`. Un trozo sin
+    batería queda cerca de 0 aunque el detector de pulso lo dé por bueno.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el audio: {path}")
+    if bpm is None or not math.isfinite(bpm) or bpm <= 0:
+        raise ValueError("El BPM pedido debe ser un número finito y positivo")
+    with path.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=path.suffix.lstrip("."))
+    if len(audio) < 1000:
+        raise ValueError("Audio demasiado corto para medir la cobertura de bombo")
+    mono = audio.set_channels(1).set_frame_rate(KICK_ANALYSIS_RATE).set_sample_width(2)
+    samples = np.array(mono.get_array_of_samples(), dtype=np.float64) / float(1 << 15)
+    duration = len(samples) / KICK_ANALYSIS_RATE
+    envelope, fps = _kick_envelope(samples, KICK_ANALYSIS_RATE)
+    onsets = _kick_onsets(envelope, fps, min_gap_ms)
+    onsets_s = onsets / fps
+    coverage, phase_s, beats = _kick_coverage_phase(onsets_s, bpm, duration, tolerance_ms)
+    return {
+        "coverage": round(float(coverage), 3),
+        "kicks": int(len(onsets_s)),
+        "beats": int(len(beats)),
+        "phase_s": round(float(phase_s), 3),
+        "bpm": round(float(bpm), 2),
+        "duration_seconds": round(float(duration), 2),
+        "tolerance_ms": round(float(tolerance_ms), 1),
     }

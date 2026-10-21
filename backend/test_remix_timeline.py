@@ -16,6 +16,7 @@ from remix_project import (RemixProjectRequest, RemixProjectRuntime, timeline_pl
                            full_variant_plan, project_generation, replacement_request_seed,
                            groups_tempo_ratio, apply_groups_mix_tempo, tempo_after_repetition,
                            continuation_spans, continuation_generation, continuation_limits,
+                           level_continuation, screen_continuation_chunk,
                            uncertain_extension_fallback,
                            uncertain_mix_notice, mark_uncertain_mix_tempo,
                            verify_requested_tempo, require_measured_tempo)
@@ -182,21 +183,134 @@ class RemixTimelineTest(unittest.TestCase):
         self.assertIsNone(plan["mapped_repeat_start"])
         self.assertIsNone(plan["mapped_repeat_end"])
 
-    def test_continuation_spans_follow_the_configured_chunk_and_do_not_retile_the_cut(self):
+    def test_continuation_spans_repaint_the_faded_tail_and_trim_the_final_margin(self):
         config = self.settings.remix
+        overlap = config.continuation_overlap_seconds
+        margin = config.continuation_tail_margin_seconds
         spans = continuation_spans(79.0, 240.0, config)
-        self.assertEqual([item["start"] for item in spans], [79.0, 169.0])
-        self.assertEqual(spans[-1]["end"], 240.0)
+        self.assertEqual([item["start"] for item in spans], [79.0, 147.0, 215.0])
+        self.assertEqual([item["end"] for item in spans], [157.0, 225.0, 252.0])
+        # El primer trozo empieza exactamente donde acaba la base: no se retila el corte.
+        self.assertEqual(spans[0]["start"], 79.0)
+        # Cada trozo siguiente re-pinta la cola desvanecida del anterior con solape real.
+        for anterior, actual in zip(spans, spans[1:]):
+            self.assertAlmostEqual(actual["start"], anterior["end"] - overlap, places=6)
+        # El último trozo pinta más allá del objetivo: finish_continuation recorta
+        # y el desvanecimiento final queda fuera del audio entregado (B8).
+        self.assertAlmostEqual(spans[-1]["end"], 240.0 + margin, places=6)
         for item in spans:
             width = item["end"] - item["start"]
             self.assertGreaterEqual(width, config.continuation_min_seconds)
             self.assertLessEqual(width, config.continuation_max_seconds)
-        self.assertEqual(continuation_spans(10.0, 10.4, config), [{"start": 10.0, "end": 13.0}])
+        self.assertEqual(continuation_spans(10.0, 10.4, config), [{"start": 10.0, "end": 25.0}])
         with self.assertRaisesRegex(ValueError, "trozos"):
             continuation_spans(1.0, 200.0, type("Cfg", (), {
                 "continuation_min_seconds": 3.0, "continuation_max_seconds": 90.0,
                 "continuation_max_chunks": 1, "continuation_batch_size": 1,
+                "continuation_overlap_seconds": 10.0, "continuation_tail_margin_seconds": 12.0,
             })())
+        with self.assertRaisesRegex(ValueError, "caben"):
+            continuation_spans(10.0, 20.0, type("Cfg", (), {
+                "continuation_min_seconds": 3.0, "continuation_max_seconds": 90.0,
+                "continuation_max_chunks": 10, "continuation_batch_size": 1,
+                "continuation_overlap_seconds": 200.0, "continuation_tail_margin_seconds": 12.0,
+            })())
+
+    def test_continuation_level_gain_matches_medians_and_respects_the_cap(self):
+        rate, channels = 8000, 2
+        frames = rate * 20
+        params = dict(reference_seconds=4.0, window_seconds=1.0,
+                      skip_seconds=1.0, max_gain_db=12.0)
+
+        def construye(anterior, pintado):
+            muestras = array("f")
+            for frame in range(frames):
+                value = anterior if frame < rate * 10 else pintado
+                muestras.extend((value, value))
+            return muestras
+
+        # Lo pintado va 20 dB por debajo: pide +20, tope +12.
+        gain = MixerService.continuation_level_gain(
+            construye(0.05, 0.005), channels, rate, rate * 10, frames, **params)
+        self.assertAlmostEqual(gain, 12.0, places=1)
+        # Lo pintado va por encima: pide -20, tope -12.
+        gain = MixerService.continuation_level_gain(
+            construye(0.005, 0.05), channels, rate, rate * 10, frames, **params)
+        self.assertAlmostEqual(gain, -12.0, places=1)
+        # Mismo nivel: nada que igualar.
+        gain = MixerService.continuation_level_gain(
+            construye(0.05, 0.05), channels, rate, rate * 10, frames, **params)
+        self.assertAlmostEqual(gain, 0.0, places=1)
+        # Silencio pintado: no se inventa ganancia.
+        gain = MixerService.continuation_level_gain(
+            construye(0.05, 0.0), channels, rate, rate * 10, frames, **params)
+        self.assertEqual(gain, 0.0)
+
+    def test_apply_region_gain_keeps_the_head_and_crossfades_the_border(self):
+        rate, channels = 8000, 2
+        samples = array("f", [0.1] * (rate * 4 * channels))
+        salida = MixerService.apply_region_gain(samples, channels, rate, 6.0, 0.01, rate)
+        self.assertEqual(len(salida), len(samples))
+        self.assertEqual(list(salida[:rate * channels]), list(samples[:rate * channels]))
+        factor = 10.0 ** (6.0 / 20.0)
+        self.assertAlmostEqual(salida[-1], 0.1 * factor, places=4)
+        borde = salida[rate * channels - 2:rate * channels + rate // 2]
+        saltos = [abs(b - a) for a, b in zip(borde, borde[1:])]
+        # Pendiente máxima del raised-cosine: (factor - 1) · π / (2 · fade).
+        pendiente = 0.1 * (factor - 1.0) * math.pi / (2 * 0.01 * rate)
+        self.assertLess(max(saltos), pendiente + 1e-6)
+
+    def test_screen_continuation_chunk_requires_measurable_pulse(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            rate, channels = 8000, 2
+            periodo = 60.0 / 160.0
+            pulso = array("f")
+            for frame in range(rate * 16):
+                value = 0.6 if (frame / rate) % periodo < 0.10 else 0.04
+                pulso.extend((value, value))
+            pulso_wav = directory / "pulso.wav"
+            MixerService._write_float_wav(pulso_wav, pulso, rate, channels)
+            config = self.settings.remix
+            span = {"start": 2.0, "end": 16.0}
+            self.assertIsNone(screen_continuation_chunk(
+                pulso_wav, span, 160.0, config, directory, "pulso"))
+            llano = array("f", [0.1] * (rate * 16 * channels))
+            llano_wav = directory / "llano.wav"
+            MixerService._write_float_wav(llano_wav, llano, rate, channels)
+            motivo = screen_continuation_chunk(llano_wav, span, 160.0, config, directory, "llano")
+            self.assertIsInstance(motivo, str)
+            self.assertTrue(motivo)
+
+    def test_level_continuation_writes_a_leveled_track(self):
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            descargado = directory / "continuacion-1-1.wav"
+            rate, channels = 8000, 2
+            muestras = array("f")
+            for frame in range(rate * 12):
+                value = 0.2 if frame < rate * 6 else 0.02
+                muestras.extend((value, value))
+            MixerService._write_float_wav(descargado, muestras, rate, channels)
+            config = self.settings.remix
+            config.continuation_level_match_reference_seconds = 4.0
+            config.continuation_level_match_window_seconds = 1.0
+            config.continuation_level_match_skip_seconds = 1.0
+            destino, ganancia = level_continuation(
+                descargado, {"start": 6.0, "end": 12.0}, config, directory)
+            self.assertGreater(ganancia, 0.0)
+            self.assertNotEqual(destino, descargado)
+            pcm = MixerService.inspect_pcm(destino)
+            self.assertAlmostEqual(pcm["samples"][0], 0.2, places=5)
+            cola = pcm["samples"][rate * channels * 11:]
+            rms_cola = (sum(value * value for value in cola) / len(cola)) ** 0.5
+            self.assertAlmostEqual(rms_cola, 0.02 * 10.0 ** (ganancia / 20.0), places=3)
+            # Sin igualación activa devuelve el fichero descargado sin tocar.
+            config.continuation_level_match = False
+            sin_tocar, ganancia = level_continuation(
+                descargado, {"start": 6.0, "end": 12.0}, config, directory)
+            self.assertEqual(sin_tocar, descargado)
+            self.assertEqual(ganancia, 0.0)
 
     def test_continuation_payload_repaints_the_end_of_the_created_bed(self):
         request = RemixProjectRequest(source_name="source.wav", prompt="A track with techno", bpm=170)

@@ -808,3 +808,123 @@ El usuario autoriza corregir los tres hallazgos de la revisión actual y optimiz
 - [ ] Solo se actúa sobre PID identificado como motor de este proyecto; ComfyUI permanece vivo. Medir VRAM/procesos antes, durante y después, sin atribuir a Musicia memoria de otros procesos.
 - [ ] Regresiones de concurrencia y reposo, lint/build, tester PASS/reviewer APPROVE y recorrido real de generación → liberación → nueva disponibilidad. La recarga del modelo añade latencia al siguiente trabajo y debe declararse.
 
+
+## [B7-DIAG] Remix: diagnóstico por escucha de estilo/obediencia y mezcla/voces - propuesto 2026-10-20
+
+**Estado**: APROBADO por el usuario el 2026-10-20 (orquestador supremo, "Aprobado, lanza Fase 0"). Fase 0 en curso.
+
+**Contexto**: veredicto de oído del usuario (2026-10-20, memory 2026-10-20 (3)) sobre REMIX: "no es malo, pero no bueno", con los ejes **estilo/obediencia al prompt** y **mezcla/voces**. El usuario escuchó las opciones **Por pistas** y **Dejar la voz y crear base**. Decisión del coordinador: diagnosticar antes de tocar código, generando las pruebas el agente (fase 0). **Petición explícita y general del usuario**: cuando se mejoren estas cosas, **revisar también las demás opciones** (resto de rutas de remix y de CREAR) - no mejorar en aislamiento.
+
+**Cumplimiento de reglas (AGENTS.md)**:
+- NO HARDCODE: cualquier umbral nuevo (ganancias, fuerzas, tolerancias) nace en `config.py`/configuración, no en código.
+- NO STUB / NO FAKE: la fase 0 genera audio real, verifica archivo (existe, duración > 0, exit 0) y mide; nada de éxitos simulados.
+- LOCAL-FIRST: todo el diagnóstico y las mejoras corren en la máquina del usuario; sin servicios en la nube.
+- BITÁCORA: cada paso, prueba y veredicto se anota en `memory.md` con fecha.
+- Fidelidad del prompt (contrato cerrado 2026-10-12): el texto literal del cuadro no se reescribe; cualquier ayuda para pasar de etiqueta a frase es **optativa y visible**.
+- TESTER PASS + REVIEWER APPROVE explícitos antes de declarar nada HECHO; el cierre de **B7/R9 exige el veredicto de oído del usuario**, no el técnico.
+- GPU de 8 GB compartida con ComfyUI (W5): medir con `nvidia-smi` antes; no tocar procesos ajenos.
+
+**Pasos de implementación**:
+
+*Fase 0 - diagnóstico por escucha (sin tocar código de producto)*
+1. Elegir fuente: por defecto `Arroja la bomba` (ya tiene diagnóstico CXL con WAVs y trabajo conocidos); si el usuario indica otra canción, se usa la suya.
+2. Generar 3 variantes reales con el perfil SFT vigente (50 pasos, guidance 9, semillas fijadas y registradas): **(A)** Por pistas, batería en transformar, etiqueta corta `gabber, hardcore` (control = lo ya oído); **(B)** Por pistas, batería en transformar, frase descriptiva que nombra los sonidos (solo vocabulario del modelo, sin inventar); **(C)** Dejar la voz y crear base, con la frase descriptiva. Archivos a tocar: ninguno de producto; evidencia en `logs/`.
+3. Verificación E2E de cada variante: fichero existe, duración > 0, ffprobe/pydub OK, ficha con prompt/semilla, jobs reales.
+4. Medición objetiva (además del oído): nivel de la voz frente a la pista/base transformada en dB, correlación de la pista nueva con la generación (método ya usado en CXL), y si el estilo cayó en el stem correcto.
+5. El usuario oye las tres y sentencia por eje (estilo, mezcla). Veredicto en `memory.md`.
+
+*Fase 1 - decisiones de mejora (cada una se especifica y aprueba por separado)*
+6. Candidatos según la escucha (NO pre-aprobados): fuerza de cover en Por pistas (hoy 0,2 por defecto), ayuda optativa para convertir etiqueta en frase descriptiva, balance de mezcla voz/base (hoy la voz original manda y el acompañamiento original puede estar casi en silencio), y que con varias pistas en transformar el estilo caiga en el stem correcto (hoy solo está resuelto el caso de una pista). Cada candidato aprobado se redacta como requisito propio con sus criterios.
+
+*Revisión general de las demás opciones (obligatoria, petición del usuario)*
+7. Tras CADA mejora de la fase 1, auditar el resto de rutas de remix (**Rehacer, Cambiar un trozo, Conservar/Quitar, Ajustar**) y las rutas de **CREAR** (Música, Canción con voz, Acompañamiento nuevo, Otra versión): mismo contrato de envío al motor (payload idéntico al preview), tests de payload/fidelidad en verde para cada una, y comprobación de que ninguna se rompe ni diverge. Resultado de esa revisión, opción por opción, en la bitácora. Si una opción queda afectada, se redacta su criterio antes de dar la mejora por buena.
+
+*Fase 2 - verificación y cierre*
+8. E2E real de las rutas tocadas + suites backend y frontend + lint/build + TESTER PASS + REVIEWER APPROVE.
+9. Segunda escucha del usuario sobre las mejoras; solo su sentencia puede cerrar B7 en lo que afecte a este alcance. Actualizar `spec/03-PENDIENTES.md`.
+
+**Riesgos y límites**:
+- No se cierra B7, R9 ni F3 sin el veredicto de oído posterior; el PASS técnico no sustituye la escucha.
+- No se inventa texto (frases salen del vocabulario/captions del modelo: `genres_vocab.txt`, `style_catalog.json`).
+- No se activan complete/lego/extract ni se cambia el perfil SFT (50 pasos, guidance 9) sin aprobación nueva.
+- No se tocan ni se cierran procesos ajenos (ComfyUI); se mide VRAM antes/durante/después.
+- Fase 1 solo aborda lo que la escucha de la fase 0 acuse; el resto queda abierto (candidatos no aprobados = no se tocan).
+
+**Impacto**: la fase 0 no modifica código de producto (solo genera, mide y archiva); la fase 1 son cambios tácticos con spec propia y su revisión de las demás opciones, que reduce el riesgo de regresión silenciosa en rutas no tocadas. No entorpece el roadmap (B6, R18-cierre, R9/R10/Q2 siguen con su propio carril) y añade evidencia donde hoy solo hay sentencia de oído.
+
+**Verificación**: fase 0 = E2E real (exit 0, archivos con duración > 0) + mediciones + sentencia del usuario; fase 2 = suites completas + lint/build + PASS + APPROVE + escucha final.
+
+## [B8] Por pistas suena a corta-y-pega: huecos y saltos de bombo en la ampliacion - propuesto 2026-10-20
+
+**Estado**: APROBADO por el usuario el 2026-10-20 ("Aprobado, empieza"). Paso 1 (diagnostico de codigo) en curso.
+
+**Contexto**: veredicto de oido del usuario en la Fase 0 de [B7-DIAG] (memory 2026-10-20 (5)): las variantes por pistas (A etiqueta, B frase descriptiva) suenan "cortapegas" y "no hay bombos"; la variante C (dejar la voz + base nueva) suena "muy bien"; A y B son "peores que C, mejorables". La medicion temporal del bombo (banda 40-120 Hz, ventanas de 4 s, `logs/b7-diag-20261020/medicion-bombo-tiempo.json`) localiza el problema en las 240 s: (1) **salto de nivel en t~52 s** - el tramo original/transformado va a 46-74 dB y la ampliacion por repaint salta a 84-86 dB de golpe; (2) **huecos de bombo** de 4-8 s en t~132-140 s (ventanas a 9-16 dB frente a una mediana ~80); (3) **cierre sin bombo** en los ultimos 12-16 s (16-23 dB); (4) en A, el tramo original transformado queda ~9 dB por debajo del bombo del original (la etiqueta corta genera kit sin bombo; la frase descriptiva lo recupera, medido en `medicion-bombo.json`).
+
+**Cumplimiento de reglas (AGENTS.md)**: NO HARDCODE (cualquier umbral nuevo - tolerancia de discontinuidad, nivel objetivo de la ampliacion - nace en config); NO STUB/NO FAKE (verificacion con audio medido y oido real, no simulado); LOCAL-FIRST; BITACORA; tester PASS + reviewer APPROVE; el cierre lo da el oido del usuario; revision obligatoria de las demas opciones tras el cambio (paso 7 del plan [B7-DIAG], peticion del usuario). Se conserva el perfil SFT (50 pasos, guidance 9) y los contratos de fidelidad del prompt.
+
+**Pasos de implementacion**:
+1. Diagnostico de codigo (sin cambios): leer el flujo de ampliacion de `remix_project.py`/continuacion (trozos de repaint `continuacion-N-M.wav`, `transition_seconds`, crossfades, beat_clock) y explicar mecanicamente los tres fenomenos medidos (salto t~52, huecos t~132, cierre). Informe en bitacora antes de tocar nada.
+2. Correccion tecnica de la ampliacion, por el mecanismo que el paso 1 demuestre responsable: transiciones alineadas al compas y/o crossfade continuo entre trozos; sin huecos de silencio entre trozos; igualdad de nivel entre el tramo original y la ampliacion (dentro de tolerancia de config); el cierre no pierde el bombo. Los valores van a config, no al codigo.
+3. Verificacion medible (mismo metodo de la Fase 0): nueva corrida por pistas sobre `f6fc62fe-Arroja la bomba.mp3` (semilla fijada) y medicion temporal del bombo - sin saltos de discontinuidad por encima de la tolerancia, sin ventanas hueco, cierre con bombo. Comparativa antes/despues en `logs/`.
+4. Escucha del usuario: sentencia "sin cortapegas" o no. Sin su oido, no hay cierre.
+5. Revision de las demas opciones (obligatoria): tras el cambio, auditar Rehacer, Cambiar un trozo, Conservar/Quitar, Ajustar y las rutas de CREAR (envio = preview, suites, payload), porque la ampliacion/continuacion es compartida por varios flujos. Resultado opcion por opcion en bitacora; si algo queda afectado, spec antes de darlo por bueno.
+6. Suites backend/frontend + lint/build + TESTER PASS + REVIEWER APPROVE. Actualizar `spec/03-PENDIENTES.md`.
+
+**Fuera de alcance de B8 (se dejan anotados)**: la ayuda optativa etiqueta -> frase descriptiva (medida como beneficiosa en Fase 0, requisito propio aparte); el nivel de la pista transformada respecto a la voz; mejoras de C (funciona bien); cambios de perfil SFT/guidance.
+
+**Riesgos y limites**: la ampliacion es repaint del motor (tarda y cuesta GPU); se mide VRAM antes (GPU compartida con ComfyUI, no se tocan procesos ajenos); si el hueco viene de la cola/descarga del motor (R17/Q2), el arreglo puede tocar la recuperacion de trabajos - se verificara con la regresion existente; sin promesas de cierre hasta el oido del usuario.
+
+**Impacto**: arregla la ruta de remix que el usuario usa (Por pistas) en el punto que su oido acuso; no entorpece B6, R9, R10, Q2 ni el cierre de R18; reduce la dependencia de que el usuario "adopte" la frase perfecta. Si la ampliacion compartida cambia, la revision del paso 5 protege al resto.
+
+**Verificacion**: E2E real (job exitoso, MP3 240 s), medicion temporal de bombo antes/despues con el metodo de Fase 0, escucha del usuario, suites completas + lint/build, PASS + APPROVE.
+
+
+## [B8b] Reintentos de trozo sin pulso en la continuacion - aprobado 2026-10-20
+
+**Estado**: APROBADO por el usuario el 2026-10-20 ("no se...atacale") e IMPLEMENTADO.
+
+**Contexto**: B8 corrigio las uniones (medido: salto max 4,9 dB, 0 huecos, cierre con bombo), pero la regeneracion `d4fb37a5` fallo porque un sorteo del motor genero contenido sin bombo ni compas en dos trozos (variante 2) y R11 rechazo el lote. La investigacion del dia (memory 2026-10-20 (9)) confirmo que el fabricante resuelve estos sorteos con mas muestras y tamizado, y que la semilla no controla el muestreo del LM. Los trozos de continuacion nunca tuvieron reintentos: debilidad preexistente, no regresion de B8.
+
+**Implementado**: `screen_continuation_chunk` (remix_project.py) criba cada trozo recien repintado con el detector del proyecto (`detect_groove`) sobre la region repintada; confianza minima = `timeline_min_groove_confidence` (config existente). Sin pulso medible => otra muestra con semilla nueva (`replacement_request_seed`) hasta `full_groove_retries` (config existente, 2). Cero umbrales nuevos en codigo. Agotados los reintentos se conserva el ultimo sorteo y R11 sigue decidiendo al final: sin exitos falsos. Trazabilidad: cada sorteo se conserva (`continuacion-i-n-k.wav`) y cada trozo guarda `attempts` y `groove_notice`. Un BPM medido conclusive fuera de tolerancia NO se reintenta aqui: eso es R11.
+
+**Verificacion**: focal remix 115 OK (test de cribado nuevo + test de reintento con arnés de motor que devuelve trozo mudo la primera vez); suite completa backend 374 OK (2 skips GPU). Pendiente: regeneracion real de Por pistas con B8+B8b y oido del usuario.
+
+## [B9] Ayuda etiqueta->frase, ceñida a los estilos que dice el modelo - aprobado 2026-10-20
+
+**Estado**: APROBADO por el usuario el 2026-10-20 («es bastante util poder hacer lo que pida»; UX elegida «Automatico + editable»; orden «B9 y luego B8c»). Condicion explicita del usuario: **CEÑIRSE A LOS ESTILOS QUE DICE EL MODELO**.
+
+**Contexto medido**: en Fase 0 la etiqueta «gabber, hardcore» sola dio bombo a 59 dB y la frase descriptiva 71 dB. La documentacion oficial revisada el mismo dia (memory (11)) establece: el campo genres del motor es una whitelist de `genres_vocab.txt` (178.572 lineas literales; lo que no es linea, el modelo no puede emitirlo) y en remix/copy/repaint el LM se omite, así que nadie reescribe los captions por dentro. La app ya sirve ese vocabulario (`genre_glossary.py`, LOCAL-FIRST) y las clausulas del catalogo se validan contra los 400 captions locales del fabricante.
+
+**Regla innegobiable (palabra del usuario)**: todo lo que la ayuda annada al prompt tiene que ser lo que el modelo declara:
+- Genero = linea literal de `genres_vocab.txt`. Si un estilo reconocido no tiene esa linea, NO se annade nada de el y se avisa (NO FAKE).
+- Descripcion = solo clausulas del `style_catalog.json` ya validadas contra los captions del fabricante. Sin texto inventado, sin nombres nuevos, sin frases caseras.
+- El texto del usuario nunca se reescribe: solo se annade, declarado en `additions`/`genres`, y la UI ofrece QUITAR.
+
+**Implementado**:
+- `prompt_enhancer.enhance_prompt` usa `find_styles` (plural) y annade por cada estilo reconocido y confirmado en el vocabulario su clausula validada (no duplicada si ya esta escrita; respeta negaciones via find_styles). Varios estilos en un texto => aviso (documentacion oficial: refuerzo por repeticion o evolucion temporal, no combinar opuestos a ciegas). El BPM explicito sigue la logica de R10 y se propone detras de las clausulas.
+- UI `PromptTools`: el borrador se arma automaticamente (debounce) y se aplica SOLO cuando la persona no lo ha modificado tras la ultima aplicacion (regla pura en `frontend/src/auto_prompt.js`): borrar el annadido no vuelve a pelear; «QUITAR» revierte al texto propio. Se conservan glosario, chips y variantes.
+
+**Verificacion**: contratos B9 en `test_prompt_style.py` (etiqueta->clausula, no duplicar, negaciones, varios estilos con aviso, estilo sin linea del modelo no se annade, limite de caracteres) + test node `auto_prompt.test.js` + build frontend.
+
+### B9 — diagnóstico de fidelidad del 2026-10-21
+
+La revisión actual devuelve **CHANGES_REQUESTED (sd-reviewer) + FAIL (sd-tester)**: expansión contradictoria, detección de estilos sobre texto añadido por la propia app, pérdida de texto libre al seleccionar y ayuda automática ausente en Crear/campos de pista. Las suites focales y lint/build verdes no cubren esos fallos. Evidencia y plan: `logs/prompt-audit-20261021/diagnostico-y-plan.md`, `tester-counterexamples.json` y `tester-verdict.json`. No se acredita el cierre B9/R10 con esas pruebas.
+
+### [B9b] Principal y matices — cerrada a nivel técnico el 2026-10-21; audio y grupos pendientes
+
+El usuario ha elegido explícitamente **un estilo principal y los demás como matices** el 2026-10-21. **Plan aprobado con «SI»; implementación realizada y verificada.** Selecciones, detalles propios y resultado derivado se conservan por separado; se traducen los detalles antes de componer el caption inglés.
+
+**Estado: cerrada a nivel técnico** (criterios 1–4, 6 y la parte textual del 5). Evidencia: PASS explícito del sd-tester en `logs/prompt-audit-20261021/tester-b9b-final.json` (backend `Ran 410 tests ... OK (skipped=2)`; frontend 73/73, lint y build verdes; UI real por Electron con DOM y HTTP reales) y APPROVE explícito del sd-reviewer tras relectura de archivos completos. Re-verificación de continuación el 2026-10-21: suite completa exit 0 (`Ran 410 tests in 260.932s; OK (skipped=2)`) y focal exit 0 (`Ran 88 tests; OK`). Detalle en `memory.md`.
+
+**Pendiente de B9b (declarado, sin ocultar):** el propio tester registra `b9b_integral_status = PENDING_E2E`. Quedan sin verificar (a) la **UI real por pistas con sus cuatro grupos** —no hay grupos restaurables en el estado de la UI y una separación nueva con dispositivo `auto` podía ocupar CUDA, por lo que se descartó para preservar la prioridad de ComfyUI— y (b) la **generación final y la comparación/escucha A/B de audio**. El intento real previo falló con `ConnectionRefusedError` en `/music/status`, el motor llegó a 9/50 pasos y no produjo ningún MP3 verificado.
+
+**Límite de cierre:** tras un intento de generación sin MP3 válido, el usuario eligió «Mantener ComfyUI y dejar pendiente la comprobación de audio». El criterio de generación local y la comparación A/B siguen pendientes por esa decisión; **no se acredita fidelidad musical ni cierre integral B9/R10 con las pruebas de texto**. No se lanzan nuevas generaciones para cerrar esta sesión.
+
+**Criterios de aceptación B9b aprobados:**
+
+1. Principal y matices son elecciones explícitas con procedencia separada del texto propio. Añadir, cambiar y quitar estilos no borra detalles ni exclusiones. No se elige principal silenciosamente ni se inventan porcentajes de mezcla.
+2. La preparación compartida conserva nombres literales seleccionados y expresa principal e influencias en inglés. Solo añade descripciones existentes compatibles con lo escrito; no asigna instrumentos a los matices. Una etiqueta sin descripción se conserva sin fingir una definición oficial.
+3. La prosa derivada no se reanaliza como selección nueva. Dos preparaciones de las mismas elecciones/detalles producen el mismo resultado. La edición y QUITAR conservan el texto propio y no provocan reinserciones automáticas.
+4. Crear, Remix, acompañamiento y campos por pista usan el mismo preparador. La vista y la petición de generación usan el mismo texto efectivo; ninguna carrera de debounce permite enviar un resultado anterior. BPM, tono y compás permanecen en sus controles.
+5. Regresiones de los contraejemplos del diagnóstico, contratos preview/envío, suites relevantes, lint y build verdes. Prueba real de UI/API y generación local con evidencia de archivo, duración y parámetros; fidelidad artística pendiente de escucha del usuario. PASS independiente del tester y APPROVE del reviewer necesarios para cierre técnico.
+6. Sin instalaciones, nube ni cambios al perfil SFT, separación, criba de bombo o continuación B8/B8b. Compatibilidad de peticiones sin selección estructurada preservada.

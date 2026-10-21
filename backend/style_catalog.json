@@ -1,15 +1,30 @@
 {
   "_doc": "Catálogo de estilos y modificadores como datos (NO HARDCODE). Lo lee prompt_style.py; matching se comparte con la glosa frontend. Claves completas o regex re: para inflexiones explícitas; gana la coincidencia más específica en cada fragmento y se conservan todos los estilos pedidos en fragmentos independientes. Se respetan negaciones y caption_exclusions. Las descripciones no sustituyen el género literal por un vecino; las traducciones ES/EN declaradas deben existir en genres_vocab.txt. BPM típico del estilo como dato: lo pedido manda. La prosa de las descripciones y cláusulas se verifica contra las 400 captions locales del fabricante. Ese vocabulario valida los datos, no garantiza fidelidad audible. Revisado 2026-10-12 tras los logs de gabber/hardcore y el recordatorio del usuario.",
   "matching": {
-    "negation_before": "(?:^|[^a-z0-9])(?:sin|no|not|without|excepto|evita|avoid)(?:\\s+(?:el|la|los|las|un|una|unos|unas|any|the))?\\s+(?:[a-z0-9-]+(?:\\s+[a-z0-9-]+)*\\s+(?:ni|nor|or|y|and)\\s+)*$",
+    "negation_before": "(?:^|[^a-z0-9])(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?|not|without|excepto|evita|avoid)(?:\\s+(?:el|la|los|las|un|una|unos|unas|any|the))?\\s+(?:[a-z0-9-]+(?:\\s+[a-z0-9-]+)*\\s*,?\\s+(?:ni|nor|or|y|and)\\s+)*$",
+    "negation_objects": "(?:^|[^a-z0-9])(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?|not|without|excepto|evita|avoid)\\s+([^,;.!?\\n]+(?:,\\s*(?:ni|nor)\\s+[^,;.!?\\n]+)*)",
+    "negation_object_separator": "\\s*,?\\s+(?:ni|nor|or|y|and)\\s+(?:(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?|not|without|excepto|evita|avoid)\\s+)?",
+    "negation_object_article": "^(?:el|la|los|las|un|una|unos|unas|any|the|a|an)\\s+",
+    "structured_spanish_exclusion_prefix": "^(?:sin(?:\\s+anadir)?|nada\\s+de)\\s+",
+    "structured_exclusion_source_language": "es",
+    "structured_exclusion_remainder": "^[\\s,;.!?]*$",
     "genre_translations": {"electronica": "electronic", "tecno": "techno", "orquestal": "orchestral"}
+  },
+  "preparation": {
+    "min_length": 3,
+    "max_prompt_chars": 800,
+    "main_template": "Predominantly {main_style}.",
+    "influences_template": "Predominantly {main_style}, with subtle influences of {influence_styles}.",
+    "influence_separator": ", ",
+    "detail_separator": " ",
+    "description_separator": ", "
   },
   "caption_exclusions": [
     {"keys": ["re:\\bguitarr\\w*", "re:\\bguitars?\\b"], "caption_keys": ["re:\\bguitars?\\b"]},
     {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kick|percussion|hi-hats|breakbeats)\\b"]},
     {"keys": ["re:\\b(?:bombos?|kick(?: drum)?)\\b"], "caption_keys": ["re:\\bkick\\b", "double bass drumming"]},
     {"keys": ["re:\\b(?:melodias?|melody|melodies)\\b"], "caption_keys": ["re:\\b(?:melody|melodies|melodic|arpeggios|arpeggiated|leads)\\b"]},
-    {"keys": ["re:\\b(?:voces?|vocals?|cantar)\\b"], "caption_keys": ["re:\\b(?:vocals?|sung|rapped|choir)\\b"]},
+    {"keys": ["re:\\b(?:voz|voces|vocals?|cantar)\\b"], "caption_keys": ["re:\\b(?:vocals?|sung|rapped|choir)\\b"]},
     {"keys": ["re:\\b(?:bajos?|bass|bassline)\\b"], "caption_keys": ["re:\\b(?:bass|sub-bass|bassline)\\b"]},
     {"keys": ["re:\\b(?:pianos?)\\b"], "caption_keys": ["re:\\bpianos?\\b"]},
     {"keys": ["re:\\b(?:sintetizadores?|sintes?|synths?|synthesizers?)\\b"], "caption_keys": ["re:\\b(?:synths?|synthesizers?)\\b"]}

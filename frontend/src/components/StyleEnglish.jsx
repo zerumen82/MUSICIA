@@ -30,7 +30,7 @@ export default function StyleEnglish({ text, empty = '' }) {
   }
   const current = state?.key === trimmed ? state : null;
   const shown = !current ? 'Traduciendo el estilo al inglés…' : (current.error || current.prompt);
-  return <p className="text-[13px] text-[var(--text)]" data-track-phrase aria-label="Frase que se envía" role={current?.error ? 'alert' : 'status'}>
+  return <p className="text-[13px] text-[var(--text)]" data-track-phrase data-effective-prompt aria-label="Frase que se envía" role={current?.error ? 'alert' : 'status'}>
     <span className="text-[var(--muted)]">Se envía: </span>{shown}
   </p>;
 }

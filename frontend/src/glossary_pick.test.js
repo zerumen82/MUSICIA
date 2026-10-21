@@ -17,8 +17,17 @@ const GABBER_STYLE = {
 
 test('un estilo del modelo entra como término suyo, no como párrafo', () => {
   assert.equal(applyModelTerm('', 'gabber'), 'A track with gabber');
-  assert.equal(applyModelTerm('gabber', 'gabber'), 'A track with gabber');
-  assert.equal(applyModelTerm('flautas medievales', 'gabber'), 'A track with gabber');
+  assert.equal(applyModelTerm('gabber', 'gabber'), '');
+  assert.equal(applyModelTerm('flautas medievales', 'gabber'), 'flautas medievales · gabber');
+});
+
+test('añadir y quitar un detalle conserva restricciones y texto propio', () => {
+  const original = 'sin voz y sin guitarras';
+  const next = applyModelTerm(original, 'gabber');
+  assert.equal(next, `${original} · gabber`);
+  assert.equal(applyModelTerm(next, 'gabber'), original);
+  const partial = next.replace('guitarras', 'guitarra eléctrica');
+  assert.equal(applyModelTerm(partial, 'gabber'), 'sin voz y sin guitarra eléctrica');
 });
 
 test('otro término del modelo se suma en la misma caption', () => {

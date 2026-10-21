@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Play, Loader2, AlertTriangle, Sparkles,
-  Music, Mic2, Dices, Wand2, WandSparkles, Layers, Feather, RotateCcw,
+  Music, Mic2, Dices, Wand2, Layers, Feather, RotateCcw,
 } from 'lucide-react';
 import { api, actionError, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import QualityWizard from './QualityWizard';
 import SelectBox from './SelectBox';
-import Glossary from './Glossary';
-import VariantChips from './VariantChips';
+import PromptTools from './PromptTools';
+import useStylePrompt from '../useStylePrompt';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import {
@@ -16,7 +16,7 @@ import {
 } from '../vocal';
 import { CONVERT_PHASES, deskPhase } from '../desk_phase';
 import { glossPrompt } from '../prompt_gloss';
-import { applyModelTerm, ensureModelTerm, modelTerms, sinBpmEnFrase } from '../glossary_pick';
+import { ensureModelTerm } from '../glossary_pick';
 import { moodClauses, moodTooltip } from '../mood_clauses';
 import { CATALOG_GENRES, findGenre } from '../genres';
 import { canAttemptEngineOperation, generationWaitMessage } from '../engine_generation';
@@ -30,7 +30,7 @@ const UI = {
   step: 5,
 };
 
-/* Opciones reales que el backend acepta (MusicGenRequest): los 29 estilos oficiales del modelo. */
+/* Estilos disponibles en el catálogo Musicia. */
 const GENRES = CATALOG_GENRES;
 
 const MOODS = [
@@ -91,7 +91,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [mode, setMode] = useState(initialMode);
   const [config, setConfig] = useState(null);
   const [prompt, setPrompt] = useState('');
-  const [genre, setGenre] = useState(null);
   const [mood, setMood] = useState(null);
   const [bpm, setBpm] = useState(null);
   const [key, setKey] = useState('');
@@ -104,14 +103,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [savedName, setSavedName] = useState(null);
   const [cancelling, setCancelling] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [enhancing, setEnhancing] = useState(false);
-  const [enhanceInfo, setEnhanceInfo] = useState(null); // {original, enhanced, additions}
   const [lyrics, setLyrics] = useState(''); // letra para el modo canción con voz
   const [vocal, setVocal] = useState({ gender: '', timbre: '', style: '', emotion: '' });
   const [vocalLang, setVocalLang] = useState('es'); // vocal_language que viaja al motor (A3)
   const [writingLyrics, setWritingLyrics] = useState(false);
   const [lyricsWarning, setLyricsWarning] = useState(null);
-  const [styleInfo, setStyleInfo] = useState(null); // chips del catálogo (del backend)
   const aliveRef = useRef(true);
   const durationTouched = useRef(false);
 
@@ -119,34 +115,11 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   useEffect(() => () => { aliveRef.current = false; }, []);
 
-  /** Chips sugeridos mientras escribes: el backend decide (catálogo de
-      datos filtrado por género detectado), la UI nunca los inventa.
-      Debounce de 300 ms: escribir no machaca la red en cada tecla. */
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const info = await api.styleOptions(prompt.trim());
-      if (aliveRef.current) setStyleInfo(info);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [prompt]);
-
-  /** Cualquier texto (chip o entrada del glosario) se añade al prompt:
-      un solo cuadro, todo editable. */
-  const addTexto = (text) => setPrompt(applyModelTerm(prompt, text));
-  const addChip = (chip) => addTexto(chip.clause ?? chip.text);
-
-  /** El género es la palabra que el modelo escribe. Entra en la misma caption. */
   const onSelectGenre = (id) => {
-    setGenre(id || null);
-    if (!id) return;
     const item = findGenre(id);
-    if (!item?.genre) return;
-    const before = prompt.trim();
-    const framed = before.toLowerCase().startsWith('a track with ');
-    const next = applyModelTerm(prompt, item.genre);
-    setPrompt(next);
-    const quitado = framed && !modelTerms(next).some((part) => part.toLowerCase() === item.genre.toLowerCase());
-    if (!quitado && (bpm == null || bpm === '') && item.bpm) setBpm(item.bpm);
+    prepared.setSelection((current) => ({ ...current, main_style: item?.genre || null,
+      influence_styles: current.influence_styles.filter((term) => term !== item?.genre) }));
+    if (item?.bpm && (bpm == null || bpm === '')) setBpm(item.bpm);
   };
 
   useEffect(() => {
@@ -166,7 +139,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   /** Lo que se envía es el cuadro más el ánimo elegido, en una sola caption.
       Tranquilo y Chill no meten el tempo si el BPM ya está en su control. */
-  const buildPrompt = () => {
+  const buildDetails = () => {
     let free = prompt.trim();
     // En modo voz, cada descriptor elegido es vocabulario del modelo y entra
     // en la misma caption. No se cuelga una segunda frase.
@@ -182,7 +155,8 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   };
 
   /** Prompt final tal y como se enviará (para la vista de transparencia). */
-  const finalPrompt = buildPrompt();
+  const prepared = useStylePrompt(buildDetails());
+  const finalPrompt = prepared.effectivePrompt;
 
   /** "Escribir la letra por mí": el LM local propone un borrador editable. */
   /** Quita todas las elecciones de voz y vuelve a AUTO. */
@@ -202,11 +176,12 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     .join(' · ');
 
   const autoWriteLyrics = async () => {
+    if (!prepared.ready) { setError(prepared.error || 'Espera a que termine la preparación del prompt.'); return; }
     setError(null);
     setLyricsWarning(null);
     setWritingLyrics(true);
     try {
-      const seedPrompt = buildPrompt() || prompt.trim() || 'canción con voz cantada';
+      const seedPrompt = finalPrompt || prompt.trim() || 'canción con voz cantada';
       const data = await api.writeLyrics({
         prompt: seedPrompt,
         lyrics: lyrics.trim(),
@@ -227,11 +202,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
       } else {
         setLyrics(structureLyric(data.lyrics || ''));
         setLyricsWarning(data.warning ?? null);
-        setEnhanceInfo({
-          original: seedPrompt,
-          enhanced: data.caption ?? seedPrompt,
-          additions: [data.bpm ? `${data.bpm} bpm` : null, data.key_scale, data.vocal_language].filter(Boolean),
-        });
+
       }
     } catch (e) {
       setError(actionError(e.message));
@@ -338,7 +309,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   const generate = async () => {
     setError(null);
-    const finalPrompt = buildPrompt();
+    if (!prepared.ready) { setError(prepared.error || 'Espera a que termine la preparación del prompt.'); return; }
     if (!finalPrompt) {
       setError('Elige un género o escribe una descripción');
       return;
@@ -371,7 +342,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   /** Variaciones A/B. La segunda espera: en esta GPU no caben dos a la vez. */
   const generateVariations = async () => {
     setError(null);
-    const finalPrompt = buildPrompt();
+    if (!prepared.ready) { setError(prepared.error || 'Espera a que termine la preparación del prompt.'); return; }
     if (!finalPrompt) {
       setError('Elige un género o escribe una descripción');
       return;
@@ -416,38 +387,17 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     }
   };
 
-  /** Añade el BPM elegido. No reescribe la frase ni mete el género del desplegable. */
-  const enhancePrompt = async () => {
-    const base = glossPrompt(prompt.trim());
-    if (base.length < 3) {
-      setError('Escribe el prompt antes de mejorarlo');
-      return;
-    }
-    setError(null);
-    setEnhancing(true);
-    try {
-      const res = await api.enhancePrompt({ prompt: base, bpm: bpm ?? null });
-      setEnhanceInfo(res);
-    } catch (e) {
-      setError(actionError(e.message));
-    } finally {
-      setEnhancing(false);
-    }
-  };
-
   /** Aplica la especificación del asistente de calidad a los selectores. */
   const applyWizard = (spec) => {
     setWizardOpen(false);
     const elegido = findGenre(spec.genre);
-    setPrompt(elegido?.genre ? applyModelTerm('', elegido.genre) : '');
+    if (elegido) prepared.setSelection((current) => ({ ...current, main_style: elegido.genre, influence_styles: current.influence_styles.filter((term) => term !== elegido.genre) }));
     if (spec.bpm) setBpm(spec.bpm);
     if (spec.key_scale) setKey(spec.key_scale);
     if (spec.duration) {
       durationTouched.current = true;
       setDuration(Math.min(spec.duration, maxDuration));
     }
-    const g = findGenre(spec.genre);
-    if (g) setGenre(g.id);
     const m = MOODS.find((x) => x.tag === spec.mood || x.id === spec.mood);
     if (m) setMood(m.id);
   };
@@ -465,7 +415,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   };
 
   const busy = job?.status === 'queued' || job?.status === 'running';
-  const canGenerate = canAttemptEngineOperation(engine) && !busy && buildPrompt().length > 1
+  const canGenerate = canAttemptEngineOperation(engine) && !busy && prepared.ready && finalPrompt.length > 1
     && (mode === 'music' || lyrics.trim().length > 0);
   const statusInfo = job ? STATUS[job.status] : null;
   const stepIdx = busy ? (job?.status === 'running' ? 1 : 0) : (job?.status === 'succeeded' ? 3 : -1);
@@ -479,22 +429,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     return () => clearInterval(t);
   }, [busy]);
 
-  /** Todos los chips que sugiere el backend: son vocabulario real del
-      modelo (los valida backend/test_realism.py), así que AÑADIR se
-      muestra siempre, con prompt vacío y en cualquier modo. Se ofrecen en
-      lista: las cláusulas en inglés son largas y en línea llenaban la fila. */
-  const chipsSugeribles = (styleInfo?.chips ?? []).filter((c) => c.suggested);
-  const chipOptions = chipsSugeribles.map((c) => ({
-    id: c.label,
-    /* En la lista, etiqueta corta en español (lo que el usuario elige);
-       en el tooltip, la cláusula en inglés: eso es lo que se añade viaja. */
-    label: c.label,
-    title: `Se añade: «${c.clause ?? c.text}»`,
-  }));
-  const addChipById = (id) => {
-    const chip = chipsSugeribles.find((c) => c.label === id);
-    if (chip) addChip(chip);
-  };
   const createConverting = CONVERT_PHASES.includes(deskPhase(job?.phase, ''));
 
   return (
@@ -515,9 +449,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           <button onClick={() => setWizardOpen(true)} className="btn btn-ghost px-4 h-9">
             <Wand2 size={13} /> ASISTENTE
           </button>
-          <button onClick={enhancePrompt} disabled={enhancing} className="btn btn-ghost px-4 h-9">
-            {enhancing ? <Loader2 size={13} className="animate-spin" /> : <WandSparkles size={13} />} MEJORAR PROMPT
-          </button>
           {engine.checked && !engine.ok && (
             <span className={`ml-auto label ${engine.idle || engine.starting || engine.stopping ? 'text-[var(--muted)]' : 'st-err'}`}>
               {engine.idle
@@ -535,9 +466,9 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
         {/* Una línea de desplegables. Las filas de chips llenaban la ventana. */}
         <div className="flex items-center gap-2 flex-wrap">
-          <SelectBox label="GÉNERO" placeholder="AUTO"
+          <SelectBox label="PRINCIPAL" placeholder="SIN ELEGIR"
             options={GENRES.map(({ id, label }) => ({ id, label }))}
-            value={genre ?? ''} onChange={onSelectGenre} />
+            value={GENRES.find((item) => item.genre === prepared.selection.main_style)?.id ?? ''} onChange={onSelectGenre} />
           <SelectBox label="MOOD" placeholder="AUTO"
             options={MOODS.map(({ id, tag }) => ({ id, label: tag, title: moodTooltip(id) }))}
             value={mood ?? ''} onChange={(id) => setMood(id || null)} />
@@ -554,51 +485,16 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
         {/* Prompt libre + duración + seed */}
         <div className="flex flex-col gap-3">
-          {enhanceInfo && (
-            <div className="flex flex-col gap-1 border-l-2 border-[var(--acc-line)] pl-4 py-1">
-              <span className="label">BORRADOR · REVISA ANTES DE APLICAR</span>
-              <textarea aria-label="Borrador del prompt" value={enhanceInfo.enhanced}
-                onChange={(e) => setEnhanceInfo({ ...enhanceInfo, enhanced: e.target.value })}
-                className="bg-transparent mono text-[11px] text-[var(--muted)] outline-none resize-y min-h-[54px]" />
-              {(enhanceInfo.warnings ?? []).map((warning) => (
-                <span key={warning} className="mono text-[10px] text-[var(--warn)]">{warning}</span>
-              ))}
-              <div className="flex gap-3">
-                <button onClick={() => { setPrompt(sinBpmEnFrase(enhanceInfo.enhanced)); setGenre(null); setEnhanceInfo(null); }}
-                  className="btn btn-ghost h-7 px-3">APLICAR BORRADOR</button>
-                <button onClick={() => setEnhanceInfo(null)} className="mono text-[9.5px] text-[var(--faint)] hover:text-red-300">DESCARTAR</button>
-              </div>
-            </div>
-          )}
           <textarea
             aria-label="Prompt de crear"
             value={prompt}
-            onChange={(e) => { setPrompt(e.target.value); setGenre(null); if (enhanceInfo) setEnhanceInfo(null); }}
-            placeholder="Escribe el estilo y lo que quieres oír. Solo se envía este texto y lo que elijas."
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Tus detalles y restricciones. Elige el principal y los matices en sus controles."
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
-          {/* AÑADIR en lista (igual que en remix), GLOSARIO al lado y
-              VARIANTES debajo: todo en inglés, que es lo que viaja al motor
-              (lo valida test_realism.py), y todo compacto. Si el backend no
-              responde o no hay sugerencias, se dice: nunca un desplegable
-              vacío sin explicación. */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {chipOptions.length > 0 ? (
-              <SelectBox label="AÑADIR" placeholder="DETALLE DEL CATÁLOGO" clearable={false}
-                options={chipOptions} value="" onChange={addChipById} />
-            ) : (
-              <span className="label shrink-0">
-                {styleInfo === null ? 'AÑADIR · SIN DATOS DEL MOTOR' : 'AÑADIR · SIN SUGERENCIAS'}
-              </span>
-            )}
-            <Glossary prompt={prompt} setPrompt={setPrompt} onBpm={setBpm} bpm={bpm} />
-          </div>
-          <details>
-            <summary className="label cursor-pointer">VARIANTES</summary>
-            <div className="py-2"><VariantChips prompt={prompt} setPrompt={setPrompt} /></div>
-          </details>
-          <StyleEnglish text={finalPrompt} />
-          <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />
+          <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />
+          {prepared.ready && <StyleEnglish text={finalPrompt} />}
+          {prepared.ready && <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />}
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
               {/* Una sola línea con todo el control de voz; cada grupo se despliega al pulsar. */}
@@ -635,7 +531,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                     className="btn btn-ghost h-8 px-3" title="Añadir [Intro], [Verse], [Chorus] y [Outro] a tu letra">
                     ESTRUCTURAR LETRA
                   </button>
-                  <button onClick={autoWriteLyrics} disabled={writingLyrics}
+                  <button onClick={autoWriteLyrics} disabled={writingLyrics || !prepared.ready}
                     title="Construye la canción a partir de las frases que hayas escrito; el motor intenta ampliarlas"
                     className="btn btn-ghost h-8 px-3">
                     {writingLyrics ? <><Loader2 size={12} className="animate-spin" /> ESPERANDO AL MODELO (hasta 11 min)…</>

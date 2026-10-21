@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from pydub import AudioSegment
 from loguru import logger
 
-from audio_analysis import detect_groove
+from audio_analysis import detect_groove, kick_coverage
 from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_ffmpeg
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
@@ -562,26 +562,58 @@ def continuation_limits(config) -> tuple[float, float, int, int]:
     return float(minimum), float(maximum), chunks, batch
 
 
+def continuation_shape(config) -> tuple[float, float]:
+    """Solape entre trozos y margen de cola del último (B8)."""
+    overlap = config.continuation_overlap_seconds
+    margin = config.continuation_tail_margin_seconds
+    for value, nombre in ((overlap, "El solape de la continuación"),
+                          (margin, "El margen de cola de la continuación")):
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0):
+            raise ValueError(f"{nombre} debe ser un número finito no negativo")
+    return float(overlap), float(margin)
+
+
 def continuation_spans(bed_seconds: float, target_seconds: float, config) -> list[dict]:
     """Trozos que alargan la base hasta la duración pedida.
 
-    Cada trozo empieza donde acaba el anterior. El motor instalado genera
-    el final; no se rellena repitiendo el recorte.
+    Cada trozo empieza `continuation_overlap_seconds` antes del fin del
+    anterior: así el motor re-pinta la cola desvanecida del trozo previo con
+    contexto real en lugar de encadenar sobre ella (B8: las colas muertas se
+    componían y la ampliación sonaba a corta-y-pega). El último trozo se
+    alarga `continuation_tail_margin_seconds` más allá de lo pedido;
+    finish_continuation recorta y el desvanecimiento final queda fuera del
+    audio entregado. El ancho pintado de cada trozo (fin - inicio) nunca
+    supera el máximo configurado: es lo que el motor puede repaintar.
+    El primer trozo empieza exactamente donde acaba la base: no se retila el
+    corte original.
     """
     minimum, maximum, chunk_limit, _batch = continuation_limits(config)
+    overlap, margin = continuation_shape(config)
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
            for value in (bed_seconds, target_seconds)):
         raise ValueError("La continuación necesita la duración de la base y la duración pedida")
+    if minimum + overlap + margin > maximum:
+        raise ValueError(
+            "El tramo mínimo más el solape y el margen de cola no caben en el máximo del trozo")
     spans = []
     cursor = float(bed_seconds)
     while cursor < float(target_seconds):
         if len(spans) >= chunk_limit:
             raise ValueError("La duración pedida no cabe en los trozos de continuación configurados")
-        remaining = float(target_seconds) - cursor
-        added = remaining if remaining >= minimum else minimum
-        if added > maximum:
-            added = maximum
-        spans.append({"start": cursor, "end": cursor + added})
+        solape = 0.0 if not spans else overlap
+        restante = float(target_seconds) - cursor
+        presupuesto = maximum - solape
+        if restante <= presupuesto - margin:
+            # Último trozo: se pinta de más y finish_continuation recorta,
+            # para que el desvanecimiento del motor quede fuera del audio.
+            added = max(restante, minimum) + margin
+        else:
+            # Se reserva presupuesto para que el último trozo pueda llevar
+            # el margen sin superar el máximo pintable por el motor.
+            added = presupuesto - margin
+        start = float(bed_seconds) if not spans else cursor - overlap
+        spans.append({"start": start, "end": cursor + added})
         cursor += added
     return spans
 
@@ -624,6 +656,100 @@ def continuation_generation(request, bed: Path, span: dict, seed, settings) -> G
     )
 
 
+def level_continuation(downloaded: Path, span: dict, config, work: Path) -> tuple[Path, float]:
+    """Iguala el nivel de la región repintada contra lo anterior (B8).
+
+    El borde entre la base y cada continuación saltaba ~25 dB porque el
+    repaint genera a otro nivel. Se aplica la ganancia limitada solo a la
+    región repintada, con crossfade corta en el borde. Devuelve (fichero que
+    sirve de base al siguiente trozo, ganancia aplicada en dB); sin igualación
+    activa o sin dato utilizable devuelve el descargado sin tocar y 0.0.
+    """
+    if not config.continuation_level_match:
+        return downloaded, 0.0
+    pcm = MixerService.inspect_pcm(downloaded)
+    rate, channels = pcm["sample_rate"], pcm["channels"]
+    samples = pcm["samples"]
+    frames = len(samples) // channels
+    start_frame = max(0, round(float(span["start"]) * rate))
+    end_frame = min(frames, round(float(span["end"]) * rate))
+    if start_frame <= 0 or end_frame <= start_frame:
+        return downloaded, 0.0
+    ganancia = MixerService.continuation_level_gain(
+        samples, channels, rate, start_frame, end_frame,
+        reference_seconds=config.continuation_level_match_reference_seconds,
+        window_seconds=config.continuation_level_match_window_seconds,
+        skip_seconds=config.continuation_level_match_skip_seconds,
+        max_gain_db=config.continuation_level_match_max_gain_db)
+    if ganancia == 0.0:
+        return downloaded, 0.0
+    aplicadas = MixerService.apply_region_gain(
+        samples, channels, start_frame, ganancia,
+        config.continuation_level_match_fade_seconds, rate)
+    destino = work / f"{downloaded.stem}-nivel{downloaded.suffix}"
+    MixerService._write_float_wav(destino, aplicadas, rate, channels)
+    return destino, ganancia
+
+
+def kick_coverage_screen(audio: Path, bpm: float, config, work: Path,
+                         stem: str) -> str | None:
+    """Motivo si el audio no tiene bombo en los tiempos pedidos (B8c).
+
+    Mide la banda 40-120 Hz con la rejilla del BPM pedido. Un trozo con
+    batería escasa queda por debajo del umbral configurado, aunque el detector
+    de pulso lo diera por bueno. Devuelve None si es utilizable.
+    """
+    if bpm is None or config.timeline_min_kick_coverage <= 0:
+        return None
+    try:
+        measured = kick_coverage(audio, bpm=bpm)
+    except (ValueError, OSError) as exc:
+        return str(exc)
+    if config.timeline_min_kick_coverage > 0 and measured["coverage"] < config.timeline_min_kick_coverage:
+        return (f"el bombo cubre {measured['coverage']:.2f} de los tiempos del compás "
+                f"y el mínimo configurado es {config.timeline_min_kick_coverage:.2f}")
+    return None
+
+
+def screen_continuation_chunk(audio: Path, span: dict, bpm: float, config, work: Path,
+                              stem: str) -> str | None:
+    """Comprueba que lo repintado tiene pulso y bombo medibles antes de aceptarlo (B8b/B8c).
+
+    El motor sortea: la medición de 2026-10-20 (job d4fb37a5) mostró que un
+    trozo puede salir sin bombo ni compás (2 onsets en 70 s, detector
+    "incierto") y arrastrar el trabajo entero al rechazo de R11. Aquí se
+    criba cada trozo con el mismo detector del proyecto sobre la región
+    repintada; y, además, se exige bombo en los tiempos del BPM pedido (B8c):
+    el oído del usuario oyó trozos «sin batería» que el detector de pulso
+    daba por buenos. Si no pasa, se devuelve el motivo para que el llamante
+    repita la muestra con otra semilla.
+
+    Devuelve None si el trozo es utilizable. Un tempo medido conclusive
+    fuera de tolerancia NO se reconsidera aquí: eso lo decide R11 al final.
+    """
+    pcm = MixerService.inspect_pcm(audio)
+    rate, channels = pcm["sample_rate"], pcm["channels"]
+    samples = pcm["samples"]
+    frames = len(samples) // channels
+    inicio = min(max(0, round(float(span["start"]) * rate)), frames)
+    fin = min(frames, round(float(span["end"]) * rate))
+    if (fin - inicio) / channels / rate < config.continuation_min_seconds:
+        return "demasiado corto para medir su pulso"
+    region = samples[inicio * channels:fin * channels]
+    ruta = work / f"{stem}-pulso.wav"
+    MixerService._write_float_wav(ruta, region, rate, channels)
+    try:
+        groove = detect_groove(ruta)
+    except ValueError as exc:
+        if audio_has_no_usable_groove(exc):
+            return str(exc)
+        raise
+    if groove["confidence"] < config.timeline_min_groove_confidence:
+        return (f"el pulso medido ({groove['confidence']:.2f}) no llega a la "
+                f"confianza mínima configurada")
+    return kick_coverage_screen(ruta, bpm, config, work, f"{stem}-bombo")
+
+
 def verify_requested_tempo(measured, requested_bpm, config, stage) -> None:
     bpm = require_measured_tempo(measured, config, stage)
     if not math.isfinite(config.tempo_verify_tolerance_bpm) or config.tempo_verify_tolerance_bpm < 0:
@@ -655,6 +781,8 @@ def audio_has_no_usable_groove(error: BaseException) -> bool:
         "Audio demasiado corto",
         "No se ha detectado un tempo",
         "No hay un BPM fiable en la variante generada",
+        "el bombo cubre",
+        "El bombo cubre",
     ))
 
 
@@ -825,7 +953,10 @@ class RemixProjectRuntime:
                          "min_groove_confidence": remix.timeline_min_groove_confidence,
                          "max_transition_seconds": remix.timeline_max_transition_seconds,
                          "continuation_min_seconds": remix.continuation_min_seconds,
-                         "continuation_max_seconds": remix.continuation_max_seconds},
+                         "continuation_max_seconds": remix.continuation_max_seconds,
+                         "continuation_overlap_seconds": remix.continuation_overlap_seconds,
+                         "continuation_tail_margin_seconds": remix.continuation_tail_margin_seconds,
+                         "continuation_level_match": remix.continuation_level_match},
             "repaint_controls": {
                 "strength_modes": ["balanced"],
                 "crossfade_editable": False,
@@ -1076,6 +1207,32 @@ class RemixProjectRuntime:
                 "no se mezclan timelines distintas")
         return path, tracks[0], payload
 
+    async def _screen_base_kick(self, job, request, work, index, path, track,
+                                engine_source, reference, natural_duration, config):
+        """B8c: la base de la variante tiene que tener bombo en los tiempos pedidos.
+
+        Reutiliza la máquina B8b: si la cobertura de bombo no llega al umbral,
+        se pide otra muestra con semilla nueva y se conserva la rechazada.
+        Devuelve (path, track, muestras_pedidas).
+        """
+        retries = full_groove_retries(config)
+        draw = 0
+        while True:
+            motivo = await asyncio.to_thread(
+                kick_coverage_screen, path, request.bpm, config, work, f"variante-{index + 1}")
+            if motivo is None or draw >= retries:
+                if motivo is not None:
+                    self.event(job, f"La base de la variante {index + 1} quedó «{motivo}» "
+                                    f"tras {draw + 1} muestras")
+                break
+            draw += 1
+            self.event(job, f"La base de la variante {index + 1} salió «{motivo}»; "
+                            "pidiendo otra muestra")
+            path, track, _payload = await self._replace_unmeasured_variant(
+                job, request, work, index, path, engine_source, reference,
+                natural_duration, draw, config)
+        return path, track, draw
+
     async def _measured_full_variant(self, job, request, work, index, path, track,
                                      engine_source, reference, natural_duration,
                                      source_duration, config):
@@ -1086,7 +1243,16 @@ class RemixProjectRuntime:
         async def measure():
             self.cancelled(job)
             self.event(job, f"Midiendo el BPM de la variante {index + 1}")
-            return await asyncio.to_thread(required_measured_tempo, state["path"])
+            measured = await asyncio.to_thread(required_measured_tempo, state["path"])
+            # B8c: la base de la canción también tiene que tener bombo en los
+            # tiempos pedidos. Si no, se pide otra muestra con la misma máquina.
+            if request.bpm is not None:
+                motivo = await asyncio.to_thread(
+                    kick_coverage_screen, state["path"], request.bpm, config, work,
+                    f"variante-{index + 1}")
+                if motivo is not None:
+                    raise ValueError(motivo)
+            return measured
 
         async def adjust(measured):
             self.cancelled(job)
@@ -1110,6 +1276,8 @@ class RemixProjectRuntime:
             if str(exc).startswith("Audio demasiado corto"):
                 self.event(job, f"La variante {index + 1} queda demasiado corta para comprobar el tempo; "
                            "se pide otra muestra")
+            elif str(exc).startswith(("el bombo cubre", "El bombo cubre")):
+                self.event(job, f"La base de la variante {index + 1} salió «{exc}»; se pide otra muestra")
             else:
                 self.event(job, f"La variante {index + 1} no tiene un pulso medible; se pide otra muestra")
             state["path"], state["track"], state["payload"] = await self._replace_unmeasured_variant(
@@ -1139,39 +1307,64 @@ class RemixProjectRuntime:
             job["engine_progress_text"] = status.progress_text or ""
             job["phase"] = _visible_phase(status)
 
+        reintentos_max = full_groove_retries(config)
+        semilla_max = config.parameters["seed"]["max"]
         for number, span in enumerate(spans, start=1):
             self.cancelled(job)
             self.event(job, f"Continuando la base de la variante {index + 1}, trozo {number}")
-            seed = track.seed if track is not None and track.seed is not None else request.seed
-            generation = await asyncio.to_thread(
-                continuation_generation, request, current, span, seed, self.settings)
-            job["engine_active"] = True
-            try:
-                task_id, _detail = await self.music.submit(generation)
-                job["engine_task_id"] = task_id
+            semilla_base = track.seed if track is not None and track.seed is not None else request.seed
+            intentos = 0
+            while True:
+                seed = (semilla_base if intentos == 0 else
+                        replacement_request_seed(semilla_base, batch, intentos, semilla_max))
+                generation = await asyncio.to_thread(
+                    continuation_generation, request, current, span, seed, self.settings)
+                job["engine_active"] = True
+                try:
+                    task_id, _detail = await self.music.submit(generation)
+                    job["engine_task_id"] = task_id
+                    self.save()
+                    final = await self.music.wait(task_id, on_update=on_update)
+                finally:
+                    job["engine_active"] = False
+                self.cancelled(job)
+                if not final.succeeded:
+                    raise MusicEngineError(final.error or "El motor terminó sin audio válido")
+                ready = [item for item in final.tracks if item.file]
+                if len(ready) != batch:
+                    raise MusicEngineError(
+                        f"El motor devolvió {len(ready)} continuaciones; se pidió {batch}")
+                produced = ready[0]
+                dest = work / f"continuacion-{index + 1}-{number}-{intentos + 1}.wav"
+                await self.music.download(produced.file, dest)
+                seconds = await self.music.verify_audio(dest) / 1000
+                if abs(seconds - span["end"]) > config.duration_tolerance_seconds:
+                    raise MusicEngineError(
+                        f"La continuación duró {seconds:g} s y el trozo pedía {span['end']:g} s")
+                leveled, ganancia = await asyncio.to_thread(
+                    level_continuation, dest, span, config, work)
+                # B8b: el motor sortea trozos sin bombo ni compás; se criba cada
+                # muestra y se pide otra con semilla nueva. Agotados los
+                # reintentos se conserva el último sorteo y R11 decide al final.
+                motivo = await asyncio.to_thread(
+                    screen_continuation_chunk, leveled, span, request.bpm, config, work,
+                    f"continuacion-{index + 1}-{number}-{intentos + 1}")
+                if motivo is None or intentos >= reintentos_max:
+                    break
+                intentos += 1
+                self.event(job, f"El trozo {number} de la variante {index + 1} salió "
+                                f"«{motivo}»; pidiendo otra muestra")
                 self.save()
-                final = await self.music.wait(task_id, on_update=on_update)
-            finally:
-                job["engine_active"] = False
-            self.cancelled(job)
-            if not final.succeeded:
-                raise MusicEngineError(final.error or "El motor terminó sin audio válido")
-            ready = [item for item in final.tracks if item.file]
-            if len(ready) != batch:
-                raise MusicEngineError(
-                    f"El motor devolvió {len(ready)} continuaciones; se pidió {batch}")
-            produced = ready[0]
-            dest = work / f"continuacion-{index + 1}-{number}.wav"
-            await self.music.download(produced.file, dest)
-            seconds = await self.music.verify_audio(dest) / 1000
-            if abs(seconds - span["end"]) > config.duration_tolerance_seconds:
-                raise MusicEngineError(
-                    f"La continuación duró {seconds:g} s y el trozo pedía {span['end']:g} s")
+            if motivo is not None:
+                self.event(job, f"El trozo {number} de la variante {index + 1} quedó "
+                                f"sin pulso acreditado tras {intentos + 1} muestras")
             chunks.append({
                 "start": span["start"], "end": span["end"], "file_name": dest.name,
+                "leveled_file_name": leveled.name, "level_gain_db": round(ganancia, 2),
                 "seed": produced.seed, "seed_origin": produced.seed_origin,
+                "attempts": intentos + 1, "groove_notice": motivo,
             })
-            current = dest
+            current = leveled
         self.cancelled(job)
         extended = work / f"arreglo-{index + 1}.wav"
         info = await asyncio.to_thread(
@@ -1317,6 +1510,12 @@ class RemixProjectRuntime:
                     tempo_processing = None
                     groove_replacements = 0
                     replacement_parameters = None
+                    kick_replacements = 0
+                    if (request.scope in {"region", "groups"} and request.bpm is not None
+                            and path is not None):
+                        path, track, kick_replacements = await self._screen_base_kick(
+                            job, request, work, index, path, track, engine_source, reference,
+                            natural_duration, config)
                     if request.scope == "full" and request.bpm is not None:
                         try:
                             (path, track, tempo_before, variant_plan, groove_replacements,
@@ -1605,19 +1804,22 @@ class RemixProjectRuntime:
                                "duration_seconds": final_seconds, "arrangement": arrangement,
                                "timeline": variant_plan, "tempo_measured": measured,
                                "groove_replacements": groove_replacements,
+                               "kick_replacements": kick_replacements,
                                "replacement_parameters": replacement_parameters,
                                "tempo_before": tempo_before, "tempo_after_adjust": tempo_after_adjust,
                                "tempo_processing": tempo_processing, **mastering}
                     asked_seed = request.seed if track else None
-                    if groove_replacements and track:
+                    if (groove_replacements or kick_replacements) and track:
                         asked_seed = replacement_request_seed(
-                            request.seed, self.settings.generation.batch_size, groove_replacements,
+                            request.seed, self.settings.generation.batch_size,
+                            max(groove_replacements, kick_replacements),
                             config.parameters["seed"]["max"])
                     variant_operations = {**job["operations"], "timeline": variant_plan,
                                           "tempo_before": tempo_before, "tempo_processing": tempo_processing,
                                           "tempo_after_adjust": tempo_after_adjust,
                                           "tempo_after": measured,
                                           "groove_replacements": groove_replacements,
+                                          "kick_replacements": kick_replacements,
                                           "replacement_parameters": replacement_parameters}
                     ficha = dict(prompt=request.prompt, project=request.model_dump(),
                                  effective_parameters=job.get("effective_parameters"),
@@ -1627,6 +1829,7 @@ class RemixProjectRuntime:
                                  seed=variant["seed"], seed_origin=variant["seed_origin"],
                                  seed_requested=asked_seed,
                                  groove_replacements=groove_replacements,
+                                 kick_replacements=kick_replacements,
                                  replacement_parameters=replacement_parameters,
                                  provenance=job.get("provenance"), **(measured or {}))
                     publications.append((staged_output, stem, ficha, variant))

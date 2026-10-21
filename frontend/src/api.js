@@ -452,10 +452,10 @@ export const api = {
     }
   },
 
-  /** Borrador fiel del prompt (solo BPM explícito añadido; revisable antes de aplicar). */
+  /** Prepara principal, matices y detalles sin mutar el texto editable del usuario. */
   enhancePrompt: async (payload) => {
     try {
-      const { data } = await client.post('/music/enhance_prompt', payload)
+      const { data } = await previewClient.post('/music/enhance_prompt', payload)
       return data
     } catch (error) {
       throw new Error(describeError(error))

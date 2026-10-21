@@ -1,17 +1,18 @@
 /**
- * 29 estilos oficiales de Musicia alineados al 100% con el catálogo del modelo
+ * 29 estilos del catálogo de Musicia, contrastados con su catálogo de datos
  * (backend/style_catalog.json) y el vocabulario de géneros (genres_vocab.txt).
  *
  * Cada estilo tiene:
  * - id: clave identificadora única (coincide con name de style_catalog.json).
  * - label: nombre en español para la UI.
- * - bpm: tempo típico oficial del estilo.
- * - genre: término canónico que el modelo reconoce directamente en el prompt.
+ * - bpm: tempo propuesto por el catálogo de Musicia.
+ * - genre: etiqueta literal disponible en el vocabulario del motor.
  *   DEBE ser una línea LITERAL de genres_vocab.txt y coincidir con lo que el
  *   backend calcula en genre_glossary.catalog_styles(): lo controlan los tests
  *   test_realism.test_genres_js_only_offers_genres_the_model_can_write y
  *   test_genres_js_agrees_with_the_backend_catalog. Un género que no esté en
- *   ese archivo no puede escribirlo el modelo (NO FAKE).
+ *   ese archivo no puede emitirlo el campo restringido genres del LM.
+ *   Estar en la lista no garantiza fidelidad musical al generar audio.
  */
 
 export const CATALOG_GENRES = [

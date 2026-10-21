@@ -45,7 +45,12 @@ export function applyModelTerm(prompt, term) {
   const raw = (prompt ?? '').trim();
   if (!token) return raw;
   const framed = raw.toLowerCase().startsWith(FRAME.toLowerCase());
-  if (!framed) return `${FRAME}${token}`;
+  if (!raw) return `${FRAME}${token}`;
+  if (!framed) {
+    const terms = modelTerms(raw);
+    const index = terms.findIndex((item) => norm(item) === norm(token));
+    return (index >= 0 ? terms.filter((_, i) => i !== index) : [...terms, token]).join(JOIN);
+  }
   const terms = modelTerms(raw);
   const index = terms.findIndex((item) => norm(item) === norm(token));
   const next = index >= 0 ? terms.filter((_, i) => i !== index) : [...terms, token];
