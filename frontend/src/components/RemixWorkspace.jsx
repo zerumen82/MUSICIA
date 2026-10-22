@@ -4,7 +4,7 @@ import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
 import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
 import useStylePrompt, { usePreparedStylePrompts } from '../useStylePrompt';
-import { emptyStyleSelection, stylePromptRequest } from '../style_prompt';
+import { applyTrackAction, effectiveTrackSelection, emptyStyleSelection, emptyTouchedRoles, stylePromptRequest } from '../style_prompt';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
 import RemixPanel from './RemixPanel';
@@ -59,8 +59,20 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [actions, setActions] = useState({});
   const [trackText, setTrackText] = useState({});
   const [trackSelections, setTrackSelections] = useState({});
-  const prepared = useStylePrompt(prompt);
-  const preparedTracks = usePreparedStylePrompts(Object.fromEntries(groups.filter((group) => actions[group.id] === 'transform').map((group) => [group.id, stylePromptRequest(trackText[group.id] ?? '', trackSelections[group.id] ?? emptyStyleSelection())])));
+  // Qué papeles ha tocado el usuario en cada pista: lo demás se hereda.
+  const [trackSelectionRoles, setTrackSelectionRoles] = useState({});
+  const exclusionSource = scope === 'groups'
+    ? [prompt, ...groups.map((group) => trackText[group.id] ?? '')].filter(Boolean).join(' ')
+    : null;
+  const prepared = useStylePrompt(prompt, exclusionSource);
+  // La pista hereda del prompt general PAPEL POR PAPEL (principal, matices y
+  // ficha): lo que el usuario no toca sigue viniendo del general; lo que toca
+  // pasa a ser de la pista. Así su texto va en su línea, con su papel, y no
+  // pegado a la descripción global.
+  const trackRoles = (groupId) => trackSelectionRoles[groupId] ?? emptyTouchedRoles();
+  const trackSelection = (groupId) => effectiveTrackSelection(
+    trackSelections[groupId] ?? emptyStyleSelection(), trackRoles(groupId), prepared.selection);
+  const preparedTracks = usePreparedStylePrompts(Object.fromEntries(groups.filter((group) => actions[group.id] === 'transform').map((group) => [group.id, stylePromptRequest(trackText[group.id] ?? '', trackSelection(group.id), exclusionSource)])));
   const [gains, setGains] = useState({});
   const [solo, setSolo] = useState(null);
   const [reference, setReference] = useState('');
@@ -452,12 +464,23 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
           <input aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} className={`${field} w-full`} />
           <PromptTools prompt={trackText[group.id] ?? ''}
             setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
-            prepared={{ ...preparedTracks[group.id], selection: trackSelections[group.id] ?? emptyStyleSelection(),
-              setSelection: (next) => setTrackSelections((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? emptyStyleSelection()) : next })) }} disabled={busy} />
+            prepared={{ ...preparedTracks[group.id], selection: trackSelection(group.id),
+              setSelection: (next) => {
+                // La acción parte de lo que el usuario VE (la selección
+                // efectiva) y solo deja de heredarse el papel que cambia.
+                const step = applyTrackAction(
+                  trackSelections[group.id] ?? emptyStyleSelection(),
+                  trackRoles(group.id),
+                  prepared.selection,
+                  next,
+                );
+                setTrackSelections((current) => ({ ...current, [group.id]: step.own }));
+                setTrackSelectionRoles((current) => ({ ...current, [group.id]: step.touched }));
+              } }} disabled={busy} />
         </fieldset>}
         {solo === group.id && <audio controls autoPlay src={mediaUrl(group.url, group.file_name)} aria-label={`Escuchar ${group.label}`} className="player w-full" style={{ gridColumn: '1 / -1' }} />}
       </div>)}
-      <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo se escribe en el prompt. El texto de una pista se suma. Una pista vacía no añade nada.</p>
+      <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo del prompt general se hereda en cada pista: si eliges otro en la pista, manda ese. El texto de una pista se suma. Una pista vacía no añade nada.</p>
     </div>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
       placeholder={needsCover ? (activeScope?.placeholder || 'Qué quieres cambiar.') : 'Texto de estilo para continuar la base.'} className={`${field} resize-y w-full`} />}

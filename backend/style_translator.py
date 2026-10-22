@@ -20,7 +20,8 @@ from pathlib import Path
 
 from config import PROJECT_ROOT, AppSettings, get_settings
 from genre_glossary import VOCAB_PATH
-from prompt_style import STRUCTURED_DETAILS_SOURCE_LANGUAGE, known_spanish_exclusion_details
+from prompt_style import (STRUCTURED_DETAILS_SOURCE_LANGUAGE, known_exclusion_spans,
+                          known_spanish_exclusion_details)
 
 _WORD = re.compile(r"[^\W\d_]+", flags=re.UNICODE)
 _LETTERS = re.compile(r"[^\W\d_]", flags=re.UNICODE)
@@ -517,6 +518,69 @@ def style_for_engine(prompt: str, settings: AppSettings | None = None) -> str:
     return translated
 
 
+_CONNECTORS: dict[str, str] = {}
+
+
+def _load_connectors() -> dict[str, str]:
+    """Conectores del catálogo: el hueco entre dos exclusiones también viaja."""
+    global _CONNECTORS
+    if not _CONNECTORS:
+        from prompt_style import SPANISH_CONNECTORS
+        _CONNECTORS = dict(SPANISH_CONNECTORS)
+    return _CONNECTORS
+
+
+def _is_spanish_connector(gap: str) -> bool:
+    """True si el hueco entre dos exclusiones es un conector español."""
+    conectores = _load_connectors()
+    return any(re.fullmatch(rf"\s*{re.escape(espanol)}\s*", gap or "", flags=re.IGNORECASE)
+               for espanol in conectores)
+
+
+def _english_connector(gap: str) -> str:
+    """El conector español pasa a inglés; el resto del hueco se conserva."""
+    conectores = _load_connectors()
+    for espanol, ingles in conectores.items():
+        if re.fullmatch(rf"\s*{re.escape(espanol)}\s*", gap, flags=re.IGNORECASE):
+            return f" {ingles} "
+    return gap
+
+
+def translate_exclusion_spans(prompt: str, spans, settings: AppSettings | None = None) -> str:
+    """Traduce solo los tramos de exclusión reconocidos de un texto mixto.
+
+    «gabber sin bombo» -> «gabber without kick»: el estilo se conserva tal
+    cual (ya está en el idioma del modelo) y solo viaja la exclusión en
+    inglés, para que el motor pueda honorarla. Sin tramos, devuelve el texto
+    sin tocar.
+    """
+    text = prompt or ""
+    if not spans:
+        return text
+    chosen = settings or get_settings()
+    _check(chosen)
+    source = _flores(STRUCTURED_DETAILS_SOURCE_LANGUAGE, chosen)
+    if source is None:
+        raise ValueError("El traductor local no tiene código para los detalles españoles; no se envían sin traducir.")
+    _load_term_fixes(chosen)
+    pieces: list[str] = []
+    cursor = 0
+    for indice, (start, end) in enumerate(spans):
+        fragment = text[start:end]
+        english = _match_case(fragment, _translate(fragment.casefold(), source, chosen).strip())
+        english = correct_translated_terms(fragment, english, chosen)
+        if not english:
+            raise ValueError("El traductor local devolvió una exclusión vacía; no se prepara el prompt sin tus instrucciones.")
+        hueco = text[cursor:start]
+        if indice and _is_spanish_connector(hueco):
+            hueco = _english_connector(hueco)
+        pieces.append(hueco)
+        pieces.append(english)
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
+
+
 def translate_style_details(prompt: str, settings: AppSettings | None = None) -> str:
     """Traduce detalles B9b aislados, con pista fiable para exclusiones ES cortas.
 
@@ -527,6 +591,11 @@ def translate_style_details(prompt: str, settings: AppSettings | None = None) ->
     """
     text = (prompt or "").strip()
     if not known_spanish_exclusion_details(text):
+        # Texto mixto: si hay exclusiones en español que el catálogo reconoce,
+        # se traducen solo esos tramos; el resto se conserva tal cual.
+        spans = known_exclusion_spans(text)
+        if spans:
+            return translate_exclusion_spans(text, spans, settings)
         return style_for_engine(text, settings)
     chosen = settings or get_settings()
     _check(chosen)

@@ -34,6 +34,8 @@ _NEGATION_OBJECTS = re.compile(_CATALOG["matching"]["negation_objects"])
 _NEGATION_OBJECT_SEPARATOR = re.compile(_CATALOG["matching"]["negation_object_separator"])
 _NEGATION_OBJECT_ARTICLE = re.compile(_CATALOG["matching"]["negation_object_article"])
 _STRUCTURED_SPANISH_EXCLUSION_PREFIX = re.compile(_CATALOG["matching"]["structured_spanish_exclusion_prefix"])
+_SPANISH_NEGATION = re.compile(_CATALOG["matching"]["spanish_negation_markers"])
+SPANISH_CONNECTORS: dict[str, str] = dict(_CATALOG["matching"]["spanish_connectors"])
 _STRUCTURED_EXCLUSION_REMAINDER = re.compile(_CATALOG["matching"]["structured_exclusion_remainder"])
 _CAPTION_EXCLUSIONS = _CATALOG["caption_exclusions"]
 PROMPT_PREPARATION = _CATALOG["preparation"]
@@ -113,14 +115,81 @@ def has_unchecked_exclusions(prompt: str) -> bool:
     for match in _NEGATION_OBJECTS.finditer(source):
         for fragment in _NEGATION_OBJECT_SEPARATOR.split(match.group(1)):
             fragment = _NEGATION_OBJECT_ARTICLE.sub("", fragment.strip())
-            known = any(
-                re.fullmatch(key[3:] if key.startswith("re:") else re.escape(key), fragment)
-                for constraint in _CAPTION_EXCLUSIONS
-                for key in constraint["keys"]
-            )
-            if not known:
+            if not fragment:
+                continue
+            if not _known_exclusion_object(fragment):
                 return True
     return False
+
+
+def _known_exclusion_object(fragment: str) -> bool:
+    """True si el objeto de una negación es una exclusión del catálogo."""
+    return any(
+        re.fullmatch(key[3:] if key.startswith("re:") else re.escape(key), fragment)
+        for constraint in _CAPTION_EXCLUSIONS
+        for key in constraint["keys"]
+    )
+
+
+def _is_model_word(fragment: str) -> bool:
+    """True si el objeto ya es una palabra que el modelo usa en inglés.
+
+    Las caption_keys son las palabras que el fabricante escribe. Si el objeto
+    de la negación es una de ellas, el texto ya está en el idioma del motor y
+    no se toca («no drums» se queda como está).
+    """
+    return any(
+        re.fullmatch(key[3:] if key.startswith("re:") else re.escape(key), fragment)
+        for constraint in _CAPTION_EXCLUSIONS
+        for key in constraint["caption_keys"]
+    )
+
+
+def known_exclusion_spans(prompt: str) -> list[tuple[int, int]]:
+    """Tramos de exclusión en español que el catálogo reconoce, con su posición.
+
+    Una exclusión puede estar en medio de un texto mixto («gabber sin bombo»):
+    el tramo es lo que se traduce al inglés y el resto se conserva tal cual.
+    Cada negación va en su propio tramo («sin caja y sin bajo» son dos) para
+    que la traducción no se líe al juntarlas. Solo se traducen las exclusiones
+    escritas en español; si el objeto es una palabra que el modelo ya usa
+    («no drums»), el tramo se deja intacto.
+    """
+    source = prompt or ""
+    spans: list[tuple[int, int]] = []
+
+    def anota(inicio: int, fin_objeto: int) -> None:
+        """Valida el objeto de una negación y guarda su tramo si es del catálogo."""
+        objeto = source[inicio:fin_objeto]
+        # El separador (" y ", ", ") cuelga del objeto: no es parte de el.
+        objeto = _NEGATION_OBJECT_SEPARATOR.sub(" ", objeto)
+        objeto = _NEGATION_OBJECT_ARTICLE.sub("", objeto.split(" ", 1)[-1].strip())
+        if not objeto or not _known_exclusion_object(objeto) or _is_model_word(objeto):
+            return
+        fin = fin_objeto
+        while fin > inicio and source[fin - 1] in " ,;":
+            fin -= 1
+        separador = re.search(r"\s*(?:,|y|and|ni|nor|or)\s*$", source[inicio:fin])
+        if separador:
+            fin = inicio + separador.start()
+        if fin > inicio:
+            spans.append((inicio, fin))
+
+    for match in _NEGATION_OBJECTS.finditer(source):
+        objetos = match.group(1)
+        base = match.start(1)
+        prefijo = source[match.start():match.start(1)]
+        marcadores = list(_SPANISH_NEGATION.finditer(prefijo))
+        marcas = list(_SPANISH_NEGATION.finditer(objetos))
+        if marcadores:
+            # La primera negación cuelga del marcador escrito antes.
+            anota(match.start() + marcadores[-1].start(),
+                  base + marcas[0].start() if marcas else base + len(objetos))
+        for indice, marca in enumerate(marcas):
+            fin = base + (marcas[indice + 1].start() if indice + 1 < len(marcas)
+                          else len(objetos))
+            anota(base + marca.start(), fin)
+    return spans
 
 
 def known_spanish_exclusion_details(prompt: str) -> bool:

@@ -1,9 +1,10 @@
-"""CPU regression of ensure_local.ps1's real engine admission decision.
+"""CPU regressions of real engine admission and owned-process shutdown.
 
-The PowerShell AST supplies the production probes and decision block. Only
-process discovery and stop/start actuators are isolated from real Musicia
-services. A disposable Python child supplies its real PID and HTTP socket.
-This verifies supervisor policy, not GPU inference or service startup.
+PowerShell AST imports production functions without running service launchers.
+Policy tests isolate discovery/actuators. Shutdown tests run an existing real
+Windows venv launcher and disposable HTTP module, with real CIM and kernel
+signals; only the fixed port and selected teardown observations are isolated.
+No test loads ACE-Step, performs inference, or controls Musicia services.
 """
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 from urllib.request import urlopen
 
@@ -149,6 +152,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:MUSICIA_TEST_SUPERVISOR, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 $script:ownerAvailable = $env:MUSICIA_TEST_OWNER_AVAILABLE -eq '1'
+$script:rootQueries = 0
 $script:ownerText = $env:MUSICIA_TEST_OWNER
 $script:fakeProc = [pscustomobject]@{
     ProcessId = 17123
@@ -169,12 +173,49 @@ function Test-Path([string]$LiteralPath, [string]$PathType) {
 }
 function Get-Content([string]$LiteralPath, [switch]$Raw) { return $script:ownerText }
 function Get-CimInstance([string]$Class, [string]$Filter, [string]$ErrorAction) {
-    if ($script:fakeProc) { return $script:fakeProc }
+    if ($script:fakeProc -and $Filter -eq 'ProcessId = 17123') {
+        $script:rootQueries++
+        if ($env:MUSICIA_TEST_ROOT_MISSING -eq '1') { return }
+        if ($script:exiting) {
+            if ($script:exitingProbes -gt 0) {
+                $script:exitingProbes--
+                return [pscustomobject]@{ ProcessId = 17123 }
+            }
+            $script:fakeProc = $null
+            return
+        }
+        $copy = $script:fakeProc.PSObject.Copy()
+        if ($env:MUSICIA_TEST_REUSE_BEFORE_SIGNAL -eq '1' -and $script:rootQueries -ge 3) {
+            $copy.CreationDate = $copy.CreationDate.AddSeconds(1)
+        }
+        return $copy
+    }
+    if ($script:fakeProc -and $Filter -eq 'ParentProcessId = 17123' -and
+        $env:MUSICIA_TEST_CONHOST -eq 'impostor') {
+        return [pscustomobject]@{
+            ProcessId = 17124
+            ParentProcessId = 17123
+            CreationDate = $script:fakeProc.CreationDate
+            Name = 'conhost.exe'
+            ExecutablePath = 'D:\untrusted\conhost.exe'
+            CommandLine = 'D:\untrusted\conhost.exe 0x4'
+        }
+    }
 }
 function Find-Python([string]$Filter) { if ($script:fakeProc) { return @($script:fakeProc) }; return @() }
 function Test-Port([int]$Port) { return $false }
 function Stop-Process([int]$Id, [switch]$Force, [string]$ErrorAction) {
     $script:actions.Add("stop:$Id")
+    if ($env:MUSICIA_TEST_STOP_FAILURE -eq '1') { throw 'fixture stop failure' }
+    if ($env:MUSICIA_TEST_EXITING_METADATA -eq '1') {
+        $script:exiting = $true
+        $script:exitingProbes = 2
+        return
+    }
+    if ($env:MUSICIA_TEST_REUSE_AFTER_SIGNAL -eq '1') {
+        $script:fakeProc.CreationDate = $script:fakeProc.CreationDate.AddSeconds(1)
+        return
+    }
     $script:fakeProc = $null
 }
 function Start-Sleep([int]$Milliseconds) {}
@@ -252,9 +293,240 @@ try {
 $status | ConvertTo-Json -Compress
 """
 
+PAIR_FIXTURE = r"""
+import http.server
+import json
+import os
+import subprocess
+import sys
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), http.server.SimpleHTTPRequestHandler)
+extra = None
+if os.environ.get('MUSICIA_TEST_MODE') == 'ambiguous':
+    extra = subprocess.Popen([sys._base_executable, '-c', 'import time; time.sleep(120)'],
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+with open(os.environ['MUSICIA_TEST_READY'], 'w') as ready:
+    json.dump({'pid': os.getpid(), 'port': server.server_port,
+               'extra_pid': extra.pid if extra else None}, ready)
+server.serve_forever()
+"""
+
+PAIR_HARNESS = r"""
+$ErrorActionPreference = 'Stop'
+. $env:MUSICIA_TEST_IDENTITY
+$engineOwnerFile = $env:MUSICIA_TEST_OWNER_FILE
+$StopTimeoutSeconds = 5
+$PSScriptRoot = Join-Path (Split-Path (Split-Path $engineOwnerFile)) 'scripts'
+$tokens = $null
+$parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:MUSICIA_TEST_SUPERVISOR, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+foreach ($name in @('Get-VerifiedEngineOwner', 'Stop-OwnedEngine')) {
+    $definition = @($ast.FindAll({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true))
+    if ($definition.Count -eq 1) {
+        # AST-created blocks have no script path; isolate only that path lookup.
+        . ([scriptblock]::Create($definition[0].Extent.Text.Replace(
+            '$PSScriptRoot', '$env:MUSICIA_TEST_SCRIPT_ROOT')))
+    }
+}
+function Test-Port([int]$port) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try { $client.Connect('127.0.0.1', [int]$env:MUSICIA_TEST_PORT); return $true }
+    catch {
+        if ($env:MUSICIA_TEST_MODE -eq 'transient' -and $script:closedPortProbes -lt 2) {
+            $script:closedPortProbes++
+            return $true
+        }
+        return $false
+    } finally { $client.Dispose() }
+}
+$script:closedPortProbes = 0
+$script:exitMetadataProbes = 0
+function Get-CimInstance([string]$Class, [string]$Filter, [string]$ErrorAction) {
+    if ($env:MUSICIA_TEST_MODE -eq 'exiting-child-metadata' -and $script:childWasSignaled -and
+        $Filter -eq "ProcessId = $env:MUSICIA_TEST_CHILD_PID" -and $script:exitMetadataProbes -lt 2) {
+        $script:exitMetadataProbes++
+        return [pscustomobject]@{ ProcessId = [int]$env:MUSICIA_TEST_CHILD_PID }
+    }
+    CimCmdlets\Get-CimInstance -ClassName $Class -Filter $Filter -ErrorAction Stop
+}
+function Get-NetTCPConnection([int]$LocalPort, [string]$State, [string]$ErrorAction) {
+    # Remap the fixed production port to the disposable real TCP listener.
+    if (Test-Port $LocalPort) { [pscustomobject]@{ OwningProcess = 0 } }
+}
+function Find-Python([string]$filter) {
+    @(Get-CimInstance Win32_Process -Filter "ProcessId = $env:MUSICIA_TEST_PID")
+}
+$script:stopObservations = [System.Collections.Generic.List[int]]::new()
+function Stop-Process([int]$Id, [switch]$Force, [string]$ErrorAction) {
+    $script:stopObservations.Add($Id)
+    Microsoft.PowerShell.Management\Stop-Process -Id $Id -Force -ErrorAction Stop
+    if ($Id -eq [int]$env:MUSICIA_TEST_CHILD_PID) { $script:childWasSignaled = $true }
+}
+$process = Get-CimInstance Win32_Process -Filter "ProcessId = $env:MUSICIA_TEST_PID"
+$fixtureProcesses = @($process)
+foreach ($idText in @($env:MUSICIA_TEST_CHILD_PID, $env:MUSICIA_TEST_EXTRA_PID)) {
+    if ($idText) { $fixtureProcesses += Get-CimInstance Win32_Process -Filter "ProcessId = $idText" }
+}
+$fixtureProcesses | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine |
+    Export-Clixml -LiteralPath (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'fixture-processes.xml')
+[ordered]@{
+    pid = [int]$process.ProcessId
+    creation_date = Format-EngineCreationDate $process.CreationDate
+    executable_path = [string]$process.ExecutablePath
+    command_line = [string]$process.CommandLine
+} | ConvertTo-Json | Set-Content -LiteralPath $engineOwnerFile
+$succeeded = $true
+$detail = ''
+try {
+    $result = @(Stop-OwnedEngine 'fixture')
+    if ($env:MUSICIA_TEST_STOP_SCRIPT -eq '1') { $succeeded = [bool]$result[-1] }
+} catch { $succeeded = $false; $detail = $_.Exception.Message }
+[pscustomobject]@{
+    succeeded = $succeeded
+    error = $detail
+    owner_present = Test-Path -LiteralPath $engineOwnerFile
+    root_alive = [bool](Get-Process -Id ([int]$env:MUSICIA_TEST_PID) -ErrorAction SilentlyContinue)
+    child_alive = [bool](Get-Process -Id ([int]$env:MUSICIA_TEST_CHILD_PID) -ErrorAction SilentlyContinue)
+    port_open = Test-Port 8001
+    stopped_ids = @($script:stopObservations.ToArray())
+    closed_port_probes = $script:closedPortProbes
+    exit_metadata_probes = $script:exitMetadataProbes
+} | ConvertTo-Json -Compress
+"""
+
 
 @unittest.skipUnless(os.name == "nt" and POWERSHELL, "Windows PowerShell supervisor")
 class EngineSupervisorTest(unittest.TestCase):
+    def test_real_venv_pair_stops_launcher_child_and_socket(self):
+        self.exercise_real_venv_pair()
+
+    def test_real_venv_pair_preserves_ambiguous_descendant_and_owner(self):
+        self.exercise_real_venv_pair('ambiguous')
+
+    def test_real_venv_pair_waits_for_transient_port_close(self):
+        # Two delayed closure observations exercise the production deadline;
+        # the disposable listener and all process signals remain real.
+        self.exercise_real_venv_pair('transient')
+
+    def test_real_venv_pair_preserves_foreign_listener_and_owner(self):
+        self.exercise_real_venv_pair('foreign')
+
+    def test_real_venv_pair_waits_for_child_cim_teardown_before_launcher(self):
+        self.exercise_real_venv_pair('exiting-child-metadata')
+
+    def exercise_real_venv_pair(self, mode='normal'):
+        foreign = self.fixture()[1] if mode == 'foreign' else None
+        for script in ('ensure_local.ps1', 'stop_local.ps1'):
+            with self.subTest(script=script), tempfile.TemporaryDirectory(prefix='musicia-r18-') as folder:
+                fixture_root = Path(folder)
+                package = fixture_root / 'acestep'
+                package.mkdir()
+                (package / '__init__.py').write_text('', encoding='utf-8')
+                (package / 'api_server.py').write_text(PAIR_FIXTURE, encoding='utf-8')
+                (fixture_root / 'logs').mkdir()
+                launcher = ROOT / 'vendor' / 'ACE-Step-1.5' / '.venv311' / 'Scripts' / 'python.exe'
+                self.assertTrue(launcher.is_file(), 'Regression requires the existing project venv')
+                environment = os.environ.copy()
+                environment.update({
+                    'MUSICIA_TEST_READY': str(fixture_root / 'ready.json'),
+                    'MUSICIA_TEST_LAUNCHER': str(launcher),
+                    'MUSICIA_TEST_FIXTURE_ROOT': str(fixture_root),
+                    'MUSICIA_TEST_MODE': mode,
+                    'MUSICIA_TEST_IDENTITY': str(ROOT / 'scripts' / 'engine_identity.ps1'),
+                })
+                started = subprocess.run(
+                    [POWERSHELL, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', r'''
+$p = Start-Process -FilePath $env:MUSICIA_TEST_LAUNCHER -ArgumentList '-m','acestep.api_server' `
+    -WorkingDirectory $env:MUSICIA_TEST_FIXTURE_ROOT -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'stdout.log') `
+    -RedirectStandardError (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'stderr.log')
+$p.Id | Set-Content -LiteralPath (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'root.pid')
+Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" |
+    Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine |
+    Export-Clixml -LiteralPath (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'launcher.xml')
+'''], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                self.assertEqual(started.returncode, 0)
+                root_pid = int((fixture_root / 'root.pid').read_text(encoding='utf-8-sig').strip())
+                child = None
+                try:
+                    deadline = time.monotonic() + 10
+                    ready = fixture_root / 'ready.json'
+                    while not ready.is_file() and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertTrue(ready.is_file(), (fixture_root / 'stderr.log').read_text())
+                    identity = json.loads(ready.read_text())
+                    child = identity['pid']
+                    self.assertNotEqual(child, root_pid, 'Expected real Windows venv launcher topology')
+                    environment.update({
+                        'MUSICIA_TEST_IDENTITY': str(ROOT / 'scripts' / 'engine_identity.ps1'),
+                        'MUSICIA_TEST_SUPERVISOR': str(ROOT / 'scripts' / script),
+                        'MUSICIA_TEST_OWNER_FILE': str(fixture_root / 'logs' / 'engine.pid.json'),
+                        'MUSICIA_TEST_PID': str(root_pid),
+                        'MUSICIA_TEST_CHILD_PID': str(child),
+                        'MUSICIA_TEST_EXTRA_PID': str(identity.get('extra_pid') or ''),
+                        'MUSICIA_TEST_PORT': str((foreign or identity)['port']),
+                        'MUSICIA_TEST_STOP_SCRIPT': '1' if script == 'stop_local.ps1' else '0',
+                        'MUSICIA_TEST_SCRIPT_ROOT': str(fixture_root / 'scripts'),
+                    })
+                    result = subprocess.run(
+                        [POWERSHELL, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', PAIR_HARNESS],
+                        env=environment, capture_output=True, text=True, encoding='utf-8',
+                        errors='replace', timeout=40, creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    outcome = json.loads(result.stdout.strip().splitlines()[-1])
+                    outcome['harness_output'] = result.stdout.strip().splitlines()[:-1]
+                    if mode == 'ambiguous':
+                        self.assertFalse(outcome['succeeded'], outcome)
+                        self.assertEqual(outcome['stopped_ids'], [], outcome)
+                        self.assertTrue(outcome['owner_present'], outcome)
+                        self.assertTrue(outcome['root_alive'], outcome)
+                        self.assertTrue(outcome['child_alive'], outcome)
+                        self.assertTrue(outcome['port_open'], outcome)
+                        continue
+                    self.assertEqual(outcome['succeeded'], mode != 'foreign', outcome)
+                    self.assertTrue(outcome['stopped_ids'], outcome)
+                    self.assertEqual(outcome['stopped_ids'][0], child, outcome)
+                    self.assertFalse(outcome['root_alive'], outcome)
+                    self.assertFalse(outcome['child_alive'], outcome)
+                    self.assertEqual(outcome['port_open'], mode == 'foreign', outcome)
+                    self.assertEqual(outcome['owner_present'], mode == 'foreign', outcome)
+                    if mode == 'transient':
+                        self.assertEqual(outcome['closed_port_probes'], 2, outcome)
+                    if mode == 'exiting-child-metadata':
+                        self.assertEqual(outcome['exit_metadata_probes'], 2, outcome)
+                    if foreign:
+                        with urlopen(f"http://127.0.0.1:{foreign['port']}/health", timeout=5) as response:
+                            self.assertEqual(json.load(response),
+                                             {'pid': foreign['pid'], 'token': self.id()})
+                finally:
+                    # Revalidate every disposable identity before cleanup; a
+                    # completed stop may already have released/reused its PID.
+                    cleanup = subprocess.run(
+                        [POWERSHELL, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', r'''
+. $env:MUSICIA_TEST_IDENTITY
+$snapshotFile = Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'fixture-processes.xml'
+if (-not (Test-Path -LiteralPath $snapshotFile)) {
+    $snapshotFile = Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'launcher.xml'
+}
+$snapshots = @(Import-Clixml -LiteralPath $snapshotFile)
+[array]::Reverse($snapshots)
+foreach ($snapshot in $snapshots) {
+    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $($snapshot.ProcessId)"
+    if (Test-EngineProcessSnapshot $snapshot $current) {
+        Stop-Process -Id ([int]$snapshot.ProcessId) -Force -ErrorAction Stop
+    } elseif ($current) { throw 'Fixture cleanup refused a reused PID' }
+}
+'''], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                        text=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
+
     def fixture(self, mode="http", delay=0):
         # Use the real interpreter directly: Windows venv launchers can spawn
         # an extra child, while this fixture must own exactly one process.
@@ -302,13 +574,21 @@ class EngineSupervisorTest(unittest.TestCase):
 
     def owner_decision(
         self, owner_available, creation_date="2026-10-18T19:55:34",
-        recorded_creation=None,
+        recorded_creation=None, reuse_before_signal=False, stop_failure=False,
+        root_missing=False, conhost='',
+        exiting_metadata=False, reuse_after_signal=False,
     ):
         environment = os.environ.copy()
         environment.update({
             "MUSICIA_TEST_SUPERVISOR": str(ROOT / "scripts" / "ensure_local.ps1"),
             "MUSICIA_TEST_IDENTITY": str(ROOT / "scripts" / "engine_identity.ps1"),
             "MUSICIA_TEST_OWNER_AVAILABLE": "1" if owner_available else "0",
+            "MUSICIA_TEST_REUSE_BEFORE_SIGNAL": "1" if reuse_before_signal else "0",
+            "MUSICIA_TEST_STOP_FAILURE": "1" if stop_failure else "0",
+            "MUSICIA_TEST_ROOT_MISSING": "1" if root_missing else "0",
+            "MUSICIA_TEST_CONHOST": conhost,
+            "MUSICIA_TEST_EXITING_METADATA": "1" if exiting_metadata else "0",
+            "MUSICIA_TEST_REUSE_AFTER_SIGNAL": "1" if reuse_after_signal else "0",
             "MUSICIA_TEST_CREATION": creation_date,
             "MUSICIA_TEST_OWNER": json.dumps({
                 "pid": 17123,
@@ -401,6 +681,39 @@ class EngineSupervisorTest(unittest.TestCase):
         self.assertFalse(result["succeeded"])
         self.assertIn("no coincide", result["error"])
         self.assertEqual(result["actions"], [])
+
+    def test_engine_stop_revalidates_identity_immediately_before_signal(self):
+        result = self.owner_decision(owner_available=True, reuse_before_signal=True)
+        self.assertFalse(result['succeeded'], result)
+        self.assertIn('cambi', result['error'])
+        self.assertEqual(result['actions'], [], result)
+
+    def test_engine_stop_preserves_owner_on_stop_failure(self):
+        result = self.owner_decision(owner_available=True, stop_failure=True)
+        self.assertFalse(result['succeeded'], result)
+        self.assertIn('fixture stop failure', result['error'])
+        self.assertEqual(result['actions'], ['stop:17123'], result)
+
+    def test_engine_stop_preserves_owner_if_root_is_absent_but_engine_remains(self):
+        result = self.owner_decision(owner_available=True, root_missing=True)
+        self.assertFalse(result['succeeded'], result)
+        self.assertEqual(result['actions'], [], result)
+
+    def test_engine_stop_refuses_console_host_outside_system_directory(self):
+        result = self.owner_decision(owner_available=True, conhost='impostor')
+        self.assertFalse(result['succeeded'], result)
+        self.assertEqual(result['actions'], [], result)
+
+    def test_engine_stop_waits_for_incomplete_cim_metadata_during_exit(self):
+        result = self.owner_decision(owner_available=True, exiting_metadata=True)
+        self.assertTrue(result['succeeded'], result)
+        self.assertEqual(result['actions'], ['stop:17123', 'remove-owner'], result)
+
+    def test_engine_stop_preserves_owner_for_proven_reuse_after_signal(self):
+        result = self.owner_decision(owner_available=True, reuse_after_signal=True)
+        self.assertFalse(result['succeeded'], result)
+        self.assertIn('reutilizado', result['error'])
+        self.assertEqual(result['actions'], ['stop:17123'], result)
 
     def test_engine_stop_accepts_unambiguous_legacy_date_from_other_locale(self):
         result = self.owner_decision(

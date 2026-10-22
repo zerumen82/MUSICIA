@@ -47,8 +47,8 @@ export function usePreparedStylePrompts(inputs) {
   return Object.fromEntries(Object.entries(inputs).map(([id, request]) => [id, stylePromptStatus(request, answers[id])]));
 }
 
-export default function useStylePrompt(prompt) {
+export default function useStylePrompt(prompt, exclusionSource = null) {
   const [selection, setSelection] = useState(emptyStyleSelection);
-  const state = usePreparedStylePrompts({ prompt: stylePromptRequest(prompt, selection) }).prompt;
+  const state = usePreparedStylePrompts({ prompt: stylePromptRequest(prompt, selection, exclusionSource) }).prompt;
   return { ...state, selection, setSelection };
 }

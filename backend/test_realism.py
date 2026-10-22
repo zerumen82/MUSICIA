@@ -112,6 +112,22 @@ class TestOfertasRealistas(unittest.TestCase):
                     f"el chip «{mod['label']}» pide al motor palabras que no usa",
                 )
 
+    def test_exclusion_keys_use_only_vocabulary_the_model_uses(self):
+        """Cada caption_key debe existir en los captions del fabricante.
+
+        La familia de exclusión decide si una descripción se omite. Si la
+        palabra no está en el vocabulario del fabricante, esa familia no puede
+        reconocerla y el modelo tampoco la escribiría.
+        """
+        for familia in self.catalogo["caption_exclusions"]:
+            for key in familia["caption_keys"]:
+                with self.subTest(clave=key):
+                    patron = key[3:] if key.startswith("re:") else re.escape(key)
+                    self.assertIsNotNone(
+                        re.search(patron, self.captions),
+                        f"la clave de exclusión {key} no aparece en los captions del fabricante",
+                    )
+
     def test_variantes_del_modelo(self):
         """Variantes elegidas: datos revisados, conservados sin expansión automática."""
         self.assertTrue(self.variantes, "no encontré variantes en frontend/src/variants.js")

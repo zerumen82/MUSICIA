@@ -1,5 +1,5 @@
 {
-  "_doc": "Palabras que el traductor NLLB 600M midió mal el 2026-10-16 y el 2026-10-21 (sin bombo -> without bombo; sin bombos -> without bombs). Se aplican solo después de traducir, si el texto de origen contiene la frase española y el inglés contiene la palabra equivocada. Una caption ya inglesa no pasa por aquí. La frase española más larga gana: «doble bombo» no se trata como un «bombo» suelto. «batería» y «bateria» son la misma palabra con o sin tilde.",
+  "_doc": "Palabras que el traductor NLLB 600M midió mal el 2026-10-16, el 2026-10-21 y el 2026-10-22 (sin bombo -> without bombo; sin bombos -> without bombs). Se aplican solo después de traducir, si el texto de origen contiene la frase española y el inglés contiene la palabra equivocada. Una caption ya inglesa no pasa por aquí. La frase española más larga gana: «doble bombo» no se trata como un «bombo» suelto. «batería» y «bateria» son la misma palabra con o sin tilde.",
   "fixes": [
     {"source": "doble bombo", "wrong": "double bumpers", "right": "double kicks"},
     {"source": "doble bombo", "wrong": "double bumper", "right": "double kick"},
@@ -16,6 +16,11 @@
     {"source": "bombos", "wrong": "bombs", "right": "kicks"},
     {"source": "bombo", "wrong": "bumpers", "right": "kicks"},
     {"source": "bombo", "wrong": "bumper", "right": "kick"},
-    {"source": "bombo", "wrong": "bombo", "right": "kick"}
+    {"source": "bombo", "wrong": "bombo", "right": "kick"},
+    {"source": "sin caja", "wrong": "without box", "right": "without drums"},
+    {"source": "sin charles", "wrong": "without chats", "right": "without cymbals"},
+    {"source": "sin palmas", "wrong": "without palms", "right": "without claps"},
+    {"source": "sin cuerdas", "wrong": "without ropes", "right": "without strings"},
+    {"source": "sin pandereta", "wrong": "without a bracelet", "right": "without a tambourine"}
   ]
 }

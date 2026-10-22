@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseStyle, emptyStyleSelection, stylePromptKey, stylePromptRequest, stylePromptStatus } from './style_prompt.js';
+import { applyTrackAction, chooseStyle, effectiveTrackSelection, emptyStyleSelection, emptyTouchedRoles, stylePromptKey, stylePromptRequest, stylePromptStatus } from './style_prompt.js';
 
 test('principal y matices tienen roles explícitos sin promover el primero', () => {
   const influence = chooseStyle(emptyStyleSelection(), 'trance', 'influence');
@@ -69,3 +69,70 @@ test('cada nueva preparación usa los detalles y nunca reanaliza la prosa deriva
   assert.equal(selection.main_style, 'techno');
   assert.deepEqual(selection.influence_styles, []);
 });
+
+test('en Por pistas la pista hereda el estilo global hasta que elija el suyo', () => {
+  const global = { main_style: 'gabber', influence_styles: ['hardcore'], include_descriptions: true };
+  const empty = emptyStyleSelection();
+
+  // Sin tocar el glosario de la pista: hereda principal y matices globales.
+  const inherited = effectiveTrackSelection(empty, emptyTouchedRoles(), global);
+  assert.equal(inherited.main_style, 'gabber');
+  assert.deepEqual(inherited.influence_styles, ['hardcore']);
+  assert.equal(inherited.include_descriptions, true);
+
+  // Al elegir su propio principal, ese manda con sus matices.
+  const own = chooseStyle(chooseStyle(empty, 'techno', 'main'), 'trance', 'influence');
+  const chosen = effectiveTrackSelection(own, { main: true, influence: true, descriptions: false }, global);
+  assert.equal(chosen.main_style, 'techno');
+  assert.deepEqual(chosen.influence_styles, ['trance']);
+
+  // Si solo apaga la ficha, los roles siguen heredados pero sin descripción.
+  const noDescription = { ...empty, include_descriptions: false };
+  const quiet = effectiveTrackSelection(noDescription, { main: false, influence: false, descriptions: true }, global);
+  assert.equal(quiet.main_style, 'gabber');
+  assert.deepEqual(quiet.influence_styles, ['hardcore']);
+  assert.equal(quiet.include_descriptions, false);
+
+  // Sin estilo global no hay nada que heredar.
+  const none = effectiveTrackSelection(empty, emptyTouchedRoles(), emptyStyleSelection());
+  assert.equal(none.main_style, null);
+  assert.deepEqual(none.influence_styles, []);
+});
+
+test('elegir solo un matiz en la pista no pierde el matiz elegido', () => {
+  // Defecto A: al tocar la pista se descartaba su matiz y volvía el global.
+  const global = { main_style: 'gabber', influence_styles: ['hardcore'], include_descriptions: true };
+  const empty = emptyStyleSelection();
+  const own = chooseStyle(empty, 'trance', 'influence');
+  const chosen = effectiveTrackSelection(own, { main: false, influence: true, descriptions: false }, global);
+  assert.equal(chosen.main_style, 'gabber');
+  assert.deepEqual(chosen.influence_styles, ['trance']);
+});
+
+test('QUITAR un estilo heredado en la pista no lo reinserta', () => {
+  // Defecto B: la «×» no quitaba nada porque la herencia volvía a ponerlo.
+  const global = { main_style: 'gabber', influence_styles: ['hardcore'], include_descriptions: true };
+  const empty = emptyStyleSelection();
+  const step = applyTrackAction(empty, emptyTouchedRoles(), global, (current) => ({
+    ...current, main_style: null,
+  }));
+  assert.equal(step.effective.main_style, null);
+  assert.equal(step.touched.main, true);
+  // Un segundo toque no lo devuelve: lo quitado no se reinserta solo.
+  const again = applyTrackAction(step.own, step.touched, global, (current) => ({ ...current }));
+  assert.equal(again.effective.main_style, null);
+});
+
+test('elegir en la pista solo toca ese papel; los demás siguen heredados', () => {
+  const global = { main_style: 'gabber', influence_styles: ['hardcore'], include_descriptions: true };
+  const empty = emptyStyleSelection();
+  const step = applyTrackAction(empty, emptyTouchedRoles(), global, (current) => ({
+    ...current, influence_styles: [...current.influence_styles, 'trance'],
+  }));
+  assert.deepEqual(step.effective.influence_styles, ['hardcore', 'trance']);
+  assert.equal(step.effective.main_style, 'gabber');
+  assert.equal(step.touched.influence, true);
+  assert.equal(step.touched.main, false);
+  assert.equal(step.touched.descriptions, false);
+});
+

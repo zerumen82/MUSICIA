@@ -148,10 +148,10 @@ function Get-VerifiedEngineOwner {
     }
     $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $enginePid" -ErrorAction SilentlyContinue
     if (-not $proc) {
-        Remove-Item -LiteralPath $engineOwnerFile -Force -ErrorAction SilentlyContinue
-        if (Test-Port 8001) {
-            throw 'El PID registrado terminó, pero el puerto 8001 sigue ocupado; se preserva el proceso ajeno.'
+        if ((Find-Python 'acestep.api_server').Count -gt 0 -or (Test-Port 8001)) {
+            throw 'El PID registrado terminó, pero queda un motor o el puerto 8001 ocupado; se preserva el registro.'
         }
+        Remove-Item -LiteralPath $engineOwnerFile -Force -ErrorAction Stop
         return $null
     }
     $actualExe = [string]$proc.ExecutablePath
@@ -197,23 +197,9 @@ function Stop-OwnedEngine([string]$motivo) {
         return
     }
     $enginePid = [int]$proc.ProcessId
-    try {
-        Stop-Process -Id $enginePid -Force -ErrorAction Stop
-    } catch {
-        throw "No se pudo detener el PID Musicia verificado ${enginePid}: $_"
-    }
-    $limite = (Get-Date).AddSeconds([Math]::Max(1, $StopTimeoutSeconds))
-    do {
-        Start-Sleep -Milliseconds 250
-        $current = Get-CimInstance Win32_Process -Filter "ProcessId = $enginePid" -ErrorAction SilentlyContinue
-    } while ($current -and $current.CreationDate -eq $proc.CreationDate -and (Get-Date) -lt $limite)
-    if ($current -and $current.CreationDate -eq $proc.CreationDate) {
-        throw "Tiempo agotado esperando la salida del PID $enginePid."
-    }
-    Remove-Item -LiteralPath $engineOwnerFile -Force -ErrorAction SilentlyContinue
-    if (Test-Port 8001) {
-        throw 'El PID Musicia terminó, pero el puerto 8001 sigue ocupado; no se toca su propietario.'
-    }
+    Stop-VerifiedEngineProcesses -RootProcess $proc -TimeoutSeconds $StopTimeoutSeconds `
+        -PortOpen { Test-Port 8001 }
+    Remove-Item -LiteralPath $engineOwnerFile -Force -ErrorAction Stop
     Write-Output "MOTOR=detenido (PID $enginePid)"
 }
 

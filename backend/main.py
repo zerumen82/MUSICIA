@@ -66,7 +66,7 @@ from prompt_enhancer import (
     REMIX_PAUSES,
     enhance_prompt,
 )
-from prompt_style import analyze_prompt, style_caption
+from prompt_style import analyze_prompt, known_exclusion_spans, style_caption
 from style_translator import style_for_engine, translate_style_details
 from genre_glossary import search as glossary_search, combine as glossary_combine
 from music_service import (
@@ -369,6 +369,7 @@ class EnhancePromptRequest(BaseModel):
     main_style: str | None = None
     influence_styles: list[str] = Field(default_factory=list)
     include_descriptions: bool = True
+    exclusion_source: str | None = None
 
 
 class RemixPromptRequest(BaseModel):
@@ -2398,11 +2399,14 @@ async def music_enhance_prompt(request: EnhancePromptRequest) -> dict[str, Any]:
     try:
         options = {"bpm": request.bpm, "main_style": request.main_style,
                    "influence_styles": request.influence_styles,
-                   "include_descriptions": request.include_descriptions}
+                   "include_descriptions": request.include_descriptions,
+                   "exclusion_source": request.exclusion_source}
         # Validar el original antes de traducir. Los detalles se traducen solos:
         # mezclar primero prosa inglesa y restricciones ES pierde negaciones.
         prepared = enhance_prompt(request.prompt, **options)
-        if request.main_style and request.prompt.strip():
+        # La exclusión viaja al motor en inglés aunque no haya estilo elegido:
+        # si el modelo no entiende «sin bombo», no puede honorarlo.
+        if request.prompt.strip() and (request.main_style or known_exclusion_spans(request.prompt)):
             details = await asyncio.to_thread(translate_style_details, request.prompt)
             prepared = enhance_prompt(request.prompt, details_for_engine=details, **options)
         return prepared

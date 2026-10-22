@@ -1,7 +1,7 @@
 <#
 Detiene los procesos locales de Musicia (motor ACE-Step y API) y espera
-a que suelten los puertos. taskkill /T mata el árbol: Stop-Process del
-padre dejaba al hijo de uv escuchando en el 8001.
+a que suelten los puertos. El motor acredita launcher e intérprete y los
+detiene individualmente; la API conserva su parada histórica con taskkill /T.
 
 No casa con un main.py suelto: ComfyUI también se llama así.
 No borra logs/stop.flag y no arranca nada.
@@ -59,11 +59,14 @@ function Stop-OwnedEngine {
     }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $enginePid" -ErrorAction SilentlyContinue
     if (-not $process) {
-        Remove-Item -LiteralPath $ownerFile -Force
-        if (@(Get-NetTCPConnection -LocalPort 8001 -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
-            Write-Host '[ACE-Step] PID ausente y puerto ocupado; proceso preservado'
+        $engineProcesses = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
+            Where-Object { $_.CommandLine -like '*-m acestep.api_server*' })
+        if ($engineProcesses.Count -gt 0 -or
+            @(Get-NetTCPConnection -LocalPort 8001 -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
+            Write-Host '[ACE-Step] PID ausente y motor/puerto presente; registro preservado'
             return $false
         }
+        Remove-Item -LiteralPath $ownerFile -Force -ErrorAction Stop
         Write-Host '[ACE-Step] PID registrado ya terminó'
         return $true
     }
@@ -76,23 +79,12 @@ function Stop-OwnedEngine {
         return $false
     }
     try {
-        Stop-Process -Id $enginePid -Force -ErrorAction Stop
+        Stop-VerifiedEngineProcesses -RootProcess $process -TimeoutSeconds 15 -PortOpen {
+            @(Get-NetTCPConnection -LocalPort 8001 -State Listen -ErrorAction SilentlyContinue).Count -gt 0
+        }
+        Remove-Item -LiteralPath $ownerFile -Force -ErrorAction Stop
     } catch {
-        Write-Host "[ACE-Step] no se pudo detener el PID verificado $enginePid"
-        return $false
-    }
-    $deadline = (Get-Date).AddSeconds(15)
-    do {
-        Start-Sleep -Milliseconds 250
-        $remaining = Get-CimInstance Win32_Process -Filter "ProcessId = $enginePid" -ErrorAction SilentlyContinue
-    } while ($remaining -and $remaining.CreationDate -eq $process.CreationDate -and (Get-Date) -lt $deadline)
-    if ($remaining -and $remaining.CreationDate -eq $process.CreationDate) {
-        Write-Host "[ACE-Step] tiempo agotado para el PID $enginePid"
-        return $false
-    }
-    Remove-Item -LiteralPath $ownerFile -Force
-    if (@(Get-NetTCPConnection -LocalPort 8001 -State Listen -ErrorAction SilentlyContinue).Count -gt 0) {
-        Write-Host '[ACE-Step] puerto 8001 sigue ocupado; no se detiene otro proceso'
+        Write-Host "[ACE-Step] $($_.Exception.Message)"
         return $false
     }
     Write-Host "[ACE-Step] detenido (PID $enginePid)"

@@ -204,6 +204,35 @@ class GrooveTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "octava"):
             _prefer_onset_beat([0.0, 1.0], 100, 40, [(40, 1.0, 0.5)], settings)
 
+    def test_onset_rescue_compares_sustained_evidence_between_attack_candidates(self):
+        # El caso AAAM: el medio tiempo tiene el ataque más fuerte, pero
+        # el pulso rápido está más sustentado y ambos superan al compás.
+        # La envolvente real mínima permite ejecutar el análisis de ataques.
+        rms = [3 + 0.4 * math.cos(2 * math.pi * index / 140)
+               + math.cos(2 * math.pi * index / 70)
+               + 0.25 * math.cos(2 * math.pi * index / 35)
+               for index in range(2800)]
+        for anchor_evidence, beat_evidence, half_evidence in (
+                (0.8386, 0.8272, 0.6939),  # exportación final
+                (0.6525, 0.5839, 0.4295)):  # base, menos evidencia que el compás
+            with self.subTest(anchor_evidence=anchor_evidence):
+                supported = [(140, anchor_evidence, 0.678),
+                             (70, half_evidence, 0.246), (35, beat_evidence, 0.138)]
+                self.assertEqual(_prefer_onset_beat(rms, 100, 140, supported, self.settings), 35)
+
+    def test_onset_rescue_keeps_power_choice_for_comparable_evidence(self):
+        rms = [3 + 0.4 * math.cos(2 * math.pi * index / 140)
+               + math.cos(2 * math.pi * index / 70)
+               + 0.25 * math.cos(2 * math.pi * index / 35)
+               for index in range(2800)]
+        supported = [(140, 1.0, 0.7), (70, 0.95, 0.5), (35, 1.0, 0.5)]
+        self.assertEqual(_prefer_onset_beat(rms, 100, 140, supported, self.settings), 70)
+
+    def test_onset_rescue_does_not_prefer_a_period_without_a_stronger_attack(self):
+        rms = [2 + math.cos(2 * math.pi * index / 70) for index in range(2800)]
+        supported = [(70, 0.7, 0.5), (35, 1.0, 0.6)]
+        self.assertEqual(_prefer_onset_beat(rms, 100, 70, supported, self.settings), 70)
+
     def test_flat_shoulder_is_not_a_measurable_tempo(self):
         # 0,286 frente a 0,248 es la meseta que el ajuste llevó a 226.
         # 0,393 frente a 0,282 es el pulso de 196,72 que ya se aceptaba.

@@ -30,6 +30,8 @@ Durante la auditoría inicial API y motor estaban apagados. La prueba posterior 
 | T4 | `backend/venv` con pip antiguo (Python 3.10) | avisos e instalaciones lentas | `python -m pip install -U pip` dentro de ese venv, con acuerdo |
 | T5 | pip global del usuario con índice NVIDIA roto (DNS) | ralentiza instalaciones pip del sistema | quitar `extra-index-url` de la config global de pip, con acuerdo |
 
+| T8 | La API pierde el listener cuando un trabajo largo ocupa el proceso: en Windows el asyncio Proactor lanza `OSError: [WinError 64]` → `Accept failed on a socket` y el servidor deja de aceptar conexiones (medido 2026-10-22 en `logs/api4.err.log`) | el cliente no puede ni consultar el trabajo; el trabajo en curso puede morir sin dejar salida (el caso A de la A/B por pistas se perdió así) | rearmar el `accept` del servidor o aislar el trabajo pesado del bucle de eventos; trabajo de R18, con plan aprobado por el usuario antes de tocarlo |
+
 ## Cerradas (siguen en la bitácora, ya no son deuda)
 
 | ID | Qué era | Cierre |

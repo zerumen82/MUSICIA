@@ -75,9 +75,15 @@ def enhance_prompt(
     influence_styles: list[str] | None = None,
     include_descriptions: bool = True,
     details_for_engine: str | None = None,
+    exclusion_source: str | None = None,
 ) -> dict:
     """Prepara principal/matices y detalles; preserva el contrato literal legado.
 
+    `exclusion_source` es texto adicional (p. ej. el resto de pistas en un
+    remix por grupos) cuyas exclusiones instrumentales deben vetar las
+    descripciones que se añadan aquí, de modo que una exclusión en una pista
+    no sea reintroducida por la descripción de otra. No sustituye `prompt`;
+    sólo amplía la fuente de exclusiones para el chequeo de conflictos.
     Las selecciones estructuradas no se extraen de los detalles ni de la prosa
     que produce esta función. Si se facilita traducción de los detalles, solo
     se usa al componer: las restricciones se contrastan con el original.
@@ -93,8 +99,8 @@ def enhance_prompt(
 
     additions: list[str] = []
     warnings: list[str] = []
-    enhanced = details_for_engine.strip() if main and details_for_engine is not None else original
-    if original and main and not enhanced:
+    enhanced = details_for_engine.strip() if details_for_engine is not None else original
+    if original and not enhanced:
         raise ValueError("La traducción de los detalles está vacía; no se prepara el prompt sin tus instrucciones.")
     if main:
         template = PROMPT_PREPARATION["influences_template" if influences else "main_template"]
@@ -122,6 +128,11 @@ def enhance_prompt(
         descriptions = genres
 
     source = without_catalog_descriptions(original)
+    # Fuente de exclusiones para vetar descripciones: el propio texto más
+    # cualquier exclusión declarada en otras pistas (remix por grupos).
+    gate_source = source
+    if exclusion_source:
+        gate_source = source + " " + without_catalog_descriptions(exclusion_source)
     for entry in descriptions if include_descriptions else []:
         clause, literal = entry["clause"], entry["genre"]
         if literal is None:
@@ -133,7 +144,7 @@ def enhance_prompt(
         if has_unchecked_exclusions(source):
             warnings.append(f"No se añade la descripción de «{entry['name']}»: no se pueden contrastar todas tus exclusiones con el catálogo.")
             continue
-        if caption_conflicts(clause, source):
+        if caption_conflicts(clause, gate_source):
             warnings.append(f"No se añade la descripción de «{entry['name']}»: contradice tus instrucciones.")
             continue
         candidate = enhanced + PROMPT_PREPARATION["description_separator"] + clause

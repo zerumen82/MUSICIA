@@ -239,9 +239,10 @@ def _prefer_onset_beat(rms: list[float], fps: float, period_frames: float,
                        supported: list[tuple[float, float, float]], settings) -> float:
     """Si el ancla es el compás, el golpe es el armónico cuyo ataque manda.
 
-    Solo entran las mitades /2 y /4 que ya son períodos sostenidos, dentro de
-    la tolerancia de trama de la octava. No consulta el BPM pedido. Si el
-    flujo no destaca sobre el ancla, el ancla se queda.
+    Solo entran las mitades /2 y /4 sustentadas cuyo ataque supera al ancla.
+    Entre ellas manda la potencia si la evidencia sostenida es cercana.
+    Así un acento fuerte pero menos periódico no tapa otro golpe sustentado.
+    No consulta el BPM pedido. Sin ataque más fuerte se conserva el ancla.
     """
     ratio = settings.groove_onset_spectrum_ratio
     tolerance = settings.groove_octave_lag_tolerance_frames
@@ -250,13 +251,13 @@ def _prefer_onset_beat(rms: list[float], fps: float, period_frames: float,
             or not math.isfinite(tolerance) or tolerance < 0
             or not math.isfinite(period_frames) or period_frames <= 0):
         raise ValueError("Configuración de octava de groove inválida")
+    _validate_octave_settings(settings)
     flux = _onset_flux(rms)
     anchor_bpm = 60.0 * fps / period_frames
     anchor_power = _onset_spectrum_power(flux, fps, anchor_bpm)
-    best_period = period_frames
-    best_power = anchor_power
     floor = anchor_power * ratio
-    for period, _evidence, _confidence in supported:
+    candidates = []
+    for period, evidence, _confidence in supported:
         if not math.isfinite(period) or period <= 0 or period >= period_frames:
             continue
         subdivision = period_frames / period
@@ -264,10 +265,16 @@ def _prefer_onset_beat(rms: list[float], fps: float, period_frames: float,
         if abs(period - period_frames / nearest) > tolerance:
             continue
         power = _onset_spectrum_power(flux, fps, 60.0 * fps / period)
-        if power > floor and power > best_power:
-            best_power = power
-            best_period = period
-    return best_period
+        if power > floor:
+            candidates.append((period, evidence, power))
+    if not candidates:
+        return period_frames
+    # El compás puede ser más periódico que todos sus golpes: se compara
+    # la evidencia entre los rescates que ya acreditaron un ataque mayor.
+    strongest = max(evidence for _period, evidence, _power in candidates)
+    close = [item for item in candidates
+             if item[1] >= strongest * settings.groove_octave_score_ratio]
+    return max(close, key=lambda item: item[2])[0]
 
 
 def _reject_flat_shoulder(best: float, shoulder: float, settings) -> None:

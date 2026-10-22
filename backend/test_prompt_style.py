@@ -22,6 +22,7 @@ from prompt_style import (  # noqa: E402
     find_modifiers,
     find_style,
     find_styles,
+    known_exclusion_spans,
     known_spanish_exclusion_details,
     style_bpm,
     style_caption,
@@ -574,6 +575,142 @@ class StructuredPromptTest(unittest.TestCase):
         self.assertEqual(second["selection"], result["selection"])
         self.assertEqual([entry["genre"] for entry in result["genres"]], ["techno", "synthwave"])
 
+
+class ExclusionSourceGroupedTest(unittest.TestCase):
+    """exclusion_source: una exclusión de una pista veta la descripción de otra.
+
+    Reproduce el fallo de escucha A/B por grupos: el global (techno+trance)
+    añadía «steady four-on-the-floor kick» mientras la pista de batería
+    excluía el bombo («sin bombo»). La descripción de una parte no debe
+    reintroducir un instrumento excluido en cualquier otra parte del conjunto.
+    """
+
+    def test_exclusion_source_vetadescripcion_de_otra_pista(self):
+        base = enhance_prompt("sin voz y sin guitarras", main_style="techno",
+                              influence_styles=["trance"], include_descriptions=True)
+        self.assertIn(CLAUSES["techno"], base["enhanced"])
+
+        con_exclusion = enhance_prompt("sin voz y sin guitarras", main_style="techno",
+                                       influence_styles=["trance"], include_descriptions=True,
+                                       exclusion_source="sin voz y sin guitarras sin bombo")
+        self.assertNotIn(CLAUSES["techno"], con_exclusion["enhanced"])
+        self.assertIn("sin voz y sin guitarras", con_exclusion["enhanced"])
+        self.assertTrue(any("contradice tus instrucciones" in w
+                            for w in con_exclusion["warnings"]))
+
+    def test_sin_exclusion_source_comportamiento_inalterado(self):
+        result = enhance_prompt("sin voz y sin guitarras", main_style="techno",
+                                influence_styles=["trance"], include_descriptions=True)
+        self.assertIn(CLAUSES["techno"], result["enhanced"])
+
+    def test_caption_combinado_grupos_libre_de_contradiccion(self):
+        global_part = enhance_prompt("sin voz y sin guitarras", main_style="techno",
+                                     influence_styles=["trance"], include_descriptions=True,
+                                     exclusion_source="sin voz y sin guitarras sin bombo")
+        track_part = enhance_prompt("sin bombo", main_style="gabber",
+                                    influence_styles=["hardcore"], include_descriptions=True,
+                                    exclusion_source="sin voz y sin guitarras sin bombo")
+        combinado = global_part["enhanced"] + "\n" + track_part["enhanced"]
+        self.assertIn("sin voz y sin guitarras", combinado)
+        self.assertIn("sin bombo", combinado)
+        self.assertNotIn(CLAUSES["techno"], combinado)
+        self.assertNotIn("steady four-on-the-floor kick", combinado.lower())
+        # No puede coexistir una mención positiva del bombo con su exclusión.
+        tiene_kick_positivo = ("kick" in combinado.lower()
+                               and "without kick" not in combinado.lower()
+                               and "sin bombo" not in combinado.lower())
+        self.assertFalse(tiene_kick_positivo)
+
+    def test_pista_que_hereda_el_estilo_mantiene_texto_y_papel_juntos(self):
+        """Una pista con estilo (heredado o propio) se compone como el global.
+
+        El texto de la pista va con su papel y su ficha; así el motor lee una
+        instrucción completa en su renglón y no un fragmento pegado al final de
+        la descripción global.
+        """
+        result = enhance_prompt("kick contundentes, snare con bounce",
+                                main_style="gabber", influence_styles=["hardcore"])
+        enhanced = result["enhanced"]
+        self.assertTrue(enhanced.startswith("Predominantly gabber, with subtle influences of hardcore."))
+        self.assertIn("kick contundentes, snare con bounce", enhanced)
+        self.assertIn(CLAUSES["hardcore holandes"], enhanced)
+        # El texto de la pista va antes que la ficha: es la instruccion propia.
+        self.assertLess(enhanced.index("kick contundentes"),
+                        enhanced.index(CLAUSES["hardcore holandes"]))
+        # Y el motor lee una línea separada, no un texto pegado al final.
+        self.assertTrue(enhanced.endswith(CLAUSES["hardcore holandes"]))
+
+
+
+
+class ExclusionVocabularyTest(unittest.TestCase):
+    """Exclusiones que el catálogo reconoce: la ficha que la contradice se omite.
+
+    Una palabra que el catálogo no conoce no puede contrastarse y se come la
+    ficha entera; por eso cada familia declara la palabra en español y la
+    clave en inglés que el modelo usa de verdad.
+    """
+
+    CONTRADICE = (
+        ("techno sin caja", "techno", "techno"),
+        ("salsa sin metal", "salsa", "salsa"),
+        ("orchestral sin cuerdas", "orchestral", "orquestal"),
+        ("gabber sin caja", "gabber", "hardcore holandes"),
+    )
+    COMPATIBLE = (
+        # La exclusion se reconoce (no se come la ficha) pero la ficha no la
+        # menciona: se conserva y no hay conflicto.
+        ("gabber sin charles", "gabber", "hardcore holandes"),
+        ("gabber sin palmas", "gabber", "hardcore holandes"),
+        ("techno sin cuerdas", "techno", "techno"),
+        ("techno sin trompeta", "techno", "techno"),
+        ("techno sin melodia", "techno", "techno"),
+    )
+
+    def test_exclusion_reconocida_omite_la_ficha_que_la_contradice(self):
+        for details, estilo, ficha in self.CONTRADICE:
+            with self.subTest(details=details):
+                result = enhance_prompt(details, main_style=estilo)
+                self.assertNotIn(CLAUSES[ficha], result["enhanced"])
+                self.assertTrue(
+                    any("contradice tus instrucciones" in w for w in result["warnings"]),
+                    f"«{details}» deberia avisar de que contradice tus instrucciones",
+                )
+
+    def test_exclusion_de_otra_familia_no_toca_la_ficha(self):
+        for details, estilo, ficha in self.COMPATIBLE:
+            with self.subTest(details=details):
+                result = enhance_prompt(details, main_style=estilo)
+                self.assertIn(CLAUSES[ficha], result["enhanced"])
+                self.assertFalse(
+                    any("no se pueden contrastar" in w for w in result["warnings"]),
+                    f"«{details}» deberia reconocerse: no se puede contrastar con el catálogo",
+                )
+
+
+class ExclusionSpanTest(unittest.TestCase):
+    """Tramos que viajan traducidos: la exclusión llega al motor en inglés."""
+
+    def tramos(self, texto: str) -> list[str]:
+        return [texto[a:b] for a, b in known_exclusion_spans(texto)]
+
+    def test_exclusion_en_espanol_va_en_su_tramo(self):
+        self.assertEqual(self.tramos("gabber sin bombo"), ["sin bombo"])
+        self.assertEqual(self.tramos("gabber sin caja"), ["sin caja"])
+        self.assertEqual(self.tramos("sin bombo"), ["sin bombo"])
+
+    def test_cada_negacion_de_un_compuesto_va_separada(self):
+        self.assertEqual(self.tramos("sin voz y sin guitarras"), ["sin voz", "sin guitarras"])
+        self.assertEqual(self.tramos("gabber sin caja y sin bajo"), ["sin caja", "sin bajo"])
+
+    def test_lo_que_ya_esta_en_el_idioma_del_motor_no_se_toca(self):
+        # «no drums» está en inglés: traducirlo lo deformaría.
+        self.assertEqual(self.tramos("no drums"), [])
+        self.assertEqual(self.tramos("gabber without kick"), [])
+
+    def test_una_exclusion_desconocida_no_se_traduce(self):
+        # No se sabe qué significa: la app no la toca (no se inventa texto).
+        self.assertEqual(self.tramos("gabber sin caja y sin agudos"), ["sin caja"])
 
 if __name__ == "__main__":
     unittest.main()

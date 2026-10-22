@@ -7,6 +7,8 @@
     "negation_object_article": "^(?:el|la|los|las|un|una|unos|unas|any|the|a|an)\\s+",
     "structured_spanish_exclusion_prefix": "^(?:sin(?:\\s+anadir)?|nada\\s+de)\\s+",
     "structured_exclusion_source_language": "es",
+    "spanish_negation_markers": "(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?)",
+    "spanish_connectors": {"y": "and"},
     "structured_exclusion_remainder": "^[\\s,;.!?]*$",
     "genre_translations": {"electronica": "electronic", "tecno": "techno", "orquestal": "orchestral"}
   },
@@ -21,13 +23,31 @@
   },
   "caption_exclusions": [
     {"keys": ["re:\\bguitarr\\w*", "re:\\bguitars?\\b"], "caption_keys": ["re:\\bguitars?\\b"]},
-    {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kick|percussion|hi-hats|breakbeats)\\b"]},
+    {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b", "re:\\b(?:cajas?|drums?box)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kick|percussion|hi-hats|breakbeats)\\b"]},
     {"keys": ["re:\\b(?:bombos?|kick(?: drum)?)\\b"], "caption_keys": ["re:\\bkick\\b", "double bass drumming"]},
     {"keys": ["re:\\b(?:melodias?|melody|melodies)\\b"], "caption_keys": ["re:\\b(?:melody|melodies|melodic|arpeggios|arpeggiated|leads)\\b"]},
     {"keys": ["re:\\b(?:voz|voces|vocals?|cantar)\\b"], "caption_keys": ["re:\\b(?:vocals?|sung|rapped|choir)\\b"]},
     {"keys": ["re:\\b(?:bajos?|bass|bassline)\\b"], "caption_keys": ["re:\\b(?:bass|sub-bass|bassline)\\b"]},
     {"keys": ["re:\\b(?:pianos?)\\b"], "caption_keys": ["re:\\bpianos?\\b"]},
-    {"keys": ["re:\\b(?:sintetizadores?|sintes?|synths?|synthesizers?)\\b"], "caption_keys": ["re:\\b(?:synths?|synthesizers?)\\b"]}
+    {"keys": ["re:\\b(?:sintetizadores?|sintes?|synths?|synthesizers?)\\b"], "caption_keys": ["re:\\b(?:synths?|synthesizers?)\\b"]},
+    {"keys": ["re:\\bsnares?\\b"], "caption_keys": ["re:\\bsnare\\b"]},
+    {"keys": ["re:\\b(?:charles|cibal(?:es|as)?|plati(?:llos?)?|cymbals?)\\b"], "caption_keys": ["re:\\bcymbals?\\b"]},
+    {"keys": ["re:\\b(?:palmas?|claps?|handclaps?)\\b"], "caption_keys": ["re:\\b(?:claps?|handclaps?|clap)\\b"]},
+    {"keys": ["re:\\b(?:pander(?:a|eta)s?|tambourines?)\\b"], "caption_keys": ["re:\\btambourine\\b"]},
+    {"keys": ["re:\\b(?:trompetas?|trumpets?)\\b"], "caption_keys": ["re:\\btrumpets?\\b"]},
+    {"keys": ["re:\\b(?:saxos?|saxofon(?:es)?|saxophones?)\\b"], "caption_keys": ["re:\\bsax(?:ophones?)?\\b"]},
+    {"keys": ["re:\\b(?:flautas?|flutes?)\\b"], "caption_keys": ["re:\\bflutes?\\b"]},
+    {"keys": ["re:\\bviolins?\\b"], "caption_keys": ["re:\\bviolins?\\b"]},
+    {"keys": ["re:\\b(?:chelos?|cellos?)\\b"], "caption_keys": ["re:\\bcellos?\\b"]},
+    {"keys": ["re:\\b(?:armonicas?|harmonicas?)\\b"], "caption_keys": ["re:\\bharmonicas?\\b"]},
+    {"keys": ["re:\\b(?:acordeon(?:es)?|accordions?)\\b"], "caption_keys": ["re:\\baccordions?\\b"]},
+    {"keys": ["re:\\b(?:organos?|organs?)\\b"], "caption_keys": ["re:\\borgans?\\b"]},
+    {"keys": ["re:\\b(?:cuerdas?|strings?)\\b"], "caption_keys": ["re:\\bstrings?\\b"]},
+    {"keys": ["re:\\b(?:metal(?:es)?|brass)\\b"], "caption_keys": ["re:\\bbrass\\b"]},
+    {"keys": ["re:\\b(?:campanas?|bells?)\\b"], "caption_keys": ["re:\\b(?:bells?|bell)\\b"]},
+    {"keys": ["re:\\b(?:scratch(?:ing|es)?|rasgueo)\\b"], "caption_keys": ["re:\\bscratch(?:ing)?\\b"]},
+    {"keys": ["re:\\b(?:vinilos?|vinyl)\\b"], "caption_keys": ["re:\\bvinyl\\b"]},
+    {"keys": ["re:\\bbanjos?\\b"], "caption_keys": ["re:\\bbanjos?\\b"]}
   ],
   "styles": [
     {
