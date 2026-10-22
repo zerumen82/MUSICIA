@@ -1,4 +1,4 @@
-# 03 · Pendientes y deudas técnicas (backlog vivo)
+﻿# 03 · Pendientes y deudas técnicas (backlog vivo)
 
 > Lo que aquí aparece **declarado** no es un stub oculto: es deuda reconocida
 > con plan. Lo peligroso es lo que NO está aquí y debería estar.
@@ -30,7 +30,7 @@ Durante la auditoría inicial API y motor estaban apagados. La prueba posterior 
 | T4 | `backend/venv` con pip antiguo (Python 3.10) | avisos e instalaciones lentas | `python -m pip install -U pip` dentro de ese venv, con acuerdo |
 | T5 | pip global del usuario con índice NVIDIA roto (DNS) | ralentiza instalaciones pip del sistema | quitar `extra-index-url` de la config global de pip, con acuerdo |
 
-| T8 | La API pierde el listener cuando un trabajo largo ocupa el proceso: en Windows el asyncio Proactor lanza `OSError: [WinError 64]` → `Accept failed on a socket` y el servidor deja de aceptar conexiones (medido 2026-10-22 en `logs/api4.err.log`) | el cliente no puede ni consultar el trabajo; el trabajo en curso puede morir sin dejar salida (el caso A de la A/B por pistas se perdió así) | rearmar el `accept` del servidor o aislar el trabajo pesado del bucle de eventos; trabajo de R18, con plan aprobado por el usuario antes de tocarlo |
+| T8 | La API pierde el listener cuando un trabajo largo ocupa el proceso: en Windows el asyncio Proactor lanza `OSError: [WinError 64]` → `Accept failed on a socket` y el servidor deja de aceptar conexiones (medido 2026-10-22 en `logs/api4.err.log`) | el cliente no puede ni consultar el trabajo; el trabajo en curso puede morir sin dejar salida (el caso A de la A/B por pistas se perdió así) | **VERIF. 2026-10-22: FALSE POSITIVE.** El socket que falla se cierra y el bucle proactor (asyncio `proactor_events.py:838-848`) captura la excepción, la loguea y sigue; el listener NO se pierde. Evidencia: job enviada a las 00:53:27.584 y `api4.out.log` 149/162 peticiones `200 OK` posteriores; últimos 6 líneas `200 OK`. No se reparó (no había bug real). 
 
 ## Cerradas (siguen en la bitácora, ya no son deuda)
 
@@ -39,6 +39,7 @@ Durante la auditoría inicial API y motor estaban apagados. La prueba posterior 
 | T6 | Sin tests automatizados | Cerrada 2026-10-08. La auditoría CI del 2026-10-13 ejecutó **164 tests backend y 8 frontend**; hay suites unittest/Node para contratos, análisis, cuadre, fichas, biblioteca y prompts. Estas suites no sustituyen los recorridos GPU/UI ni la escucha |
 | T1 | Mezclador decorativo en pantalla | La pestaña MEZCLA es `MixLab` (ffmpeg). `Mixer.jsx` no se monta. Historia [C1] cerrada por [F1] |
 | T7 | Fail-fast: si el motor no responde, no colgar la petición | Existe en `POST /music/generate` y `/audio/remix/ai` (503 con mensaje). Citada en código pero nunca anotada aquí: se registra el 2026-10-05 |
+| T8 | Pérdida del listener tras trabajo largo (WinError 64 Proactor) | **VERIF. 2026-10-22: no se reprodujo.** El `accept` único fallido registró `Accept failed on a socket` y el bucle (proactor_events.py:838-848) capturó/logueó/según el código la excepción; el listener siguió respondiendo (149/162 `200 OK` posteriores; job enviada a 00:53:27.584; `api4.err.log` = único evento). No se reparó: no había fallo de listener. Se aplica BCD: se anota en `messages.md` como riesgo de concurrencia de sockets, no como bug. |
 | A3 | «Falta la UI de la canción con voz» | Hecha y verificada: selector, letra, `vocal_language`. El usuario confirmó el 2026-10-02 que funciona |
 | B1 | Borrado con MP3 ocupado y recursos del reproductor abiertos | Cerrada 2026-10-12: conflicto/lote Windows real y UI Electron real PASS; reviewer APPROVE. Evidencia XCIV |
 | B2 | Historial perdido al retornar el modo voz | Cerrada 2026-10-12: remix real de dos variantes persistido y recuperado tras reinicio API; reviewer APPROVE. Evidencia XCIV |
