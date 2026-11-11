@@ -13,7 +13,7 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
 - Dev backend: `backend/venv/Scripts/python.exe backend/main.py`
 - Dev frontend (HMR en navegador solo para desarrollar): `cd frontend && npm run dev`
 - La UI en producción la sirve la propia API en `/` (mount de `frontend/dist`); hay que hacer `npm run build` tras cambiar el frontend
-- Tests: `backend/test_*.py` (unittest, contratos/análisis/cuadre/fichas/biblioteca/prompts) y `frontend/src/*.test.js` (Node). Auditoría CI del 2026-10-13: 164 backend + 8 frontend. No sustituyen la verificación oficial real de los recorridos afectados (ver reglas)
+- Tests: `backend/test_*.py` (unittest) y `frontend/src/*.test.js` (Node). Auditoría técnica 2026-11-11 validada en el alcance ejecutado: 466 backend (464 PASS/2 omitidos), frontend 77/77, lint/build verdes, APPROVE de 11 correcciones y 20 fuentes coincidentes. Evidencia en `logs/audit-ui-20261111/`: UI functional-05 21 pasos, recovery-03 cinco pasos, Crear GPU con dos MP3 de 20 s, cancelación StrictMode, identidad API/cold/parada y SALIR real. Tester independiente PASS y reviewer APPROVE constan en sus informes finales; esos resultados no cierran R9/R10/B6/B7/Q2/R18 integrales ni certifican escucha artística. Formularios/previews no equivalen a nueva generación GPU individual de cover/repaint/voz/grupos-transform; matriz y deudas T9–T12 en spec/02/03. El FAIL previo de 457 pruebas se conserva como incidencia de cleanup de fixture sin causa definitiva, sin relajar el predicado productivo; la suite final y focal posteriores están verdes
 
 ## Architecture
 - `backend/` — FastAPI: generación ACE-Step 1.5, voz cantada por el mismo motor (la locución edge-tts se quitó el 2026-10-05), mezcla ffmpeg (atempo/loudnorm), separación demucs, DSP y análisis con pydub
@@ -40,7 +40,7 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
      bug "win is not defined").
 - `memory.md` — bitácora del proyecto: decisiones, pruebas y resultados con fecha
 - `scripts/` — arranque/parada del stack local y prueba de humo end-to-end
-- `vendor/ACE-Step-1.5/` — motor de música (repo externo, venv propio Python 3.12)
+- `vendor/ACE-Step-1.5/` — motor de música (repo externo; Python configurado en `backend/config.py`, actualmente `.venv311/Scripts/python.exe`, Python 3.11)
 - Data flow (producto): petición → music-orchestrator → music-composer (spec) → audio-engineer (generación real) → verificación → bitácora en memory.md
 - Data flow (metodología): usuario (orchestrator supremo) → sd-coordinator [pregunta antes de decidir] → sd-scout + sd-researcher → sd-editor → sd-reviewer (APPROVE) → sd-tester (PASS) → memory.md → HECHO
   - Motor: `POST /music/generate` → ACE-Step `/release_task` → sondeo `/query_result` → descarga `/v1/audio` → verificación con pydub → `GET /music/audio/{name}`

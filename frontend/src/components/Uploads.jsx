@@ -9,7 +9,7 @@ import RemixActions from './RemixActions';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
-export default function Uploads({ onChanged }) {
+export default function Uploads({ onChanged, externalRefresh = 0 }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -48,6 +48,12 @@ export default function Uploads({ onChanged }) {
     void refresh();
     return () => { alive.current = false; };
   }, [refresh]);
+
+  const firstTick = useRef(true);
+  useEffect(() => {
+    if (firstTick.current) { firstTick.current = false; return; }
+    void refresh();
+  }, [externalRefresh, refresh]);
 
   const identifyBusy = Object.values(identify).some((item) => item.status === 'running');
 

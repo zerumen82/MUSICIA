@@ -1,0 +1,52 @@
+[
+  {
+    "file": "auditoria-crear-20261111.mp3",
+    "exists": true,
+    "ffprobe_exit": 0,
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "channels": 2
+        }
+      ],
+      "format": {
+        "duration": "20.000000",
+        "size": "321068"
+      }
+    },
+    "http_status": 200,
+    "http_bytes": 321068,
+    "disk_sha256": "6e7082b9b55df297a868ad3b71cb66fd1fc12155f2966213e0695911d39260fb",
+    "http_sha256": "6e7082b9b55df297a868ad3b71cb66fd1fc12155f2966213e0695911d39260fb",
+    "identical": true
+  },
+  {
+    "file": "auditoria-crear-20261111-v2.mp3",
+    "exists": true,
+    "ffprobe_exit": 0,
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "channels": 2
+        }
+      ],
+      "format": {
+        "duration": "20.000000",
+        "size": "321068"
+      }
+    },
+    "http_status": 200,
+    "http_bytes": 321068,
+    "disk_sha256": "151f02ed131aadb0913d1813175f2a28006e862467a116cfca539499ce9df0cd",
+    "http_sha256": "151f02ed131aadb0913d1813175f2a28006e862467a116cfca539499ce9df0cd",
+    "identical": true
+  }
+]

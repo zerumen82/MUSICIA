@@ -9,12 +9,12 @@ const options = {
     transition_seconds: { min: 0, max: 5 } }, timeline: { min_repeat_seconds: 1 } },
 };
 
-test('conservar y quitar pide estilo solo cuando la duración alarga la base', () => {
-  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 240, naturalDuration: 79 }), true);
+test('R19 conservar y quitar repite material sin pedir estilo ni motor', () => {
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 240, naturalDuration: 79 }), false);
   assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 79, naturalDuration: 79 }), false);
   assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: undefined, naturalDuration: 79 }), false);
   assert.equal(remixGroupsNeedStyle({ transforms: true, askedDuration: undefined, naturalDuration: 79 }), true);
-  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 30, naturalDuration: null }), true);
+  assert.equal(remixGroupsNeedStyle({ transforms: false, askedDuration: 30, naturalDuration: null }), false);
 });
 
 test('la onda marca la parte a repetir y el tema entero deja los extremos vacíos', () => {

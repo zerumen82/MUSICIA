@@ -5,7 +5,7 @@ las 07:14 sirviendo código antiguo (el filtro WQL de open_musicia.ps1 no
 mataba nada y ensure_local solo reponía la API cuando el puerto dejaba de
 aceptar). El AST de PowerShell suministra el bloque real de decisión del
 `if ($apiArriba)` y las dos funciones de edad reales; solo se aislan los
-actuadores (taskkill.exe, Get-Process, Start-Servicio, Find-Python) y los
+actuadores (taskkill.exe, Get-CimInstance, Start-Servicio, Find-Python) y los
 datos de proceso. El intérprete real ejecuta api_supervisor.api_is_stale
 sobre una copia del backend con mtimes controlados.
 
@@ -37,6 +37,7 @@ $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:MUSICIA_TEST_SUPERVISOR, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+. (Join-Path (Split-Path -Parent $env:MUSICIA_TEST_SUPERVISOR) 'api_identity.ps1')
 
 # Import the actual age helpers, without executing the launcher's top-level code.
 foreach ($name in @('Get-OldestApiAgeSeconds', 'Get-NewestApiSourceAgeSeconds')) {
@@ -63,8 +64,17 @@ $script:actions = [System.Collections.Generic.List[string]]::new()
 $script:apiAlive = $true
 function Find-Python([string]$filter) { @() }
 function Start-Sleep([int]$Milliseconds) {}
-function Get-Process([int]$Id, [string]$ErrorAction) {
-    if ($script:apiAlive -and $Id -eq 24680) { return [pscustomobject]@{ Id = $Id } }
+function Test-Port([int]$Port) { return $env:MUSICIA_TEST_OCCUPIED_AFTER -eq '1' }
+function Get-CimInstance([string]$Class, [string]$Filter, [string]$ErrorAction) {
+    if ($script:apiAlive -and $Filter -eq 'ProcessId = 24680') {
+        $current = $apiProcs[0] | Select-Object *
+        switch ($env:MUSICIA_TEST_CHANGED_IDENTITY) {
+            'command' { $current.CommandLine += ' changed-argument' }
+            'creation' { $current.CreationDate = $current.CreationDate.AddSeconds(1) }
+            'incomplete' { $current.ExecutablePath = $null }
+        }
+        return $current
+    }
 }
 function taskkill.exe { $script:apiAlive = $false; $script:actions.Add("kill:$($args[1])") }
 function Start-Servicio(
@@ -88,9 +98,17 @@ if ($env:MUSICIA_TEST_API_PROCS -eq '1') {
     $apiProcs = @([pscustomobject]@{
         ProcessId = 24680
         CreationDate = (Get-Date).AddSeconds(-$procAge)
+        ExecutablePath = $apiPy
+        CommandLine = '"' + $apiPy + '" "' + (Join-Path $raiz 'backend\main.py') + '"'
     })
 }
-$output = @(. ([scriptblock]::Create($source)))
+try {
+    $output = @(. ([scriptblock]::Create($source)))
+} catch {
+    [pscustomobject]@{ actions = @($script:actions.ToArray()); error = $_.Exception.Message } |
+        ConvertTo-Json -Depth 5 -Compress
+    exit 1
+}
 [pscustomobject]@{
     actions = @($script:actions.ToArray())
     output = $output
@@ -120,6 +138,7 @@ class ApiRefreshWiringTest(unittest.TestCase):
 
     def refresh(
         self, *, stale_source, stale_process, rearm=True, procs=True, api_python=True,
+        changed_identity="", occupied_after=False, expect_error=False,
     ):
         root = self.api_root(
             self.STALE_SOURCE_SECONDS if stale_source else self.FRESH_SOURCE_SECONDS
@@ -135,13 +154,15 @@ class ApiRefreshWiringTest(unittest.TestCase):
                 self.STALE_PROCESS_SECONDS if stale_process else self.FRESH_PROCESS_SECONDS
             ),
             "MUSICIA_TEST_API_PY": sys.executable if api_python else "",
+            "MUSICIA_TEST_CHANGED_IDENTITY": changed_identity,
+            "MUSICIA_TEST_OCCUPIED_AFTER": "1" if occupied_after else "0",
         })
         result = subprocess.run(
             [POWERSHELL, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", API_HARNESS],
             env=environment, capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=30, creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1 if expect_error else 0, result.stdout + result.stderr)
         self.assertTrue(result.stdout.strip(), result.stderr)
         try:
             return json.loads(result.stdout.strip())
@@ -177,6 +198,24 @@ class ApiRefreshWiringTest(unittest.TestCase):
         )
         self.assertEqual(report["output"], ["API=up"])
         self.assertEqual(report["actions"], [])
+
+    def test_changed_or_incomplete_live_identity_is_preserved_without_restart(self):
+        for field in ("command", "creation", "incomplete"):
+            with self.subTest(field=field):
+                report = self.refresh(
+                    stale_source=True, stale_process=True, changed_identity=field,
+                    expect_error=True,
+                )
+                self.assertEqual(report["actions"], [])
+                self.assertIn("identidad", report["error"])
+
+    def test_a_port_occupied_after_stop_prevents_a_second_api(self):
+        report = self.refresh(
+            stale_source=True, stale_process=True, occupied_after=True,
+            expect_error=True,
+        )
+        self.assertEqual(report["actions"], ["kill:24680"])
+        self.assertIn("puerto 8000", report["error"])
 
 
 if __name__ == "__main__":

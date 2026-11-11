@@ -27,10 +27,9 @@ export function remixNaturalDuration({ scope, sourceDuration, targetBpm, sourceB
     ? duration * original / target : null;
 }
 
-/** Conservar y quitar pide estilo solo si la duración alarga la base. */
-export function remixGroupsNeedStyle({ transforms, askedDuration, naturalDuration }) {
-  if (transforms) return true;
-  return askedDuration > 0 && (naturalDuration == null || askedDuration > naturalDuration);
+/** R19 repeats existing audio locally; only transforming groups needs a style. */
+export function remixGroupsNeedStyle({ transforms }) {
+  return Boolean(transforms);
 }
 
 export function remixMinimumDurationLabel(duration) {

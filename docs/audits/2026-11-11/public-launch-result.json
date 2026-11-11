@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "health": {
+    "api": "ok",
+    "engine_url": "http://127.0.0.1:8001",
+    "engine": {
+      "reachable": true,
+      "status_code": 200,
+      "detail": "{\"data\":{\"status\":\"ok\",\"service\":\"ACE-Step API\",\"version\":\"1.0\",\"models_initialized\":false,\"llm_initialized\":false,\"loaded_model\":\"acestep-v15-sft\",\"loaded_lm_model\":null},\"code\":200,\"error\":null,\"tim"
+    },
+    "engine_lifecycle": {
+      "state": "awake",
+      "error": null,
+      "active_operations": 0
+    }
+  },
+  "api_pid": 19312,
+  "windows": [
+    {
+      "Id": 12308,
+      "MainWindowTitle": "Musica",
+      "MainWindowHandle": {
+        "value": 1312360
+      },
+      "Responding": true
+    }
+  ],
+  "foreign": [
+    {
+      "pid": 8528,
+      "same_identity": true
+    },
+    {
+      "pid": 13204,
+      "same_identity": true
+    }
+  ],
+  "recorded_at": "2026-11-11T20:28:15.9390693+01:00"
+}

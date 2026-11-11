@@ -113,7 +113,10 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
 
   const maxDuration = config?.max_duration_seconds ?? UI.maxDurationFallback;
 
-  useEffect(() => () => { aliveRef.current = false; }, []);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
 
   const onSelectGenre = (id) => {
     const item = findGenre(id);

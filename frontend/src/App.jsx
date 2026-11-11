@@ -269,7 +269,7 @@ function App() {
         <main className="flex-1 min-h-0 overflow-hidden">
           {/* Montadas siempre: cambiar de pestaña no borra la letra ni el sondeo. */}
           <div data-panel="composer" data-active={tab === 'composer'} className={tab === 'composer' ? 'h-full overflow-y-auto' : 'hidden'}><Composer engine={engine} /></div>
-          <div data-panel="uploads" data-active={tab === 'uploads'} className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads onChanged={() => setLibraryTick((t) => t + 1)} /></div>
+          <div data-panel="uploads" data-active={tab === 'uploads'} className={tab === 'uploads' ? 'h-full overflow-y-auto' : 'hidden'}><Uploads externalRefresh={libraryTick} onChanged={() => setLibraryTick((t) => t + 1)} /></div>
           <div data-panel="mix" data-active={tab === 'mix'} className={tab === 'mix' ? 'h-full overflow-y-auto' : 'hidden'}><MixLab externalRefresh={libraryTick} /></div>
           <div data-panel="library" data-active={tab === 'library'} className={tab === 'library' ? 'h-full overflow-y-auto' : 'hidden'}><Library externalRefresh={libraryTick} /></div>
         </main>

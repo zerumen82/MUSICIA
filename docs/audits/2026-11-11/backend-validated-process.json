@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "started_at": "2026-11-11T20:18:11.1184852+01:00",
+  "completed_at": "2026-11-11T20:23:23.0674575+01:00",
+  "command": "backend/venv/Scripts/python.exe -m unittest discover -s backend -p test_*.py -v",
+  "environment": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1"
+}

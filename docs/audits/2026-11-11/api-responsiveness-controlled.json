@@ -1,0 +1,1731 @@
+{
+  "started_at": "2026-11-11T14:29:36.206375+00:00",
+  "source": "Animales muertos.mp3",
+  "method": "Three baseline real /health calls, then concurrent /health and GET /audio/groove on the same running API; no intercepted responses.",
+  "environment": "Backend unittest suite may be running concurrently on CPU. Engine lifecycle error/unreachable observed at preflight; no motor is started by this probe.",
+  "baseline_health": [
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.206375+00:00",
+      "start_offset_seconds": 1.930000144056976e-05,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.02682910000294214,
+      "end_offset_seconds": 0.026849300003959797
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.233487+00:00",
+      "start_offset_seconds": 0.026852399998460896,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.0025833000036072917,
+      "end_offset_seconds": 0.029436500000883825
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.236002+00:00",
+      "start_offset_seconds": 0.02943980000418378,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.0019246999945607968,
+      "end_offset_seconds": 0.031365299997560214
+    }
+  ],
+  "concurrent_health": [
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.239034+00:00",
+      "start_offset_seconds": 0.03196400000160793,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.024950300001364667,
+      "end_offset_seconds": 0.05691510000178823
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.467601+00:00",
+      "start_offset_seconds": 0.2605961000008392,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.00311620000138646,
+      "end_offset_seconds": 0.2637131000010413
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.670798+00:00",
+      "start_offset_seconds": 0.4638224000009359,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.07804749999922933,
+      "end_offset_seconds": 0.5418707999997423
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:36.953312+00:00",
+      "start_offset_seconds": 0.746292199997697,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11011839999991935,
+      "end_offset_seconds": 0.8564113000029465
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:37.265343+00:00",
+      "start_offset_seconds": 1.058316200003901,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.14135229999374133,
+      "end_offset_seconds": 1.199669300003734
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:37.609859+00:00",
+      "start_offset_seconds": 1.4028823000044213,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.07913519999419805,
+      "end_offset_seconds": 1.482018299997435
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:37.891497+00:00",
+      "start_offset_seconds": 1.6844861999998102,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.14133969999966212,
+      "end_offset_seconds": 1.8258267999990494
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:38.237170+00:00",
+      "start_offset_seconds": 2.030145000004268,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12708919999568025,
+      "end_offset_seconds": 2.1572349999987637
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:38.565585+00:00",
+      "start_offset_seconds": 2.3591975000017555,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.15456579999590758,
+      "end_offset_seconds": 2.51376419999724
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:38.923115+00:00",
+      "start_offset_seconds": 2.7161396000010427,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.09545839999918826,
+      "end_offset_seconds": 2.811598899999808
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:39.221812+00:00",
+      "start_offset_seconds": 3.014815599999565,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.09625660000165226,
+      "end_offset_seconds": 3.1110731000007945
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:39.519552+00:00",
+      "start_offset_seconds": 3.312579099998402,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12521720000222558,
+      "end_offset_seconds": 3.4377972000002046
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:39.846790+00:00",
+      "start_offset_seconds": 3.6398059999992256,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12620720000268193,
+      "end_offset_seconds": 3.766014000000723
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:40.176034+00:00",
+      "start_offset_seconds": 3.9690531000014744,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11021839999739313,
+      "end_offset_seconds": 4.079272299997683
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:40.491625+00:00",
+      "start_offset_seconds": 4.284622999999556,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.15509410000231583,
+      "end_offset_seconds": 4.439717900000687
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:40.850181+00:00",
+      "start_offset_seconds": 4.643183100000897,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12608690000342904,
+      "end_offset_seconds": 4.769270900003903
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:41.178912+00:00",
+      "start_offset_seconds": 4.971932599997672,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.10938980000355514,
+      "end_offset_seconds": 5.081323200000043
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:41.490243+00:00",
+      "start_offset_seconds": 5.28326350000134,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1102037000018754,
+      "end_offset_seconds": 5.393468100002792
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:41.805473+00:00",
+      "start_offset_seconds": 5.598443700000644,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11020250000001397,
+      "end_offset_seconds": 5.708647100000235
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:42.118183+00:00",
+      "start_offset_seconds": 5.911223700000846,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.06290309999894816,
+      "end_offset_seconds": 5.974127800000133
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:42.386242+00:00",
+      "start_offset_seconds": 6.17923940000037,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.14221810000162804,
+      "end_offset_seconds": 6.321458300000813
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:42.729266+00:00",
+      "start_offset_seconds": 6.522296600000118,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11075669999991078,
+      "end_offset_seconds": 6.633054099998844
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:43.044190+00:00",
+      "start_offset_seconds": 6.837205600000743,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.10998079999990296,
+      "end_offset_seconds": 6.947187300000223
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:43.358501+00:00",
+      "start_offset_seconds": 7.151506599999266,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.07867870000336552,
+      "end_offset_seconds": 7.230186200002208
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:43.642103+00:00",
+      "start_offset_seconds": 7.435109400001238,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.187085700003081,
+      "end_offset_seconds": 7.622196000003896
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:44.032938+00:00",
+      "start_offset_seconds": 7.825957100001688,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.09487729999818839,
+      "end_offset_seconds": 7.920835299999453
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:44.331450+00:00",
+      "start_offset_seconds": 8.124452800002473,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.15660729999945033,
+      "end_offset_seconds": 8.2810610000015
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:44.690309+00:00",
+      "start_offset_seconds": 8.483323799999198,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12600409999868134,
+      "end_offset_seconds": 8.609328799997456
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:45.019375+00:00",
+      "start_offset_seconds": 8.812370500003453,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1405503999994835,
+      "end_offset_seconds": 8.952921800002514
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:45.366882+00:00",
+      "start_offset_seconds": 9.159910399997898,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12649310000415426,
+      "end_offset_seconds": 9.28640440000163
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:45.695781+00:00",
+      "start_offset_seconds": 9.488804100001289,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.15457810000225436,
+      "end_offset_seconds": 9.643383200003882
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:46.054522+00:00",
+      "start_offset_seconds": 9.84750619999977,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.07948420000320766,
+      "end_offset_seconds": 9.926991300002555
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:46.334220+00:00",
+      "start_offset_seconds": 10.12720139999874,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.14328770000429358,
+      "end_offset_seconds": 10.27049000000261
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:46.682583+00:00",
+      "start_offset_seconds": 10.475556600002164,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1261640000011539,
+      "end_offset_seconds": 10.601721500002895
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:47.011244+00:00",
+      "start_offset_seconds": 10.804253000002063,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.09557479999784846,
+      "end_offset_seconds": 10.899828699999489
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:47.309534+00:00",
+      "start_offset_seconds": 11.10254949999944,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1737312000041129,
+      "end_offset_seconds": 11.276282099999662
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:47.685101+00:00",
+      "start_offset_seconds": 11.47812420000264,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.07747509999899194,
+      "end_offset_seconds": 11.555600200001209
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:47.964599+00:00",
+      "start_offset_seconds": 11.757613699999638,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11004400000092573,
+      "end_offset_seconds": 11.86765860000014
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:48.276790+00:00",
+      "start_offset_seconds": 12.06978920000256,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.3592519000012544,
+      "end_offset_seconds": 12.429042100004153
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:48.839186+00:00",
+      "start_offset_seconds": 12.632158599997638,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12741950000054203,
+      "end_offset_seconds": 12.759578999997757
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:49.167493+00:00",
+      "start_offset_seconds": 12.960482599999523,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12571700000262354,
+      "end_offset_seconds": 13.086200500001723
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:49.497134+00:00",
+      "start_offset_seconds": 13.290156399998523,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.10871680000127526,
+      "end_offset_seconds": 13.398874099999375
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:49.807583+00:00",
+      "start_offset_seconds": 13.6006023000009,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.10946130000229459,
+      "end_offset_seconds": 13.710064999999304
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:50.120743+00:00",
+      "start_offset_seconds": 13.913760399998864,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11014910000085365,
+      "end_offset_seconds": 14.023910399999295
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:50.433721+00:00",
+      "start_offset_seconds": 14.226744300001883,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12452540000231238,
+      "end_offset_seconds": 14.351270600003772
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:50.761933+00:00",
+      "start_offset_seconds": 14.554980000000796,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.14010260000213748,
+      "end_offset_seconds": 14.69508350000251
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:51.107183+00:00",
+      "start_offset_seconds": 14.900199499999871,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.06353549999766983,
+      "end_offset_seconds": 14.963735900004394
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:51.372274+00:00",
+      "start_offset_seconds": 15.16528809999727,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.12391850000130944,
+      "end_offset_seconds": 15.289207499998156
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:51.697375+00:00",
+      "start_offset_seconds": 15.490387999998347,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.10898599999927683,
+      "end_offset_seconds": 15.599374899997201
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:52.009240+00:00",
+      "start_offset_seconds": 15.80222920000233,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1102545999965514,
+      "end_offset_seconds": 15.912484699998458
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:52.322481+00:00",
+      "start_offset_seconds": 16.115545100001327,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.15736009999818634,
+      "end_offset_seconds": 16.27290599999833
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:52.681310+00:00",
+      "start_offset_seconds": 16.474336799998127,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1272635999994236,
+      "end_offset_seconds": 16.601601200003643
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:53.012074+00:00",
+      "start_offset_seconds": 16.805094900002587,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1108408000000054,
+      "end_offset_seconds": 16.91593660000217
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:53.328187+00:00",
+      "start_offset_seconds": 17.12117279999802,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.09426879999955418,
+      "end_offset_seconds": 17.215442599997914
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:53.623664+00:00",
+      "start_offset_seconds": 17.416629100000137,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.1702919000017573,
+      "end_offset_seconds": 17.58692190000147
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:53.996875+00:00",
+      "start_offset_seconds": 17.78990999999951,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.11100470000383211,
+      "end_offset_seconds": 17.900915600002918
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:54.309263+00:00",
+      "start_offset_seconds": 18.102280899998732,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.13083729999925708,
+      "end_offset_seconds": 18.23311900000408
+    }
+  ],
+  "after_health": [
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:54.441055+00:00",
+      "start_offset_seconds": 18.2344357999973,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.02498050000576768,
+      "end_offset_seconds": 18.259417200002645
+    },
+    {
+      "route": "/health",
+      "started_at": "2026-11-11T14:29:54.466298+00:00",
+      "start_offset_seconds": 18.25942070000019,
+      "http_status": 200,
+      "response": {
+        "api": "ok",
+        "engine_url": "http://127.0.0.1:8001",
+        "engine": {
+          "reachable": false,
+          "idle": true
+        },
+        "engine_lifecycle": {
+          "state": "idle",
+          "error": null,
+          "active_operations": 0
+        }
+      },
+      "duration_seconds": 0.01473229999828618,
+      "end_offset_seconds": 18.274153799997293
+    }
+  ],
+  "groove": {
+    "route": "/audio/groove/Animales%20muertos.mp3?source_kind=upload",
+    "started_at": "2026-11-11T14:29:36.263248+00:00",
+    "start_offset_seconds": 0.05697830000281101,
+    "http_status": 200,
+    "response": {
+      "bpm": 165.52,
+      "period_ms": 362.5,
+      "phase_ms": 171.2,
+      "confidence": 0.659,
+      "duration_seconds": 81.4
+    },
+    "duration_seconds": 18.1773727999971,
+    "end_offset_seconds": 18.234351899998728
+  },
+  "poller_joined": true,
+  "summary": {
+    "baseline_median_seconds": 0.0025833000036072917,
+    "max_concurrent_health_seconds": 0.3592519000012544,
+    "groove_seconds": 18.1773727999971,
+    "concurrent_health_over_3_seconds": false,
+    "overlapping_health": [
+      {
+        "start_offset_seconds": 0.2605961000008392,
+        "end_offset_seconds": 0.2637131000010413,
+        "duration_seconds": 0.00311620000138646,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 0.4638224000009359,
+        "end_offset_seconds": 0.5418707999997423,
+        "duration_seconds": 0.07804749999922933,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 0.746292199997697,
+        "end_offset_seconds": 0.8564113000029465,
+        "duration_seconds": 0.11011839999991935,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 1.058316200003901,
+        "end_offset_seconds": 1.199669300003734,
+        "duration_seconds": 0.14135229999374133,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 1.4028823000044213,
+        "end_offset_seconds": 1.482018299997435,
+        "duration_seconds": 0.07913519999419805,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 1.6844861999998102,
+        "end_offset_seconds": 1.8258267999990494,
+        "duration_seconds": 0.14133969999966212,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 2.030145000004268,
+        "end_offset_seconds": 2.1572349999987637,
+        "duration_seconds": 0.12708919999568025,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 2.3591975000017555,
+        "end_offset_seconds": 2.51376419999724,
+        "duration_seconds": 0.15456579999590758,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 2.7161396000010427,
+        "end_offset_seconds": 2.811598899999808,
+        "duration_seconds": 0.09545839999918826,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 3.014815599999565,
+        "end_offset_seconds": 3.1110731000007945,
+        "duration_seconds": 0.09625660000165226,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 3.312579099998402,
+        "end_offset_seconds": 3.4377972000002046,
+        "duration_seconds": 0.12521720000222558,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 3.6398059999992256,
+        "end_offset_seconds": 3.766014000000723,
+        "duration_seconds": 0.12620720000268193,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 3.9690531000014744,
+        "end_offset_seconds": 4.079272299997683,
+        "duration_seconds": 0.11021839999739313,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 4.284622999999556,
+        "end_offset_seconds": 4.439717900000687,
+        "duration_seconds": 0.15509410000231583,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 4.643183100000897,
+        "end_offset_seconds": 4.769270900003903,
+        "duration_seconds": 0.12608690000342904,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 4.971932599997672,
+        "end_offset_seconds": 5.081323200000043,
+        "duration_seconds": 0.10938980000355514,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 5.28326350000134,
+        "end_offset_seconds": 5.393468100002792,
+        "duration_seconds": 0.1102037000018754,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 5.598443700000644,
+        "end_offset_seconds": 5.708647100000235,
+        "duration_seconds": 0.11020250000001397,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 5.911223700000846,
+        "end_offset_seconds": 5.974127800000133,
+        "duration_seconds": 0.06290309999894816,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 6.17923940000037,
+        "end_offset_seconds": 6.321458300000813,
+        "duration_seconds": 0.14221810000162804,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 6.522296600000118,
+        "end_offset_seconds": 6.633054099998844,
+        "duration_seconds": 0.11075669999991078,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 6.837205600000743,
+        "end_offset_seconds": 6.947187300000223,
+        "duration_seconds": 0.10998079999990296,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 7.151506599999266,
+        "end_offset_seconds": 7.230186200002208,
+        "duration_seconds": 0.07867870000336552,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 7.435109400001238,
+        "end_offset_seconds": 7.622196000003896,
+        "duration_seconds": 0.187085700003081,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 7.825957100001688,
+        "end_offset_seconds": 7.920835299999453,
+        "duration_seconds": 0.09487729999818839,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 8.124452800002473,
+        "end_offset_seconds": 8.2810610000015,
+        "duration_seconds": 0.15660729999945033,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 8.483323799999198,
+        "end_offset_seconds": 8.609328799997456,
+        "duration_seconds": 0.12600409999868134,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 8.812370500003453,
+        "end_offset_seconds": 8.952921800002514,
+        "duration_seconds": 0.1405503999994835,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 9.159910399997898,
+        "end_offset_seconds": 9.28640440000163,
+        "duration_seconds": 0.12649310000415426,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 9.488804100001289,
+        "end_offset_seconds": 9.643383200003882,
+        "duration_seconds": 0.15457810000225436,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 9.84750619999977,
+        "end_offset_seconds": 9.926991300002555,
+        "duration_seconds": 0.07948420000320766,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 10.12720139999874,
+        "end_offset_seconds": 10.27049000000261,
+        "duration_seconds": 0.14328770000429358,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 10.475556600002164,
+        "end_offset_seconds": 10.601721500002895,
+        "duration_seconds": 0.1261640000011539,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 10.804253000002063,
+        "end_offset_seconds": 10.899828699999489,
+        "duration_seconds": 0.09557479999784846,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 11.10254949999944,
+        "end_offset_seconds": 11.276282099999662,
+        "duration_seconds": 0.1737312000041129,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 11.47812420000264,
+        "end_offset_seconds": 11.555600200001209,
+        "duration_seconds": 0.07747509999899194,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 11.757613699999638,
+        "end_offset_seconds": 11.86765860000014,
+        "duration_seconds": 0.11004400000092573,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 12.06978920000256,
+        "end_offset_seconds": 12.429042100004153,
+        "duration_seconds": 0.3592519000012544,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 12.632158599997638,
+        "end_offset_seconds": 12.759578999997757,
+        "duration_seconds": 0.12741950000054203,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 12.960482599999523,
+        "end_offset_seconds": 13.086200500001723,
+        "duration_seconds": 0.12571700000262354,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 13.290156399998523,
+        "end_offset_seconds": 13.398874099999375,
+        "duration_seconds": 0.10871680000127526,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 13.6006023000009,
+        "end_offset_seconds": 13.710064999999304,
+        "duration_seconds": 0.10946130000229459,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 13.913760399998864,
+        "end_offset_seconds": 14.023910399999295,
+        "duration_seconds": 0.11014910000085365,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 14.226744300001883,
+        "end_offset_seconds": 14.351270600003772,
+        "duration_seconds": 0.12452540000231238,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 14.554980000000796,
+        "end_offset_seconds": 14.69508350000251,
+        "duration_seconds": 0.14010260000213748,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 14.900199499999871,
+        "end_offset_seconds": 14.963735900004394,
+        "duration_seconds": 0.06353549999766983,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 15.16528809999727,
+        "end_offset_seconds": 15.289207499998156,
+        "duration_seconds": 0.12391850000130944,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 15.490387999998347,
+        "end_offset_seconds": 15.599374899997201,
+        "duration_seconds": 0.10898599999927683,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 15.80222920000233,
+        "end_offset_seconds": 15.912484699998458,
+        "duration_seconds": 0.1102545999965514,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 16.115545100001327,
+        "end_offset_seconds": 16.27290599999833,
+        "duration_seconds": 0.15736009999818634,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 16.474336799998127,
+        "end_offset_seconds": 16.601601200003643,
+        "duration_seconds": 0.1272635999994236,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 16.805094900002587,
+        "end_offset_seconds": 16.91593660000217,
+        "duration_seconds": 0.1108408000000054,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 17.12117279999802,
+        "end_offset_seconds": 17.215442599997914,
+        "duration_seconds": 0.09426879999955418,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 17.416629100000137,
+        "end_offset_seconds": 17.58692190000147,
+        "duration_seconds": 0.1702919000017573,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 17.78990999999951,
+        "end_offset_seconds": 17.900915600002918,
+        "duration_seconds": 0.11100470000383211,
+        "http_status": 200,
+        "error": null
+      },
+      {
+        "start_offset_seconds": 18.102280899998732,
+        "end_offset_seconds": 18.23311900000408,
+        "duration_seconds": 0.13083729999925708,
+        "http_status": 200,
+        "error": null
+      }
+    ]
+  },
+  "completed_at": "2026-11-11T14:29:54.480360+00:00"
+}

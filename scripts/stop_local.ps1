@@ -1,35 +1,58 @@
 <#
-Detiene los procesos locales de Musicia (motor ACE-Step y API) y espera
-a que suelten los puertos. El motor acredita launcher e intérprete y los
-detiene individualmente; la API conserva su parada histórica con taskkill /T.
+Detiene los procesos identificados como propios de Musicia. El motor acredita
+launcher e intérprete y los detiene individualmente; la API revalida su script
+absoluto, PID, fecha, comando y ejecutable antes de taskkill /T.
 
 No casa con un main.py suelto: ComfyUI también se llama así.
 No borra logs/stop.flag y no arranca nada.
 #>
 $ErrorActionPreference = 'SilentlyContinue'
 . (Join-Path $PSScriptRoot 'engine_identity.ps1')
+. (Join-Path $PSScriptRoot 'api_identity.ps1')
+$musiciaRoot = Split-Path -Parent $PSScriptRoot
+$script:apiStopFailed = $false
 
 function Test-MusiciaCommandLine {
     param($Line)
-    if (-not $Line) { return $false }
-    if ($Line -like '*backend\main.py*') { return $true }
-    if ($Line -like '*backend/main.py*') { return $true }
-    return $false
+    return Test-MusiciaApiCommandLine $Line $musiciaRoot
 }
 
 function Get-MusiciaProcess {
     Get-CimInstance Win32_Process | Where-Object {
         $nombre = $_.Name
-        if ($nombre -ne 'python.exe' -and $nombre -ne 'pythonw.exe' -and $nombre -ne 'uv.exe') {
+        if ($nombre -ne 'python.exe' -and $nombre -ne 'pythonw.exe') {
             return $false
         }
-        Test-MusiciaCommandLine $_.CommandLine
+        Test-MusiciaApiProcess $_ $musiciaRoot
     }
 }
 
 function Stop-MusiciaTree {
-    param($TargetId)
-    & taskkill.exe /F /T /PID $TargetId | Out-Null
+    param($ProcessSnapshot)
+    if (-not (Test-MusiciaApiProcess $ProcessSnapshot $musiciaRoot)) {
+        $script:apiStopFailed = $true
+        return $false
+    }
+    $targetId = [int]$ProcessSnapshot.ProcessId
+    try {
+        $actual = Get-CimInstance Win32_Process -Filter "ProcessId = $targetId" -ErrorAction Stop
+    } catch {
+        $script:apiStopFailed = $true
+        Write-Host "[Musicia API] no se pudo verificar PID $targetId; proceso preservado"
+        return $false
+    }
+    if (-not $actual) { return $true }
+    if (-not (Test-MusiciaApiProcessSnapshot $ProcessSnapshot $actual $musiciaRoot)) {
+        $script:apiStopFailed = $true
+        Write-Host "[Musicia API] identidad del PID $targetId no acreditada; proceso preservado"
+        return $false
+    }
+    & taskkill.exe /F /T /PID $targetId | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $script:apiStopFailed = $true
+        return $false
+    }
+    return $true
 }
 
 function Stop-OwnedEngine {
@@ -103,8 +126,9 @@ if ($iniciales.Count -eq 0) {
         $linea = [string]$proceso.CommandLine
         $etiqueta = 'Musicia API'
         $etiquetas[$etiqueta] = $true
-        Stop-MusiciaTree -TargetId $idProc
-        Write-Host "[$etiqueta] detenido (PID $idProc)"
+        if (Stop-MusiciaTree -ProcessSnapshot $proceso) {
+            Write-Host "[$etiqueta] detenido (PID $idProc)"
+        }
     }
     if (-not $etiquetas.ContainsKey('Musicia API')) {
         Write-Host '[Musicia API] no estaba corriendo'
@@ -118,16 +142,16 @@ $limite = (Get-Date).AddSeconds(12)
 do {
     $vivos = @(Get-MusiciaProcess)
     foreach ($proceso in $vivos) {
-        Stop-MusiciaTree -TargetId ([int]$proceso.ProcessId)
+        $null = Stop-MusiciaTree -ProcessSnapshot $proceso
     }
     $siguenEscuchando = @()
     $conexiones = @(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue)
     foreach ($conexion in $conexiones) {
         $duenoId = [int]$conexion.OwningProcess
         $dueno = Get-CimInstance Win32_Process -Filter "ProcessId = $duenoId"
-        if ($dueno -and (Test-MusiciaCommandLine $dueno.CommandLine)) {
+        if ($dueno -and (Test-MusiciaApiProcess $dueno $musiciaRoot)) {
             $siguenEscuchando += $dueno
-            Stop-MusiciaTree -TargetId $duenoId
+            $null = Stop-MusiciaTree -ProcessSnapshot $dueno
         }
     }
     if ($vivos.Count -eq 0 -and $siguenEscuchando.Count -eq 0) { break }
@@ -142,5 +166,9 @@ if ($quedan.Count -gt 0) {
     exit 1
 }
 if (-not $engineStopped) { exit 1 }
-Write-Host '[Musicia] puertos libres'
+if ($script:apiStopFailed) {
+    Write-Host '[Musicia API] parada no acreditada por completo; procesos dudosos preservados'
+    exit 1
+}
+Write-Host '[Musicia] procesos propios detenidos'
 exit 0

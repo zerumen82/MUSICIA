@@ -98,7 +98,9 @@ async def _engine_control(action: str) -> str:
             "-StartTimeoutSeconds" if action == "WakeEngine" else "-StopTimeoutSeconds",
             str(max(1, int(timeout))),
         ]
-    def _run_control() -> tuple[int | None, str | None, tuple[str, str]]:
+    deadline = time.monotonic() + timeout
+
+    def _run_control(remaining: float) -> tuple[int | None, str | None, tuple[str, str]]:
         """Ejecuta el script; la salida va a ficheros temporales, NUNCA a tuberías.
 
         Los hijos de larga vida que ensure_local arranca (el motor) heredan
@@ -113,9 +115,12 @@ async def _engine_control(action: str) -> str:
             codigo: int | None = None
             fallo: str | None = None
             try:
+                attempt_command = list(command)
+                if action in {"WakeEngine", "IdleEngine"}:
+                    attempt_command[-1] = str(max(1, int(min(timeout, remaining))))
                 codigo = subprocess.run(
-                    command, stdout=salida, stderr=error,
-                    timeout=max(30, timeout + 30),
+                    attempt_command, stdout=salida, stderr=error,
+                    timeout=remaining,
                 ).returncode
             except (OSError, subprocess.TimeoutExpired) as exc:
                 fallo = f"ensure_local {action} failed: {exc}"
@@ -125,14 +130,27 @@ async def _engine_control(action: str) -> str:
             texto_error = error.read().decode(errors="replace").strip()
             return codigo, fallo, (texto_salida, texto_error)
 
-    (codigo, fallo, (texto_salida, texto_error)) = await asyncio.to_thread(_run_control)
-    if fallo:
-        detail = (texto_error or texto_salida or "").strip()
-        raise RuntimeError(f"{fallo}: {detail}" if detail else fallo)
-    if codigo:
-        detail = (texto_error or texto_salida or "").strip()
-        raise RuntimeError(f"ensure_local {action} exited {codigo}: {detail}")
-    return texto_salida
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError(f"ensure_local {action} exceeded its configured timeout ({timeout:g}s)")
+        codigo, fallo, (texto_salida, texto_error) = await asyncio.to_thread(_run_control, remaining)
+        if fallo:
+            detail = (texto_error or texto_salida or "").strip()
+            raise RuntimeError(f"{fallo}: {detail}" if detail else fallo)
+        if (action in {"WakeEngine", "IdleEngine"} and codigo == 1
+                and texto_salida == "BUSY" and not texto_error):
+            # Otro supervisor ya está arrancando/parando; conserva la lease
+            # y el plazo global mientras ese control real termina.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"ensure_local {action} exceeded its configured timeout ({timeout:g}s): BUSY")
+            await asyncio.sleep(min(settings.acestep.poll_interval, remaining))
+            continue
+        if codigo:
+            detail = (texto_error or texto_salida or "").strip()
+            raise RuntimeError(f"ensure_local {action} exited {codigo}: {detail}")
+        return texto_salida
 
 
 async def _reconcile_engine_lifecycle() -> None:
@@ -316,10 +334,10 @@ class MusicGenRequest(BaseModel):
     key_scale: str | None = None
     time_signature: str | None = None
     language: str | None = None
-    inference_steps: int | None = None
-    guidance_scale: float | None = None
+    inference_steps: int | None = Field(default=None, gt=0)
+    guidance_scale: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     seed: int | None = None
-    batch_size: int | None = None
+    batch_size: int | None = Field(default=None, gt=0)
     audio_format: str | None = None
     model: str | None = None
     task_type: str | None = Field(default=None, description="text2music, cover o repaint")
@@ -995,7 +1013,7 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
     base_path = _find_audio(request.base_track, request.base_kind)
     vocal_path = _find_audio(request.vocal_track, request.vocal_kind)
     try:
-        arrangement = plan_vocal_arrangement(base_path, vocal_path, settings.mixer)
+        arrangement = await asyncio.to_thread(plan_vocal_arrangement, base_path, vocal_path, settings.mixer)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if arrangement:
@@ -1010,7 +1028,9 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
             },
             "explanation": arrangement["explanation"],
         }
-    plan = _mix_alignment(request.base_track, request.vocal_track, request.base_kind, request.vocal_kind)
+    plan = await asyncio.to_thread(
+        _mix_alignment, request.base_track, request.vocal_track, request.base_kind, request.vocal_kind
+    )
     if plan is None:
         return {
             "plan": None,
@@ -1037,7 +1057,7 @@ async def audio_mix_plan(request: MixPlanRequest) -> dict[str, Any]:
 async def audio_groove(name: str, source_kind: str | None = None) -> dict[str, Any]:
     """Tempo y fase del golpe de una pista (lo que usa el cuadre y el remixer)."""
     try:
-        return detect_groove(_find_audio(name, source_kind))
+        return await asyncio.to_thread(detect_groove, _find_audio(name, source_kind))
     except HTTPException:
         raise
     except (ValueError, FileNotFoundError) as exc:
@@ -2311,7 +2331,7 @@ async def audio_upload(file: UploadFile) -> dict[str, Any]:
     target.write_bytes(data)
 
     try:
-        analysis = analyze_audio(target)
+        analysis = await asyncio.to_thread(analyze_audio, target)
     except (ValueError, FileNotFoundError) as exc:
         target.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2460,7 +2480,7 @@ async def audio_remix_prompt(request: RemixPromptRequest) -> dict[str, Any]:
 
 
 @app.get("/audio/peaks/{name}")
-async def audio_peaks(
+def audio_peaks(
     name: str, buckets: int = 400, source_kind: str | None = None
 ) -> dict[str, Any]:
     """Picós de amplitud para pintar la forma de onda en el editor visual.

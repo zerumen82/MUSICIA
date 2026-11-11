@@ -21,7 +21,9 @@ const TEMPO_TEXT = {
   full: 'Cada variante se mide y se ajusta al BPM pedido con DSP local, sin cambiar el tono. Si la medición es incierta, el remix mostrará el error.',
   region: 'En un tramo, el BPM orienta al motor; el audio generado puede tener otro tempo.',
   pendingDuration: 'La duración natural al BPM pedido se conocerá después de generar y ajustar cada variante. Una duración menor se rechazará indicando su mínimo.',
-  repetition: 'El recorte entra una vez al empezar lo que sobra. Los límites usados quedan registrados en el resultado.',
+  repetition: 'El recorte se repite hasta alcanzar la duración pedida. Si el reloj de tempo está verificado, las uniones se alinean al pulso; sin reloj se usan fundidos con un aviso de tempo sin garantizar.',
+  duration: 'Vacío conserva la duración natural. Si pides más, se repite material real de la base con transiciones. Con recorte se repite ese intervalo; sin recorte, la canción entera.',
+  crop: 'Señala el intervalo en la onda o escribe los segundos. Vacío repite la canción entera.',
 };
 
 function Fold({ title, why, children, ...rest }) {
@@ -53,6 +55,11 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [vocalMode, setVocalMode] = useState('source');
   const [outputName, setOutputName] = useState('');
   const [seed, setSeed] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedGuidance, setAdvancedGuidance] = useState('');
+  const [advancedSteps, setAdvancedSteps] = useState('');
+  const [advancedUseFormat, setAdvancedUseFormat] = useState(false);
+  const [advancedBatch, setAdvancedBatch] = useState('');
   const [region, setRegion] = useState({ start: 0, end: null });
   const [duration, setDuration] = useState(ficha?.duration_seconds ?? null);
   const [groups, setGroups] = useState([]);
@@ -62,7 +69,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   // Qué papeles ha tocado el usuario en cada pista: lo demás se hereda.
   const [trackSelectionRoles, setTrackSelectionRoles] = useState({});
   const exclusionSource = scope === 'groups'
-    ? [prompt, ...groups.map((group) => trackText[group.id] ?? '')].filter(Boolean).join(' ')
+    ? [prompt, ...groups.filter((group) => actions[group.id] === 'transform').map((group) => trackText[group.id] ?? '')].filter(Boolean).join(' ')
     : null;
   const prepared = useStylePrompt(prompt, exclusionSource);
   // La pista hereda del prompt general PAPEL POR PAPEL (principal, matices y
@@ -111,7 +118,15 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       while (active) {
         try {
           const data = await api.remixCapabilities();
-          if (active) { setCapabilities(data); setControls(data.defaults ?? {}); }
+          if (active) {
+            setCapabilities(data);
+            setControls(data.defaults ?? {});
+            const d = data.defaults ?? {};
+            setAdvancedGuidance(String(d.guidance_scale ?? ''));
+            setAdvancedSteps(String(d.inference_steps ?? ''));
+            setAdvancedUseFormat(Boolean(d.use_format));
+            setAdvancedBatch(String(d.batch_size ?? ''));
+          }
           return;
         } catch (err) {
           if (!active) return;
@@ -337,16 +352,21 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const timeline = remixTimelineFields({ scope, targetBpm: bpm, sourceBpm: timelineSourceBpm, sourceBpmOrigin: sourceBpm ? sourceBpmOrigin : 'measurement', minutes: durationMinutes, seconds: durationSeconds,
     repeatStart, repeatEnd, transition: '', sourceDuration: duration, capabilities });
   const transformsGroups = scope === 'groups' && Object.values(actions).includes('transform');
-  const needsStyle = scope !== 'groups' || remixGroupsNeedStyle({
-    transforms: transformsGroups,
-    askedDuration: timeline.fields.duration_seconds,
-    naturalDuration,
-  });
+  const needsStyle = scope !== 'groups' || remixGroupsNeedStyle({ transforms: transformsGroups });
   const needsCover = scope !== 'groups' || transformsGroups;
   const bpmError = bpm !== '' && (!Number.isFinite(Number(bpm)) || !Number.isInteger(Number(bpm)) || Number(bpm) <= 0
     || (bounds('bpm')?.min != null && Number(bpm) < bounds('bpm').min)
     || (bounds('bpm')?.max != null && Number(bpm) > bounds('bpm').max)) ? 'Escribe un BPM entero dentro de los límites indicados.' : null;
-  const requestError = bpmError || timeline.error;
+  const advancedError = needsStyle && [
+    ['guidance_scale', advancedGuidance, false],
+    ['inference_steps', advancedSteps, true],
+    ['batch_size', advancedBatch, true],
+  ].some(([key, value, integer]) => value !== '' && (
+    !Number.isFinite(Number(value)) || (integer && !Number.isInteger(Number(value)))
+    || (bounds(key)?.min != null && Number(value) < bounds(key).min)
+    || (bounds(key)?.max != null && Number(value) > bounds(key).max)
+  )) ? 'Revisa los parámetros avanzados: pasos y lote deben ser enteros positivos; guidance debe ser finito y no negativo, dentro de los límites indicados.' : null;
+  const requestError = bpmError || timeline.error || advancedError;
   const hasTargetDuration = durationMinutes !== '' || durationSeconds !== '';
   const chosenReference = needsCover ? references.find((item) => item.id === reference) : null;
   const payload = {
@@ -361,6 +381,10 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
     ...(chosenReference ? { reference_name: chosenReference.name, reference_kind: chosenReference.kind } : {}),
+    ...(needsStyle && advancedGuidance !== '' ? { guidance_scale: Number(advancedGuidance) } : {}),
+    ...(needsStyle && advancedSteps !== '' ? { inference_steps: Number(advancedSteps) } : {}),
+    ...(needsStyle ? { use_format: advancedUseFormat } : {}),
+    ...(needsStyle && advancedBatch !== '' ? { batch_size: Number(advancedBatch) } : {}),
   };
   const run = () => execute(async () => {
     if (needsStyle && !promptsReady) throw new Error('Espera a que todos los prompts estén preparados.');
@@ -461,7 +485,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         </select>
         <button type="button" disabled={busy} aria-pressed={solo === group.id} onClick={() => setSolo((current) => current === group.id ? null : group.id)} className="btn btn-ghost h-8 px-2">{solo === group.id ? 'CERRAR SOLO' : 'SOLO'}</button>
         {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
-          <input aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} className={`${field} w-full`} />
+          <textarea aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} rows={2} className={`${field} w-full resize-y`} />
           <PromptTools prompt={trackText[group.id] ?? ''}
             setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
             prepared={{ ...preparedTracks[group.id], selection: trackSelection(group.id),
@@ -480,14 +504,47 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         </fieldset>}
         {solo === group.id && <audio controls autoPlay src={mediaUrl(group.url, group.file_name)} aria-label={`Escuchar ${group.label}`} className="player w-full" style={{ gridColumn: '1 / -1' }} />}
       </div>)}
+      {remixing && needsStyle && promptsReady && !requestError && scope === 'groups' && <StyleEnglish request={payload}
+        why="El modelo recibe un solo texto: el prompt general más una línea por cada pista en «transformar». Se muestra el texto efectivo del servidor. Las pistas no se tratan por separado." />}
       <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo del prompt general se hereda en cada pista: si eliges otro en la pista, manda ese. El texto de una pista se suma. Una pista vacía no añade nada.</p>
     </div>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
-      placeholder={needsCover ? (activeScope?.placeholder || 'Qué quieres cambiar.') : 'Texto de estilo para continuar la base.'} className={`${field} resize-y w-full`} />}
+      placeholder={activeScope?.placeholder || 'Qué quieres cambiar.'} className={`${field} resize-y w-full`} />}
     {remixing && scope === 'groups' && groups.length > 0 && !needsStyle && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
     {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />}
-    {remixing && needsStyle && promptsReady && <StyleEnglish text={sentPrompt} empty={scope === 'groups' ? 'Escribe el estilo en el prompt.' : ''} />}
+    {remixing && needsStyle && promptsReady && !requestError && scope !== 'groups' && <StyleEnglish request={payload}
+      why="Se muestra el texto efectivo del servidor, con la misma petición que se usa al generar. Los parámetros avanzados modifican cómo lo procesa el motor." />}
     {remixing && scope !== 'region' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
+    {remixing && needsStyle && (
+      <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-3 mb-2">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowAdvanced((c) => !c)} className="btn btn-ghost h-8 px-2 text-[11px]">
+            {showAdvanced ? 'Ocultar avanzados' : 'Parámetros avanzados'}
+          </button>
+          <span className="text-[11px] text-[var(--faint)]">Guidance, pasos, lote, LM (vacío = valor de configuración)</span>
+        </div>
+        {showAdvanced && (
+          <div className="flex gap-3 flex-wrap">
+            <label className="flex flex-col gap-1">
+              <span className="label text-[11px]">Guidance scale</span>
+              <input aria-label="Guidance del remix" type="number" min={bounds('guidance_scale')?.min} max={bounds('guidance_scale')?.max} step={bounds('guidance_scale')?.step ?? 'any'} value={advancedGuidance} onChange={(e) => setAdvancedGuidance(e.target.value)} disabled={busy} className={`${field} w-24`} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="label text-[11px]">Pasos de difusión</span>
+              <input aria-label="Pasos del remix" type="number" min={bounds('inference_steps')?.min} max={bounds('inference_steps')?.max} step="1" value={advancedSteps} onChange={(e) => setAdvancedSteps(e.target.value)} disabled={busy} className={`${field} w-24`} />
+            </label>
+            <label className="flex items-end gap-2">
+              <input aria-label="Reescribir prompt con LM" type="checkbox" checked={advancedUseFormat} onChange={() => setAdvancedUseFormat((c) => !c)} disabled={busy} />
+              <span className="label text-[11px]">use_format (LM reescribe el prompt)</span>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="label text-[11px]">Lote (batch)</span>
+              <input aria-label="Lote del remix" type="number" min={bounds('batch_size')?.min} max={bounds('batch_size')?.max} step="1" value={advancedBatch} onChange={(e) => setAdvancedBatch(e.target.value)} disabled={busy} className={`${field} w-24`} />
+            </label>
+          </div>
+        )}
+      </div>
+    )}
     {remixing && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
     {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
     {remixing && scope === 'region' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.region}</p>}
@@ -509,17 +566,17 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <span aria-hidden="true">:</span>
         <label className="flex items-center gap-1"><input aria-label="Segundos del remix" type="number" min="0" max="59" step="any" value={durationSeconds} disabled={busy} placeholder="seg" onChange={(event) => setDurationSeconds(event.target.value)} className={`${field} w-20`} /><span className="text-[12px] text-[var(--muted)]">s</span></label>
       </div>
-      <p className="text-[13px] text-[var(--muted)]">Vacío conserva la duración natural. Si pides más, el motor continúa el final de la base ya creada{capabilities?.timeline?.continuation_max_seconds ? `, en trozos de hasta ${capabilities.timeline.continuation_max_seconds} s` : ''}. El recorte entra una vez al empezar esa parte.</p>
+      <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.duration}</p>
       {scope === 'groups' && naturalDuration != null && <p className="text-[13px] text-[var(--muted)]" data-remix-minimum-duration>Duración mínima al tempo elegido: {remixMinimumDurationLabel(naturalDuration)}.</p>}
       {scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.pendingDuration}</p>}
-      {hasTargetDuration && <Fold title="RECORTE" why="Señala el sample en la onda o escribe los segundos. Vacío continúa la base sin meter un recorte.">
+      {hasTargetDuration && <Fold title="RECORTE" why={TEMPO_TEXT.crop}>
         <div className="flex flex-col gap-2 py-2">
           <Waveform key={`repeat:${sourceKind}:${fileName}`} fileName={fileName} sourceKind={sourceKind} onSelection={onRepeatRange} selection={{ start: repeatStart === '' ? 0 : Number(repeatStart) || 0, end: repeatEnd === '' ? null : Number(repeatEnd) }} disabled={busy} nudgeStep={nudgeStep} scales={false} />
           <div className="flex items-center gap-3 flex-wrap">
             <label className="label">DESDE <input aria-label="Inicio del recorte" type="number" min="0" max={duration ?? undefined} step="any" value={repeatStart} disabled={busy} placeholder="Inicio del original" onChange={(event) => setRepeatStart(event.target.value)} className={`${field} w-36`} /> s</label>
             <label className="label">HASTA <input aria-label="Final del recorte" type="number" min="0" max={duration ?? undefined} step="any" value={repeatEnd} disabled={busy} placeholder="Final del original" onChange={(event) => setRepeatEnd(event.target.value)} className={`${field} w-36`} /> s</label>
           </div>
-          <p className="text-[13px] text-[var(--muted)]">Los tiempos del recorte se refieren al original. Entra una vez, donde empieza lo que sobra.</p>
+          <p className="text-[13px] text-[var(--muted)]">Los tiempos del recorte se refieren al original. Ese intervalo se repite las veces necesarias hasta alcanzar la duración pedida.</p>
           {bpm !== '' && <p className="text-[13px] text-[var(--muted)]" data-remix-repeat-clock>{TEMPO_TEXT.repetition}</p>}
         </div>
       </Fold>}

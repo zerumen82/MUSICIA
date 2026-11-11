@@ -301,6 +301,10 @@ class RemixSettings:
     subprocess_timeout_seconds: float = 1800.0
     subprocess_termination_seconds: float = 5.0
     parameters: dict[str, dict[str, float]] = field(default_factory=lambda: {
+        # Dominios mínimos; no se impone un máximo de generación no acreditado.
+        "guidance_scale": {"min": 0.0},
+        "inference_steps": {"min": 1, "step": 1},
+        "batch_size": {"min": 1, "step": 1},
         "cover_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
         "cover_noise_strength": {"min": 0.0, "max": 1.0, "step": 0.05},
         "repaint_strength": {"min": 0.0, "max": 1.0, "step": 0.05},

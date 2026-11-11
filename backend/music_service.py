@@ -591,7 +591,8 @@ class MusicService:
             if payload["repaint_mode"] != "balanced":
                 provenance["repaint_strength"] = "ignored_by_engine_mode"
                 warnings.append("La fuerza de repaint solo tiene efecto en modo equilibrado.")
-        return {"effective_parameters": payload, "provenance": provenance, "warnings": warnings}
+        return {"effective_parameters": payload, "provenance": provenance, "warnings": warnings,
+                "effective_prompt": request.prompt}
 
     async def submit(self, request: GenerationRequest) -> tuple[str, str]:
         """Envía la generación al motor y devuelve (task_id, estado inicial)."""

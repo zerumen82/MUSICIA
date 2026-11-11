@@ -79,7 +79,7 @@ class RemixTimelineTest(unittest.TestCase):
         self.assertEqual(plan["mapped_repeat_start"], 1.6)
         self.assertEqual(plan["mapped_repeat_end"], 6.4)
         self.assertEqual(plan["target_duration_seconds"], 35)
-        self.assertEqual(plan["method"], "continue_bed")
+        self.assertEqual(plan["method"], "repeat_crossfade")
 
     def test_short_duration_reports_concrete_rounded_minimum(self):
         request = self.request(bpm=199, source_bpm=166.25, duration_seconds=60)
@@ -177,11 +177,13 @@ class RemixTimelineTest(unittest.TestCase):
         full = RemixProjectRequest(source_name="source.wav", prompt="A track with techno", bpm=120,
                                    duration_seconds=8)
         plan = full_variant_plan(full, 4, 4, self.settings, {"bpm_measured": 120, "bpm_confidence": 0.9})
-        self.assertEqual(plan["method"], "continue_bed")
+        # Con R19, la ampliación en full usa repeat_crossfade (repite canción entera)
+        self.assertEqual(plan["method"], "repeat_crossfade")
         self.assertIsNone(plan["repeat_start"])
         self.assertIsNone(plan["repeat_end"])
-        self.assertIsNone(plan["mapped_repeat_start"])
-        self.assertIsNone(plan["mapped_repeat_end"])
+        # Sin recorte marcado, mapped_repeat cubre la canción entera
+        self.assertEqual(plan["mapped_repeat_start"], 0.0)
+        self.assertEqual(plan["mapped_repeat_end"], plan["natural_duration_seconds"])
 
     def test_continuation_spans_repaint_the_faded_tail_and_trim_the_final_margin(self):
         config = self.settings.remix
@@ -350,8 +352,8 @@ class RemixTimelineTest(unittest.TestCase):
                 timeline_plan(self.request(**kwargs), 20, self.settings)
         kept = timeline_plan(self.request(duration_seconds=25, repeat_start=1, repeat_end=3, transition_seconds=1),
                              20, self.settings)
-        self.assertEqual(kept["method"], "continue_bed")
-        self.assertEqual(kept["transition_seconds"], 0.0)
+        self.assertEqual(kept["method"], "repeat_crossfade")
+        self.assertEqual(kept["transition_seconds"], 1.0)
         with self.assertRaises(ValueError):
             validate_project(RemixProjectRequest(source_name="a.wav", scope="region", prompt="Cambio",
                              region_start=1, region_end=2, duration_seconds=25), 20, self.settings)
@@ -386,7 +388,7 @@ class RemixTimelineTest(unittest.TestCase):
             request = self.request(bpm=150, source_bpm=120, duration_seconds=8,
                                    repeat_start=1, repeat_end=3, transition_seconds=0.1)
             plan = timeline_plan(request, seconds, self.settings)
-            self.assertEqual(plan["method"], "continue_bed")
+            self.assertEqual(plan["method"], "repeat_crossfade")
             spans = continuation_spans(plan["natural_duration_seconds"], plan["target_duration_seconds"], config)
             self.assertEqual(spans[0]["start"], plan["natural_duration_seconds"])
             self.assertLessEqual(spans[0]["end"] - spans[0]["start"], config.continuation_max_seconds)
@@ -438,26 +440,19 @@ class RemixTimelineTest(unittest.TestCase):
             request = self.request(bpm=150, source_bpm=120, duration_seconds=8,
                                    repeat_start=1, repeat_end=3, transition_seconds=0.1)
             request.groups["vocals"] = "remove"
-            with self.assertRaises(HTTPException) as caught:
-                asyncio.run(runtime.preview(request))
-            self.assertEqual(caught.exception.status_code, 422)
-            self.assertIn("texto de estilo", caught.exception.detail)
-            request.prompt = "A track with techno"
-            prepared = asyncio.run(runtime.preview(request))
-            self.assertTrue(prepared["operations"]["engine_required"])
-            self.assertEqual(prepared["effective_parameters"], {})
-            self.assertEqual(prepared["pending_material"], [])
-            self.assertEqual(len(prepared["operations"]["source_digest"]), 64)
-            self.assertFalse(any("determinista" in item for item in prepared["warnings"]))
-            self.assertTrue(any("continúa el final" in item for item in prepared["warnings"]))
-            self.assertEqual(prepared["operations"]["timeline"]["method"], "continue_bed")
-            self.assertEqual(prepared["operations"]["timeline"]["natural_duration_seconds"], 3.2)
-            self.assertEqual(prepared["operations"]["timeline"]["target_duration_seconds"], 8)
+            # Sin transform, la ampliación por repetición NO requiere motor (determinista)
             plain = self.request(bpm=150, source_bpm=120)
             plain.groups["vocals"] = "remove"
             kept = asyncio.run(runtime.preview(plain))
             self.assertFalse(kept["operations"]["engine_required"])
             self.assertTrue(any("determinista" in item for item in kept["warnings"]))
+            # Sin expandir (duración igual a natural): método original
+            self.assertEqual(kept["operations"]["timeline"]["method"], "original")
+            # Con duración > natural (duración fuente ~8s / ratio ~6.4): repeat_crossfade
+            request = self.request(bpm=150, source_bpm=120, duration_seconds=8)
+            request.groups["vocals"] = "remove"
+            expanded = asyncio.run(runtime.preview(request))
+            self.assertEqual(expanded["operations"]["timeline"]["method"], "repeat_crossfade")
 
     def test_one_transformed_group_keeps_the_style_filed_outside_that_stem(self):
         actions = {"vocals": "keep", "drums": "transform", "bass": "remove", "other": "keep"}
@@ -564,32 +559,38 @@ class RemixTimelineTest(unittest.TestCase):
                                    config, "en la mezcla de grupos")
 
     def test_groups_mix_tempo_keeps_the_requested_duration(self):
+        """El segundo atempo modifica también el recorte, sin cambiar el objetivo."""
         config = self.settings.remix
         longer = timeline_plan(self.request(bpm=150, source_bpm=120, duration_seconds=35,
                                             repeat_start=2, repeat_end=8, transition_seconds=0.1),
                                20, self.settings)
-        adjusted = apply_groups_mix_tempo(longer, 16, 1.6, 35, config)
-        self.assertAlmostEqual(adjusted["natural_duration_seconds"], 10)
+        # Primer atempo 1.25: 2..8 -> 1.6..6.4. La mezcla medida a 140
+        # requiere un SEGUNDO atempo 150/140, con otra transformación temporal.
+        adjusted = apply_groups_mix_tempo(longer, 16, 150.0 / 140.0, 35, config)
+        self.assertAlmostEqual(adjusted["natural_duration_seconds"], 16 * 140 / 150)  # 16 / (150/140)≈
         self.assertEqual(adjusted["target_duration_seconds"], 35)
-        self.assertEqual(adjusted["method"], "continue_bed")
-        self.assertAlmostEqual(adjusted["tempo_ratio"], 1.6)
-        self.assertAlmostEqual(adjusted["mapped_repeat_start"], 1.0)
-        self.assertAlmostEqual(adjusted["mapped_repeat_end"], 4.0)
-        self.assertEqual(adjusted["transition_seconds"], 0.0)
-        self.assertEqual(longer["natural_duration_seconds"], 16)
-        self.assertEqual(longer["target_duration_seconds"], 35)
-        self.assertAlmostEqual(longer["tempo_ratio"], 1.25)
+        self.assertEqual(adjusted["method"], "repeat_crossfade")
+        self.assertAlmostEqual(adjusted["mapped_repeat_start"], 1.6 * 140 / 150)
+        self.assertAlmostEqual(adjusted["mapped_repeat_end"], 6.4 * 140 / 150)
+        # repeat_crossfade necesita transiciones positivas para el mixer
+        self.assertAlmostEqual(adjusted["transition_seconds"],
+                               config.timeline_transition_seconds)
+        # Sin ampliación: original
         plain = timeline_plan(self.request(bpm=150, source_bpm=120), 20, self.settings)
         settled = apply_groups_mix_tempo(plain, 16, 2, None, config)
-        self.assertAlmostEqual(settled["natural_duration_seconds"], 8)
-        self.assertAlmostEqual(settled["target_duration_seconds"], 8)
         self.assertEqual(settled["method"], "original")
-        self.assertEqual(settled["transition_seconds"], 0.0)
-        filled = apply_groups_mix_tempo(plain, 16, 2, 30, config)
-        self.assertEqual(filled["method"], "continue_bed")
+        # Ampliación: repeat_crossfade; sin recorte → canción entera.
+        # Se usa una petición con duration_seconds (expansión) para que mapee 0..natural.
+        expanded = self.request(bpm=150, source_bpm=120, duration_seconds=40)
+        expanded_plan = timeline_plan(expanded, 20, self.settings)
+        self.assertIsNotNone(expanded_plan["mapped_repeat_start"])
+        filled = apply_groups_mix_tempo(expanded_plan, 16, 2, 30, config)
+        self.assertEqual(filled["method"], "repeat_crossfade")
         self.assertEqual(filled["target_duration_seconds"], 30)
-        self.assertEqual(filled["transition_seconds"], 0.0)
-        self.assertIsNone(filled["mapped_repeat_start"])
+        # repeat_crossfade necesita transiciones positivas para el mixer
+        self.assertAlmostEqual(filled["transition_seconds"],
+                               config.timeline_transition_seconds)
+        self.assertAlmostEqual(filled["mapped_repeat_start"], 0.0)
         with self.assertRaisesRegex(ValueError, r"mínimo 32 s \(0:32\)"):
             apply_groups_mix_tempo(plain, 16, 0.5, 10, config)
 
@@ -843,6 +844,258 @@ class UncertainExtensionTest(unittest.TestCase):
             with self.subTest(bed=bed):
                 self.assertIsNone(uncertain_extension_fallback(
                     self.uncertain, "groups", self.plan, bed, self.config))
+
+
+class RepeatCrossfadeExpansionTest(unittest.TestCase):
+    """[R19] Por pistas amplía repitiendo material real, no generando música nueva."""
+
+    def setUp(self):
+        self.settings = AppSettings()
+        self.config = self.settings.remix
+        self.groups = {group["id"]: "keep" for group in self.settings.remix.groups}
+
+    def request(self, **kwargs):
+        return RemixProjectRequest(source_name="source.wav", scope="groups", groups=self.groups, **kwargs)
+
+    def test_production_plan_extends_real_pcm_without_bpm_and_keeps_transition(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "source.wav", Path(folder) / "expanded.wav"
+            MixerService._write_float_wav(source, array("f", [0.1] * (8000 * 4 * 2)), 8000, 2)
+            for scope in ("groups", "full"):
+                for transition in (None, self.config.timeline_transition_seconds * 2):
+                    with self.subTest(scope=scope, transition=transition):
+                        request = self.request(duration_seconds=8, transition_seconds=transition)
+                        request = request.model_copy(update={"scope": scope})
+                        plan = timeline_plan(request, 4, self.settings)
+                        self.assertEqual(plan["transition_seconds"], transition or self.config.timeline_transition_seconds)
+                        arrangement = MixerService.extend_timeline(source, output, plan, self.config)
+                        self.assertEqual(arrangement["seam_method"], "selected_interval_crossfade")
+                        self.assertAlmostEqual(MixerService.inspect_pcm(output)["duration_seconds"], 8)
+
+    def test_uncertain_mix_repeats_real_pcm_without_claiming_a_clock(self):
+        plan = timeline_plan(self.request(bpm=120, source_bpm=120, duration_seconds=8), 4, self.settings)
+        mark_uncertain_mix_tempo(plan, ValueError("El groove es incierto"))
+        with tempfile.TemporaryDirectory() as folder:
+            source, output = Path(folder) / "source.wav", Path(folder) / "expanded.wav"
+            MixerService._write_float_wav(source, array("f", [0.1] * (8000 * 4 * 2)), 8000, 2)
+            arrangement = MixerService.extend_timeline(source, output, plan, self.config)
+            self.assertEqual(arrangement["seam_method"], "selected_interval_crossfade")
+            self.assertIsNone(arrangement["beat_clock_bpm"])
+            self.assertEqual(plan["target_bpm"], 120)
+            self.assertEqual(plan["tempo_verification"], "uncertain_at_mix")
+            self.assertAlmostEqual(MixerService.inspect_pcm(output)["duration_seconds"], 8)
+            # Una pérdida de reloj sin la marca interna sigue siendo un error.
+            plan.pop("tempo_verification")
+            with self.assertRaisesRegex(ValueError, "reloj de tempo"):
+                MixerService.extend_timeline(source, output, plan, self.config)
+
+    def test_full_measured_variant_keeps_the_requested_transition(self):
+        request = RemixProjectRequest(source_name="source.wav", scope="full", prompt="techno",
+                                      bpm=120, duration_seconds=8, transition_seconds=0.2)
+        plan = full_variant_plan(request, 4, 4, self.settings,
+                                 {"bpm_measured": 120, "bpm_confidence": 0.8})
+        self.assertEqual(plan["method"], "repeat_crossfade")
+        self.assertEqual(plan["transition_seconds"], 0.2)
+
+    def test_second_atempo_fills_whole_interval_even_if_initial_plan_did_not_expand(self):
+        plan = timeline_plan(self.request(bpm=150, source_bpm=120), 20, self.settings)
+        updated = apply_groups_mix_tempo(plan, 16, 0.8, 30, self.config)
+        self.assertEqual(updated["mapped_repeat_start"], 0)
+        self.assertEqual(updated["mapped_repeat_end"], 20)
+
+    def test_timeline_plan_groups_expansion_returns_repeat_crossfade(self):
+        """Con BPM común y duración > natural, el método es repeat_crossfade."""
+        plan = timeline_plan(self.request(bpm=150, source_bpm=120, duration_seconds=35),
+                             20, self.settings)
+        self.assertEqual(plan["method"], "repeat_crossfade")
+        self.assertEqual(plan["target_duration_seconds"], 35)
+        self.assertEqual(plan["natural_duration_seconds"], 16)
+        self.assertEqual(plan["mapped_repeat_start"], 0.0)
+        self.assertEqual(plan["mapped_repeat_end"], 16.0)
+        self.assertEqual(plan["beat_clock_bpm"], 150)
+        self.assertEqual(plan["beat_clock_origin"], "requested_common_tempo")
+
+    def test_timeline_plan_groups_expansion_with_marked_interval(self):
+        """Con recorte marcado, mapped_repeat es ese intervalo escalado."""
+        plan = timeline_plan(self.request(bpm=150, source_bpm=120, duration_seconds=35,
+                                           repeat_start=2, repeat_end=8, transition_seconds=0.1),
+                             20, self.settings)
+        self.assertEqual(plan["method"], "repeat_crossfade")
+        self.assertEqual(plan["mapped_repeat_start"], 1.6)
+        self.assertEqual(plan["mapped_repeat_end"], 6.4)
+
+    def test_apply_groups_mix_tempo_expands_with_repeat_crossfade(self):
+        """Tras atempo de mezcla, la expansión usa repeat_crossfade."""
+        # Simula: measured_bpm=140, requested_bpm=150 -> ratio=150/140≈1.0714
+        # mix_seconds=16.0s a 140 BPM -> adjusted=16.0/1.0714≈14.93s a 150 BPM
+        plan = {
+            "source_duration_seconds": 20, "natural_duration_seconds": 16.0,
+            "target_duration_seconds": 35, "tempo_ratio": 1.25,
+            "source_bpm": 120.0, "source_bpm_origin": "manual",
+            "bpm_measured": 140.0, "bpm_confidence": 0.9,
+            "target_bpm": 150, "repeat_start": None, "repeat_end": None,
+            "beat_clock_bpm": 150, "beat_clock_origin": "requested_common_tempo",
+            "mapped_repeat_start": 0.0, "mapped_repeat_end": 16.0,
+            "transition_seconds": 0.0, "method": "original",
+            "tempo_method": "common_pcm_atempo", "engine_tempo_method": "engine_conditioning"
+        }
+        ratio = 150.0 / 140.0  # requested / measured
+        updated = apply_groups_mix_tempo(plan, 16.0, ratio, 35.0, self.config)
+        self.assertEqual(updated["method"], "repeat_crossfade")
+        self.assertEqual(updated["target_duration_seconds"], 35.0)
+        self.assertAlmostEqual(updated["natural_duration_seconds"], 16.0 / ratio, places=2)
+        self.assertEqual(updated["mapped_repeat_start"], 0.0)
+        self.assertAlmostEqual(updated["mapped_repeat_end"], 16.0 / ratio)
+
+    def test_apply_groups_mix_tempo_expands_marked_interval_with_repeat_crossfade(self):
+        """Con recorte, sus coordenadas siguen el segundo atempo de la mezcla."""
+        plan = {
+            "source_duration_seconds": 20, "natural_duration_seconds": 16.0,
+            "target_duration_seconds": 35, "tempo_ratio": 1.25,
+            "source_bpm": 120.0, "source_bpm_origin": "manual",
+            "bpm_measured": 140.0, "bpm_confidence": 0.9,
+            "target_bpm": 150, "repeat_start": 2.0, "repeat_end": 8.0,
+            "beat_clock_bpm": 150, "beat_clock_origin": "requested_common_tempo",
+            "mapped_repeat_start": 1.6, "mapped_repeat_end": 6.4,
+            "transition_seconds": 0.0, "method": "original",
+            "tempo_method": "common_pcm_atempo", "engine_tempo_method": "engine_conditioning"
+        }
+        ratio = 150.0 / 140.0
+        updated = apply_groups_mix_tempo(plan, 16.0, ratio, 35.0, self.config)
+        self.assertEqual(updated["method"], "repeat_crossfade")
+        self.assertAlmostEqual(updated["mapped_repeat_start"], 1.6 / ratio)
+        self.assertAlmostEqual(updated["mapped_repeat_end"], 6.4 / ratio)
+
+    def test_extend_timeline_reaches_target_without_silence(self):
+        """extend_timeline alarga hasta la duración pedida sin relleno de silencio."""
+        import tempfile
+        from pathlib import Path
+        from array import array
+        rate = 8000
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            source = directory / "source.wav"
+            output = directory / "extended.wav"
+            frames = rate * 16  # 16s
+            samples = array("f")
+            for frame in range(frames):
+                value = 0.3 * (1 if (frame // 1000) % 2 == 0 else -1)
+                samples.extend((value, value))
+            MixerService._write_float_wav(source, samples, rate, 2)
+
+            plan = {
+                "method": "repeat_crossfade",
+                "target_duration_seconds": 35.0,
+                "mapped_repeat_start": 0.0,
+                "mapped_repeat_end": 16.0,
+                "transition_seconds": self.config.timeline_transition_seconds,
+            }
+            arrangement = MixerService.extend_timeline(source, output, plan, self.config)
+            self.assertAlmostEqual(arrangement["duration_seconds"], 35.0, places=2)
+            self.assertGreater(arrangement["repetitions"], 0)
+            self.assertEqual(arrangement["method"], "repeat_crossfade")
+            # Verificar que no hay silencio al final
+            pcm = MixerService.inspect_pcm(output)
+            self.assertAlmostEqual(pcm["duration_seconds"], 35.0, places=2)
+            tail = pcm["samples"][-rate*2:]  # último 2s
+            self.assertGreater(max(abs(v) for v in tail), 1e-4)
+
+    def test_extend_timeline_beat_aligned_when_clock_verified(self):
+        """Con BPM y reloj verificado, costuras alineadas al compás."""
+        import tempfile
+        from pathlib import Path
+        from array import array
+        rate = 8000
+        bpm = 160.0
+        period = rate * 60 / bpm
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            source = directory / "source.wav"
+            output = directory / "extended.wav"
+            frames = int(rate * 8)  # 8s exactos = 4 compases
+            samples = array("f")
+            for frame in range(frames):
+                value = 0.3 if frame % int(period) == 0 else 0.02
+                samples.extend((value, value))
+            MixerService._write_float_wav(source, samples, rate, 2)
+
+            plan = {
+                "method": "repeat_crossfade",
+                "target_duration_seconds": 20.0,
+                "mapped_repeat_start": 0.0,
+                "mapped_repeat_end": 8.0,
+                "transition_seconds": self.config.timeline_transition_seconds,
+                "target_bpm": bpm,
+                "beat_clock_bpm": bpm,
+                "beat_clock_origin": "generated_measurement",
+            }
+            arrangement = MixerService.extend_timeline(source, output, plan, self.config)
+            self.assertEqual(arrangement.get("seam_method"), "beat_clock_aligned")
+            self.assertIn("beats_per_repetition", arrangement)
+            self.assertIn("repetition_stride_seconds", arrangement)
+
+    def test_extend_timeline_simple_crossfade_when_no_clock(self):
+        """Sin reloj verificado, crossfade simple y aviso (no falla)."""
+        import tempfile
+        from pathlib import Path
+        from array import array
+        rate = 8000
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            source = directory / "source.wav"
+            output = directory / "extended.wav"
+            frames = rate * 10
+            samples = array("f")
+            for frame in range(frames):
+                value = 0.3 if frame % 1000 == 0 else 0.01
+                samples.extend((value, value))
+            MixerService._write_float_wav(source, samples, rate, 2)
+
+            plan = {
+                "method": "repeat_crossfade",
+                "target_duration_seconds": 25.0,
+                "mapped_repeat_start": 0.0,
+                "mapped_repeat_end": 10.0,
+                "transition_seconds": self.config.timeline_transition_seconds,
+                "target_bpm": None,
+                "beat_clock_bpm": None,
+                "beat_clock_origin": "not_required",
+            }
+            arrangement = MixerService.extend_timeline(source, output, plan, self.config)
+            self.assertEqual(arrangement.get("seam_method"), "selected_interval_crossfade")
+            self.assertAlmostEqual(arrangement["duration_seconds"], 25.0, places=2)
+
+    def test_no_engine_used_for_expansion_deterministic(self):
+        """La ampliación no invoca el motor: es determinista (sin GPU extra)."""
+        import tempfile
+        from pathlib import Path
+        from array import array
+        rate = 8000
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            source = directory / "source.wav"
+            output1 = directory / "extended1.wav"
+            output2 = directory / "extended2.wav"
+            frames = rate * 5
+            samples = array("f")
+            for frame in range(frames):
+                value = 0.3 if frame % 1000 == 0 else 0.01
+                samples.extend((value, value))
+            MixerService._write_float_wav(source, samples, rate, 2)
+
+            plan = {
+                "method": "repeat_crossfade",
+                "target_duration_seconds": 12.0,
+                "mapped_repeat_start": 0.0,
+                "mapped_repeat_end": 5.0,
+                "transition_seconds": self.config.timeline_transition_seconds,
+            }
+            a1 = MixerService.extend_timeline(source, output1, plan, self.config)
+            a2 = MixerService.extend_timeline(source, output2, plan, self.config)
+            # Misma entrada + mismo plan = misma salida (determinista)
+            pcm1 = MixerService.inspect_pcm(output1)
+            pcm2 = MixerService.inspect_pcm(output2)
+            self.assertEqual(pcm1["samples"], pcm2["samples"])
 
 
 if __name__ == "__main__":

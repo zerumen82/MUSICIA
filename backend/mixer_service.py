@@ -614,7 +614,10 @@ class MixerService:
                                "requested_repeat_end_seconds": plan["mapped_repeat_end"],
                                "beat_clock_bpm": plan.get("beat_clock_bpm"),
                                "beat_clock_origin": plan.get("beat_clock_origin", "not_required")}
-            if plan.get("target_bpm") is not None:
+            uncertain_mix = (plan.get("tempo_verification") == "uncertain_at_mix"
+                             and plan.get("beat_clock_origin") == "unverified_uncertain_groove"
+                             and plan.get("beat_clock_bpm") is None)
+            if plan.get("target_bpm") is not None and not uncertain_mix:
                 clock = plan.get("beat_clock_bpm")
                 if isinstance(clock, bool) or not isinstance(clock, (float, int)) or not math.isfinite(clock) or clock <= 0:
                     raise ValueError("El arreglo con BPM necesita el reloj de tempo verificado o común")

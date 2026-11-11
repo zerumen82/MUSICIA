@@ -365,11 +365,20 @@ function Stop-Process([int]$Id, [switch]$Force, [string]$ErrorAction) {
     Microsoft.PowerShell.Management\Stop-Process -Id $Id -Force -ErrorAction Stop
     if ($Id -eq [int]$env:MUSICIA_TEST_CHILD_PID) { $script:childWasSignaled = $true }
 }
-$process = Get-CimInstance Win32_Process -Filter "ProcessId = $env:MUSICIA_TEST_PID"
-$fixtureProcesses = @($process)
-foreach ($idText in @($env:MUSICIA_TEST_CHILD_PID, $env:MUSICIA_TEST_EXTRA_PID)) {
-    if ($idText) { $fixtureProcesses += Get-CimInstance Win32_Process -Filter "ProcessId = $idText" }
-}
+$snapshotDeadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
+do {
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $env:MUSICIA_TEST_PID"
+    $fixtureProcesses = @($process)
+    foreach ($idText in @($env:MUSICIA_TEST_CHILD_PID, $env:MUSICIA_TEST_EXTRA_PID)) {
+        if ($idText) { $fixtureProcesses += Get-CimInstance Win32_Process -Filter "ProcessId = $idText" }
+    }
+    $incomplete = @($fixtureProcesses | Where-Object {
+        -not $_.CreationDate -or -not $_.ExecutablePath -or -not $_.CommandLine
+    })
+    if ($incomplete.Count -eq 0) { break }
+    Start-Sleep -Milliseconds 100
+} while ((Get-Date) -lt $snapshotDeadline)
+if ($incomplete.Count) { throw 'Fixture identity metadata did not become complete; no process signalled' }
 $fixtureProcesses | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine |
     Export-Clixml -LiteralPath (Join-Path $env:MUSICIA_TEST_FIXTURE_ROOT 'fixture-processes.xml')
 [ordered]@{
@@ -517,10 +526,24 @@ if (-not (Test-Path -LiteralPath $snapshotFile)) {
 $snapshots = @(Import-Clixml -LiteralPath $snapshotFile)
 [array]::Reverse($snapshots)
 foreach ($snapshot in $snapshots) {
-    $current = Get-CimInstance Win32_Process -Filter "ProcessId = $($snapshot.ProcessId)"
-    if (Test-EngineProcessSnapshot $snapshot $current) {
-        Stop-Process -Id ([int]$snapshot.ProcessId) -Force -ErrorAction Stop
-    } elseif ($current) { throw 'Fixture cleanup refused a reused PID' }
+    $cleanupDeadline = (Get-Date).AddSeconds(5)
+    $matched = $false
+    do {
+        $current = Get-CimInstance Win32_Process -Filter "ProcessId = $($snapshot.ProcessId)"
+        if (-not $current) { break }
+        if (Test-EngineProcessSnapshot $snapshot $current) {
+            $matched = $true
+            Stop-Process -Id ([int]$snapshot.ProcessId) -Force -ErrorAction Stop
+            break
+        }
+        # Tras parar el intérprete, su launcher puede estar saliendo y CIM
+        # devolver solo el PID. Esperar no autoriza ninguna señal dudosa.
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $cleanupDeadline)
+    if ($current -and -not $matched) {
+        $diagnostic = @{ expected = $snapshot; actual = ($current | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine) } | ConvertTo-Json -Depth 4 -Compress
+        throw "Fixture cleanup refused a reused or incomplete PID: $diagnostic"
+    }
 }
 '''], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                         text=True, timeout=20, creationflags=subprocess.CREATE_NO_WINDOW,

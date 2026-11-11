@@ -1,12 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { api, actionError } from '../api';
+import { api, actionError, isTransportBlip, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 
 /**
  * Forma de onda interactiva: pinta los picos reales (GET /audio/peaks)
  * y permite seleccionar el tramo útil arrastrando (trim inicio/fin).
  */
-export default function Waveform({ fileName, onSelection, sourceKind = null, selection = null, disabled = false, nudgeStep = null, scales = true }) {
+export default function Waveform(props) {
+  // Una fuente distinta empieza sin picos, duración ni selección de la anterior.
+  return <SourceWaveform key={JSON.stringify([props.sourceKind ?? null, props.fileName])} {...props} />;
+}
+
+function SourceWaveform({ fileName, onSelection, sourceKind = null, selection = null, disabled = false, nudgeStep = null, scales = true }) {
   const [peaks, setPeaks] = useState(null);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
@@ -19,17 +24,25 @@ export default function Waveform({ fileName, onSelection, sourceKind = null, sel
 
   useEffect(() => {
     let active = true;
-    api.audioPeaks(fileName, undefined, sourceKind)
-      .then((d) => {
+    let retryTimer;
+    const load = async () => {
+      try {
+        const d = await api.audioPeaks(fileName, undefined, sourceKind);
         if (!active) return;
         setPeaks(d.peaks);
         setDuration(d.duration_seconds);
         setError(null);
-      })
-      .catch((e) => {
-        if (active) setError(actionError(e.message));
-      });
-    return () => { active = false; };
+      } catch (e) {
+        if (!active) return;
+        if (isTransportBlip(e.message)) {
+          retryTimer = setTimeout(load, TRANSPORT_ERROR_CLEAR_MS);
+        } else {
+          setError(actionError(e.message));
+        }
+      }
+    };
+    void load();
+    return () => { active = false; clearTimeout(retryTimer); };
   }, [fileName, sourceKind]);
 
   const paint = useCallback(() => {

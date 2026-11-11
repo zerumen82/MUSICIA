@@ -209,7 +209,7 @@ app.whenReady().then(async () => {
         const node = document.querySelector(query)?.querySelector('[data-effective-prompt]');
         return node?.textContent.replace(/^Se envía:\s*/, '').trim();
       }, operation.scope);
-      const prompt = preview.response.effective_parameters?.prompt;
+      const prompt = preview.response.effective_prompt ?? preview.response.effective_parameters?.prompt;
       return prompt && shown === prompt ? { shown, request: preview.body, effective_parameters: preview.response.effective_parameters } : false;
     });
     else if (operation.kind === 'library-remix') {

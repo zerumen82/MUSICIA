@@ -1,0 +1,17 @@
+{
+  "own_api_remaining": 0,
+  "listeners_8000_8001": 0,
+  "foreign": [
+    {
+      "pid": 8528,
+      "alive": true,
+      "command_line": "\"D:\\PROJECTS\\MUSICIA\\backend\\venv\\Scripts\\python.exe\" D:\\PROJECTS\\MUSICIA\\logs\\audit-ui-20261111\\foreign-project\\backend\\main.py"
+    },
+    {
+      "pid": 13204,
+      "alive": true,
+      "command_line": "\"C:\\Users\\INdaHouse\\AppData\\Local\\Programs\\Python\\Python310\\python.exe\" D:\\PROJECTS\\MUSICIA\\logs\\audit-ui-20261111\\foreign-project\\backend\\main.py"
+    }
+  ],
+  "recorded_at": "2026-11-11T20:19:06.8839063+01:00"
+}

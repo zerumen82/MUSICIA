@@ -81,7 +81,7 @@ export default function MixLab({ externalRefresh = 0 }) {
   }, [externalRefresh, refresh]);
 
   const busy = mixing || separating || fading;
-  const canMix = base && vocal && !busy && !planning && planReady;
+  const canMix = base && vocal && !busy && (align === 'no' || (!planning && planReady));
 
   // Al elegir base y voz se pide la propuesta de cuadre (no se mezcla nada).
   useEffect(() => {

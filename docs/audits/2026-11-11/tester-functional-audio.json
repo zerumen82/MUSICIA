@@ -1,0 +1,44 @@
+[
+  {
+    "file": "auditoria-r19-ui-20261111.mp3",
+    "exists": true,
+    "ffprobe_exit": 0,
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "channels": 2
+        }
+      ],
+      "format": {
+        "duration": "35.000000",
+        "size": "841580"
+      }
+    },
+    "sha256": "b082238b13b48eda15c520ffc404668e93b04fe9b918a0be7472c53eda1b1857"
+  },
+  {
+    "file": "auditoria-sin-cuadrar-20261111.mp3",
+    "exists": true,
+    "ffprobe_exit": 0,
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "mp3",
+          "sample_rate": "48000",
+          "channels": 2
+        }
+      ],
+      "format": {
+        "duration": "20.000000",
+        "size": "481580"
+      }
+    },
+    "sha256": "5013a168830e4fab8de35b893194d1288b8c1697972097484129402ab900df95"
+  }
+]

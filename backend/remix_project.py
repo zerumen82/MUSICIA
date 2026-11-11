@@ -57,6 +57,12 @@ class RemixProjectRequest(BaseModel):
     seed: int | None = None
     lyrics: str | None = None
     instrumental: bool | None = None
+    # Parámetros de generación del motor (ocultos por defecto en la UI,
+    # desplegables para quien quiera tocarlos). Nulos = valor de configuración.
+    guidance_scale: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    inference_steps: int | None = Field(default=None, gt=0)
+    use_format: bool | None = None
+    batch_size: int | None = Field(default=None, gt=0)
     groups: dict[str, Literal["keep", "transform", "remove"]] | None = None
     gains_db: dict[str, float] = Field(default_factory=dict)
     source_classification: Literal["electronic", "non_electronic", "mixed", "unknown"] | None = None
@@ -100,8 +106,12 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
             value = getattr(request, key, None)
             values = [] if value is None else [value]
         for value in values:
-            if not math.isfinite(value) or not limits["min"] <= value <= limits["max"]:
-                raise ValueError(f"{key} debe estar entre {limits['min']} y {limits['max']}")
+            if not math.isfinite(value) or value < limits["min"] or (
+                limits.get("max") is not None and value > limits["max"]
+            ):
+                interval = (f"entre {limits['min']} y {limits['max']}" if limits.get("max") is not None
+                            else f"al menos {limits['min']}")
+                raise ValueError(f"{key} debe ser {interval}")
     if request.reference_kind is not None and not request.reference_name:
         raise ValueError("La referencia necesita un nombre de audio")
     if request.scope == "region":
@@ -208,6 +218,9 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
         mapped_start, mapped_end = start / ratio, end / ratio
         if expanding and mapped_end - mapped_start < config.timeline_min_repeat_seconds:
             raise ValueError("El recorte es demasiado corto para usarlo como sample")
+    elif expanding:
+        # Sin recorte marcado: repetir la canción entera (0..natural) en tiempo ajustado
+        mapped_start, mapped_end = 0.0, natural
     return {"source_duration_seconds": duration, "natural_duration_seconds": natural,
             "target_duration_seconds": target, "tempo_ratio": ratio,
             "source_bpm": source_bpm, "source_bpm_origin": origin,
@@ -216,8 +229,9 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
             "beat_clock_bpm": request.bpm if request.scope == "groups" else None,
             "beat_clock_origin": "requested_common_tempo" if request.scope == "groups" and request.bpm else "not_required",
             "mapped_repeat_start": mapped_start, "mapped_repeat_end": mapped_end,
-            "transition_seconds": 0.0,
-            "method": "continue_bed" if expanding else "original",
+            "transition_seconds": (config.timeline_transition_seconds if request.transition_seconds is None
+                                   else request.transition_seconds) if expanding else 0.0,
+            "method": "repeat_crossfade" if expanding else "original",
             "tempo_method": "common_pcm_atempo" if ratio != 1 else (
                 "engine_conditioning" if request.scope == "full" and request.bpm else "original")}
 
@@ -500,22 +514,24 @@ def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
     se recorta. Si cabe, se conserva el objetivo y se amplía solo si falta.
     """
     start, end = plan.get("mapped_repeat_start"), plan.get("mapped_repeat_end")
-    marked = start is not None or end is not None
+    has_interval = start is not None or end is not None
+    marked = plan.get("repeat_start") is not None
     if (isinstance(mix_seconds, bool) or not isinstance(mix_seconds, (int, float))
             or not math.isfinite(mix_seconds) or mix_seconds <= 0
             or isinstance(ratio, bool) or not isinstance(ratio, (int, float))
             or not math.isfinite(ratio) or ratio <= 0):
         raise ValueError("No hay una duración y una relación válidas para el tempo de la mezcla")
-    if marked and (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
+    if has_interval and (isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start)
                    or isinstance(end, bool) or not isinstance(end, (int, float)) or not math.isfinite(end)
                    or end <= start):
         raise ValueError("No hay una duración y una relación válidas para el tempo de la mezcla")
     updated = dict(plan)
     adjusted = float(mix_seconds) / float(ratio)
-    scale = adjusted / float(mix_seconds)
-    if marked:
-        updated["mapped_repeat_start"] = float(start) * scale
-        updated["mapped_repeat_end"] = float(end) * scale
+    # La mezcla ya se temporizó una vez. Este segundo atempo transforma
+    # también las coordenadas del recorte en la base de tiempo de la mezcla.
+    if marked and has_interval:
+        updated["mapped_repeat_start"] = float(start) / float(ratio)
+        updated["mapped_repeat_end"] = float(end) / float(ratio)
     updated["natural_duration_seconds"] = adjusted
     updated["tempo_ratio"] = float(ratio)
     updated["tempo_method"] = "measured_pcm_atempo"
@@ -532,15 +548,18 @@ def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
         raise ValueError("La duración objetivo debe ser igual o mayor que la canción al tempo elegido: "
                          f"mínimo {minimum} s ({minimum // 60}:{minimum % 60:02d})")
     updated["target_duration_seconds"] = float(requested_duration)
-    updated["transition_seconds"] = 0.0
     if float(requested_duration) > adjusted:
-        updated["method"] = "continue_bed"
+        updated["method"] = "repeat_crossfade"
+        updated["transition_seconds"] = plan.get("transition_seconds") or config.timeline_transition_seconds
         if marked:
             span = updated["mapped_repeat_end"] - updated["mapped_repeat_start"]
             if span < config.timeline_min_repeat_seconds:
                 raise ValueError("El recorte es demasiado corto para usarlo como sample")
+        else:
+            updated["mapped_repeat_start"], updated["mapped_repeat_end"] = 0.0, adjusted
     else:
         updated["method"] = "original"
+        updated["transition_seconds"] = 0.0
     return updated
 
 
@@ -796,7 +815,8 @@ def full_bpm_preview_notice() -> str:
     return (
         "En canción completa se mide cada variante y se ajusta después su tempo sin cambiar el tono. "
         "La duración natural se calcula tras generar. "
-        "Si pides más, el motor continúa el final de esa base y el recorte marcado entra una vez al empezar lo que sobra. "
+        "Si pides más duración, se repite material real de la base con transiciones suaves; "
+        "el recorte marcado se repite las veces necesarias. "
         "Agotadas las muestras, la variante sin pulso no se publica. "
         "Si otra midió, se publica esa y el trabajo lo dice. "
         "Si ninguna mide, sigue el error del detector. "
@@ -911,6 +931,10 @@ def project_generation(request, source, reference, settings) -> GenerationReques
         repaint_wav_crossfade_sec=config.repaint_wav_crossfade_sec if request.repaint_wav_crossfade_sec is None else request.repaint_wav_crossfade_sec,
         repaint_latent_crossfade_frames=config.repaint_latent_crossfade_frames if request.repaint_latent_crossfade_frames is None else request.repaint_latent_crossfade_frames,
         external_voice=external_voice,
+        guidance_scale=request.guidance_scale,
+        inference_steps=request.inference_steps,
+        use_format=request.use_format,
+        batch_size=request.batch_size,
     )
 
 
@@ -946,6 +970,9 @@ class RemixProjectRuntime:
                 "repaint_latent_crossfade_frames": remix.repaint_latent_crossfade_frames,
                 "batch_size": generation.batch_size,
                 "transition_seconds": remix.timeline_transition_seconds,
+                "guidance_scale": generation.guidance_by_model.get(generation.remix_model, generation.guidance_scale),
+                "inference_steps": generation.steps_by_model.get(generation.remix_model, generation.inference_steps),
+                "use_format": generation.use_format,
             },
             "timeline": {"max_duration_seconds": generation.max_duration_seconds,
                          "min_duration_seconds": remix.timeline_min_duration_seconds,
@@ -986,13 +1013,17 @@ class RemixProjectRuntime:
     def prepare(self, request, source, reference, duration, measured=None) -> dict:
         validate_project(request, duration, self.settings)
         timeline = timeline_plan(request, duration, self.settings, measured)
-        if timeline["method"] == "continue_bed" and not style_caption(request.prompt):
+        engine_timeline = timeline["method"] in {"continue_bed", "pending_generated_timeline"}
+        if engine_timeline and not style_caption(request.prompt):
             raise ValueError("Para continuar la base hace falta el texto de estilo")
         config = self.settings.remix
         transform = request.scope != "groups" or "transform" in request.groups.values()
-        continues = timeline["method"] == "continue_bed"
+        continues = engine_timeline
         if transform:
-            result = self.music.preview(project_generation(request, source, reference, self.settings))
+            generation_request = project_generation(request, source, reference, self.settings)
+            result = self.music.preview(generation_request)
+            # El prompt en inglés que recibirá el motor (tras style_for_engine).
+            result["effective_prompt"] = generation_request.prompt
             for key, field_name in {
                 "audio_cover_strength": "cover_strength", "cover_noise_strength": "cover_noise_strength",
                 "repaint_mode": "repaint_mode", "repaint_strength": "repaint_strength",
@@ -1058,10 +1089,10 @@ class RemixProjectRuntime:
                 "derived_fields": ["natural_duration_seconds", "tempo_ratio", "mapped_repeat_start", "mapped_repeat_end"]})
         if request.scope == "region" and request.bpm:
             result["warnings"].append("En Tramo el BPM es orientativo: condiciona al motor, sin ajuste posterior del audio.")
-        if timeline["method"] in {"continue_bed", "pending_generated_timeline"} and timeline.get("target_duration_seconds"):
+        if timeline["method"] in {"repeat_crossfade", "pending_generated_timeline"} and timeline.get("target_duration_seconds"):
             result["warnings"].append(
-                "Si pides más duración, el motor continúa el final de la base ya creada. "
-                "El recorte marcado entra una vez al empezar esa parte.")
+                "Si pides más duración, se repite material real de la base con transiciones suaves. "
+                "El recorte marcado se repite las veces necesarias hasta alcanzar la duración.")
         return result
 
     async def _prepare(self, request):
@@ -1164,7 +1195,8 @@ class RemixProjectRuntime:
         generation = await asyncio.to_thread(
             project_generation, request, engine_source, reference, self.settings)
         seed_max = config.parameters["seed"]["max"]
-        seed = replacement_request_seed(request.seed, self.settings.generation.batch_size, draw, seed_max)
+        batch = (self.settings.generation.batch_size if request.batch_size is None else request.batch_size)
+        seed = replacement_request_seed(request.seed, batch, draw, seed_max)
         generation.batch_size = 1
         generation.seed = seed
         generation.use_random_seed = seed is None
@@ -1491,8 +1523,9 @@ class RemixProjectRuntime:
                         if abs(seconds - natural_duration) > config.duration_tolerance_seconds:
                             raise MusicEngineError(f"El motor cambió la duración: {seconds:g}s frente a {natural_duration:g}s; no se mezclan timelines distintas")
                         generated.append((path, track))
-                    if len(generated) != self.settings.generation.batch_size:
-                        raise MusicEngineError(f"El motor devolvió {len(generated)} variantes; se pidieron {self.settings.generation.batch_size}")
+                    expected_batch = job["effective_parameters"]["batch_size"]
+                    if len(generated) != expected_batch:
+                        raise MusicEngineError(f"El motor devolvió {len(generated)} variantes; se pidieron {expected_batch}")
                     receipt = await asyncio.to_thread(build_receipt, job, source, reference, request,
                         duration, self.settings, generated, originals)
                     await asyncio.to_thread(atomic_json, work / RECEIPT_NAME, receipt)
@@ -1811,7 +1844,7 @@ class RemixProjectRuntime:
                     asked_seed = request.seed if track else None
                     if (groove_replacements or kick_replacements) and track:
                         asked_seed = replacement_request_seed(
-                            request.seed, self.settings.generation.batch_size,
+                            request.seed, job["effective_parameters"]["batch_size"],
                             max(groove_replacements, kick_replacements),
                             config.parameters["seed"]["max"])
                     variant_operations = {**job["operations"], "timeline": variant_plan,

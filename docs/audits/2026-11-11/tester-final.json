@@ -1,0 +1,143 @@
+{
+  "role": "sd-tester",
+  "verdict": "PASS",
+  "scope": "PASS technical verification of corrections and covered real UI/API/audio/service scenarios in this audit; no integral historical product closure",
+  "completed_at": "2026-11-11T20:27:38.5555079+01:00",
+  "reviewed_sources": {
+    "count": 20,
+    "matches": 20,
+    "report": "tester-final-source-sha256.json",
+    "all_modified_before_final_backend_suite": true
+  },
+  "frontend": {
+    "node": 77,
+    "failed": 0,
+    "lint_exit": 0,
+    "build_exit": 0,
+    "report": "frontend-ab-final-process.json",
+    "asset": "index-CMqgxfl9.js",
+    "built_after_final_frontend_changes": true
+  },
+  "backend": {
+    "command": "backend/venv/Scripts/python.exe -m unittest discover -s backend -p test_*.py -v",
+    "tests": 466,
+    "passed": 464,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "skip_reason": "Two historical WAV fixtures absent on this machine",
+    "duration_seconds": 310.038,
+    "exit_code": 0,
+    "log": "backend-suite-validated.log",
+    "process_report": "backend-validated-process.json",
+    "environment": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1",
+    "IPC_contention_focal": "3 tests PASS",
+    "API_identity_supervisor_focal": "25 tests PASS"
+  },
+  "functional": {
+    "report": "functional-05/result.json",
+    "sandbox": true,
+    "renderer_exceptions": 0,
+    "checks": 21,
+    "verdict": "PASS"
+  },
+  "recovery": {
+    "DSP": "actual 1.1 tempo request -> 18.182290s MP3; ffprobe exit0",
+    "verdict": "PASS",
+    "report": "recovery-03/result.json",
+    "waveform": "Chromium offline -> actual retry and canvas restored",
+    "AB": "interval2..8s and position2s retained, exactly one playing audio",
+    "upload": "external HTTP upload -> automatic real list refresh",
+    "checks": 5,
+    "observation": "Prior play AbortError corrected and real flow repeated; final PNG and DOM show no false error after pause"
+  },
+  "invalid_numeric_input": {
+    "report": "advanced-http-after.json",
+    "routes": [
+      "/music/preview",
+      "/music/generate",
+      "/music/remix/preview",
+      "/music/remix/project"
+    ],
+    "cases": 28,
+    "http422": 28
+  },
+  "generation": {
+    "files": 2,
+    "audio_report": "tester-production-audio.json",
+    "engine_idle_after": true,
+    "submission_probe_verdict": "FAIL only library assertion expected extension while UI renders basename",
+    "no_second_generation": true,
+    "delivery_verdict": "PASS",
+    "API_alive_after": true,
+    "job_status": "succeeded",
+    "each_bytes": 321068,
+    "submission_report": "production-generation-02/result.json",
+    "job": "1a7bdbf4b1504a5ba764bba572f338e7",
+    "variant_hashes_distinct": true,
+    "actual_ffprobe_exit": 0,
+    "delivery_report": "production-delivery-validation/result.json",
+    "http_sha256_equals_disk": true,
+    "profile": "SFT50/guidance9/batch2/thinkingfalse/use_formatfalse",
+    "actual_HTTP": 200,
+    "each_duration_seconds": 20,
+    "resumeValidation": true
+  },
+  "strictmode_cancellation": {
+    "phase": "engine initialization,0 diffusion steps",
+    "checks": 3,
+    "report": "strictmode-cancel-01/result.json",
+    "StrictMode": "frontend/src/main.jsx enabled",
+    "terminal_status": "failed with Cancelado por el usuario",
+    "engine_idle_after": true,
+    "controls_restored": true,
+    "job": "086cb8b115ff40f9942d3a213ca301b7",
+    "cancelled": true,
+    "active_operations_after": 0,
+    "verdict": "PASS",
+    "dev_url": "http://localhost:5173"
+  },
+  "availability": {
+    "all_health200": true,
+    "groove_seconds": 18.1773727999971,
+    "health_baseline_median_seconds": 0.0025833000036072917,
+    "report": "api-responsiveness-controlled.json",
+    "concurrent_samples": 57,
+    "scope": "only controlled groove concurrency, other DSP writes remain debt",
+    "health_concurrent_max_seconds": 0.3592519000012544
+  },
+  "current_limitations": [
+    "No artistic listening verdict: PENDING_USER",
+    "No integral closure R9/R10/B6/B7/Q2/R18 beyond scenarios covered",
+    "Cancellation exercised during real engine initialization; diffusion/download phases and all generation/remix options not exercised",
+    "Other synchronous DSP write routes, legacy B8 stereo duration, lyric notice, informative alignment text and global Electron wait monitor remain declared debts",
+    "Relative legacy API commands deliberately preserved; no automatic migration or universal third-party process isolation claim",
+    "Two historical WAV tests omitted, explicit in final full suite"
+  ],
+  "method": "Independently read final logs and process exit reports, complete UI driver source, guard/exit reports, viewed PNG captures, compared20 SHA256 to reviewer final snapshot; independently ffprobe5 local outputs and HTTP hashes2 generated MP3. No product edits or service/process controls during final evidence audit",
+  "lifecycle_guards": {
+    "cold_start": "PASS guard-cold-result.json",
+    "aged_cold_start": "PASS guard-aged-cold-result.json",
+    "foreign_age_before_start": "103.41843s and103.366191s, both greater than60s grace",
+    "foreign_same_identity": true,
+    "actual_stop": "exit0 guard-stop-process.json",
+    "own_API_after_stop": 0,
+    "listeners8000_8001_after_stop": 0,
+    "actual_Exit_button": "PASS exit-01-result.json",
+    "electron_exit_code": 0,
+    "exit_helper_status": "EXIT_REQUESTED intentionally saved before app exits; external verifier PASS",
+    "foreign_preserved_PIDs": [
+      8528,
+      13204
+    ],
+    "actual_exit_API_remaining": 0,
+    "actual_exit_listeners": 0
+  },
+  "preserved_attempt_history": [
+    "Initial sandbox backend1FAIL10ERROR from taskkill/CIM permission and fixture cleanup; elevated official runs preserved separately",
+    "457-test attempt had fixture cleanup ambiguity error; strict identity remained and final466-test suite passed after harness wait/diagnostic correction; no unsupported root cause claim",
+    "production-generation-01 failed WakeEngineBUSY; retry corrected with3 real IPC regressions",
+    "production-generation-02 job succeeded but UI runner timed out expecting .mp3 extension; same job delivery independently revalidated with resumeValidationtrue, no regeneration",
+    "Earlier UI driver assumptions and playback AbortError remain in original reports; recovery03 records corrected result"
+  ]
+}

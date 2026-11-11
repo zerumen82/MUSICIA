@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "electron_exit": {
+    "pid": 11868,
+    "exit_code": 0,
+    "completed": "2026-11-11T20:23:48.0827063+01:00"
+  },
+  "exit_requested_at": "2026-11-11T19:23:44.557Z",
+  "own_api_remaining": 0,
+  "listeners_8000_8001": 0,
+  "foreign": [
+    {
+      "pid": 8528,
+      "same_identity": true
+    },
+    {
+      "pid": 13204,
+      "same_identity": true
+    }
+  ],
+  "recorded_at": "2026-11-11T20:25:16.6590566+01:00"
+}

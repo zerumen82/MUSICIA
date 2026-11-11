@@ -4,7 +4,7 @@ Abre Musicia como aplicación de ventana (Electron):
   2. Abre Electron inmediatamente; la UI queda disponible
   3. El motor carga modelos al recibir el primer trabajo
 
-Al cerrar la ventana / salir de Musicia, se apagan la API y el motor.
+SALIR apaga la API y el motor. La X conserva la ventana según el contrato.
 No queda nada arrancado en segundo plano.
 #>
 $ErrorActionPreference = 'Continue'
@@ -16,19 +16,9 @@ New-Item -ItemType Directory -Force -Path $logs | Out-Null
 Remove-Item (Join-Path $logs 'stop.flag') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $logs 'engine.idle') -Force -ErrorAction SilentlyContinue
 
-# Limpiar procesos residuales de Musicia para evitar conflictos de puerto
-# o procesos huérfanos que bloqueen el wake del motor. Solo afecta procesos
-# de Musicia (backend o motor ACE-Step), no otras apps del usuario.
-try {
-    # WQL exige OR (no el -or de PowerShell): con -or la consulta es inválida,
-    # Silencioso la traga y no se mataba NADA (problema del 2026-10-19).
-    $musiciaProcs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'uv.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like '*backend\main.py*' -or $_.CommandLine -like '*backend/main.py*' -or $_.CommandLine -like '*-m acestep.api_server*' }
-    foreach ($p in $musiciaProcs) {
-        & taskkill.exe /F /T /PID $p.ProcessId 2>$null | Out-Null
-    }
-} catch {}
-Start-Sleep -Seconds 3
+# El supervisor conserva los procesos ajenos y comprueba identidad antes de
+# cualquier rearme. Un patrón como backend/main.py también coincide con otros
+# proyectos: el lanzador nunca debe terminar esos procesos por su nombre.
 
 # 1. Arrancar stack local (API arriba, motor ACTIVO: cargará modelos al primer trabajo)
 Write-Host "[app] arrancando servidor de Musicia..."
@@ -56,7 +46,7 @@ if (-not (Test-Path $electronExe)) {
 Start-Process -FilePath $electronExe `
     -ArgumentList (Join-Path $raiz 'frontend') `
     -WorkingDirectory (Join-Path $raiz 'frontend') | Out-Null
-Write-Host "Musicia abierta. Al cerrar la ventana se apaga el servidor."
+Write-Host "Musicia abierta. Usa SALIR para apagar la ventana y sus servicios."
 
 # 3. Esperar a que el usuario cierre Electron.
 #    Electron lanza varios procesos (main + renderer). Damos tiempo de arranque

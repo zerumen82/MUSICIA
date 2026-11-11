@@ -33,6 +33,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $raiz = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'engine_identity.ps1')
+. (Join-Path $PSScriptRoot 'api_identity.ps1')
 $logs = Join-Path $raiz 'logs'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $flag = Join-Path $logs 'stop.flag'
@@ -105,7 +106,12 @@ function Test-Port([int]$puerto) {
 
 function Find-Python([string]$filtro) {
     @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*$filtro*" })
+        Where-Object {
+            if ($filtro -in @('backend\main.py', 'backend/main.py')) {
+                return Test-MusiciaApiProcess $_ $raiz
+            }
+            $_.CommandLine -like "*$filtro*"
+        })
 }
 
 function Get-OldestApiAgeSeconds([object[]]$procs) {
@@ -381,12 +387,13 @@ try {
     }
 
     $apiArriba = Test-Endpoint 'http://127.0.0.1:8000/health'
-    # «main.py» a secas también es ComfyUI. Solo cuenta el backend de Musicia.
-    $apiProcs = @(Find-Python 'backend\main.py') + @(Find-Python 'backend/main.py')
+    # Solo el script absoluto de esta raíz acredita propiedad. APIs de otras
+    # carpetas y comandos relativos antiguos se preservan, aunque usen el venv.
+    $apiProcs = @(Find-Python 'backend\main.py')
     $apiProcs = @($apiProcs | Where-Object { $_ })
     $apiPort = Test-Port 8000
     $apiPy = Join-Path $raiz 'backend\venv\Scripts\python.exe'
-    $apiArgs = @('backend\main.py')
+    $apiArgs = @('"' + (Join-Path $raiz 'backend\main.py') + '"')
     $apiOut = Join-Path $logs 'musicia-api.log'
     $apiErr = Join-Path $logs 'musicia-api.err.log'
     if ($apiArriba) {
@@ -413,7 +420,11 @@ try {
                 # Tras el árbol (/T) del padre, el hijo del venv ya murió: no
                 # se repite la orden a un PID muerto («ERROR» de taskkill en
                 # una operación que sí es correcta).
-                if (Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) {
+                $actual = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ProcessId)" -ErrorAction Stop
+                if ($actual -and -not (Test-MusiciaApiProcessSnapshot $proc $actual $raiz)) {
+                    throw "La identidad de la API PID $($proc.ProcessId) cambió o está incompleta; se preserva y no se reinicia."
+                }
+                if ($actual) {
                     & taskkill.exe /PID $proc.ProcessId /T /F | Out-Null
                 }
             }
@@ -422,7 +433,10 @@ try {
             $deadline = (Get-Date).AddSeconds($apiExitWaitSeconds)
             do {
                 Start-Sleep -Milliseconds $apiExitPollMs
-            } while (((Find-Python 'backend\main.py').Count + (Find-Python 'backend/main.py').Count) -gt 0 -and (Get-Date) -lt $deadline)
+            } while ((Find-Python 'backend\main.py').Count -gt 0 -and (Get-Date) -lt $deadline)
+            if ((Find-Python 'backend\main.py').Count -gt 0 -or (Test-Port 8000)) {
+                throw 'La API propia sigue presente o el puerto 8000 está ocupado; no se inicia otra API.'
+            }
             Start-Servicio 'API' $apiPy $apiArgs $raiz $apiOut $apiErr
             Write-Output 'API=refreshed'
         } else {
@@ -439,7 +453,11 @@ try {
             foreach ($proc in $apiProcs) {
                 # Mismo criterio que en la ruta obsoleta: el árbol (/T) ya
                 # mató al hijo del venv, no se ordena matar a un PID muerto.
-                if (Get-Process -Id $proc.ProcessId -ErrorAction SilentlyContinue) {
+                $actual = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ProcessId)" -ErrorAction Stop
+                if ($actual -and -not (Test-MusiciaApiProcessSnapshot $proc $actual $raiz)) {
+                    throw "La identidad de la API PID $($proc.ProcessId) cambió o está incompleta; se preserva y no se reinicia."
+                }
+                if ($actual) {
                     & taskkill.exe /PID $proc.ProcessId /T /F | Out-Null
                 }
             }
@@ -448,7 +466,10 @@ try {
             $deadline = (Get-Date).AddSeconds($apiExitWaitSeconds)
             do {
                 Start-Sleep -Milliseconds $apiExitPollMs
-            } while (((Find-Python 'backend\main.py').Count + (Find-Python 'backend/main.py').Count) -gt 0 -and (Get-Date) -lt $deadline)
+            } while ((Find-Python 'backend\main.py').Count -gt 0 -and (Get-Date) -lt $deadline)
+            if ((Find-Python 'backend\main.py').Count -gt 0 -or (Test-Port 8000)) {
+                throw 'La API propia sigue presente o el puerto 8000 está ocupado; no se inicia otra API.'
+            }
             Start-Servicio 'API' $apiPy $apiArgs $raiz $apiOut $apiErr
             Write-Output 'API=revived'
         } else {

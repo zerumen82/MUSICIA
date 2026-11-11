@@ -1,0 +1,1116 @@
+2026-11-11 20:18:12.103 | INFO     | config:get_settings:559 - Configuraci�n activa | motor=http://127.0.0.1:8001 | outputs=D:\PROJECTS\MUSICIA\backend\outputs | modelo=acestep-v15-sft
+2026-11-11 20:18:12.220 | INFO     | main:<module>:2890 - UI de escritorio servida desde D:\PROJECTS\MUSICIA\frontend\dist
+test_el_modelo_del_remix_es_el_sft_que_siempre_activa_cfg (test_advanced_prompt_params.AdvancedParamsReachEnginePayloadTest) ... ok
+test_guidance_zero_and_explicit_batch_three_remain_valid (test_advanced_prompt_params.AdvancedParamsReachEnginePayloadTest) ... ok
+test_invalid_overrides_are_rejected_in_both_api_schemas (test_advanced_prompt_params.AdvancedParamsReachEnginePayloadTest) ... ok
+test_sin_tocar_nada_vale_la_config_del_sft (test_advanced_prompt_params.AdvancedParamsReachEnginePayloadTest) ... ok
+test_valores_explicitos_sobrescriben_la_config (test_advanced_prompt_params.AdvancedParamsReachEnginePayloadTest) ... ok
+test_a_path_after_python_c_does_not_establish_ownership (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_absolute_script_in_the_own_root_is_identified (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_an_unchanged_real_cim_snapshot_matches (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_legacy_relative_script_is_not_adopted (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_other_root_using_the_same_interpreter_is_preserved (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_reused_pid_or_changed_identity_is_rejected (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_unknown_snapshot_fields_are_preserved (test_api_process_identity.ApiProcessIdentityTest) ... ok
+test_a_backend_without_python_files_is_not_comparable (test_api_supervisor.ApiStaleTest) ... ok
+test_a_missing_backend_directory_is_not_comparable (test_api_supervisor.ApiStaleTest) ... ok
+test_code_older_or_equal_to_the_process_is_current (test_api_supervisor.ApiStaleTest) ... ok
+test_negative_ages_are_a_wiring_bug (test_api_supervisor.ApiStaleTest) ... ok
+test_newer_code_than_the_process_marks_it_stale (test_api_supervisor.ApiStaleTest) ... ok
+test_the_newest_write_comes_from_first_level_python_files_only (test_api_supervisor.ApiStaleTest) ... ok
+test_a_fresh_process_is_still_starting (test_api_supervisor.ApiSupervisorTest) ... ok
+test_a_process_that_stopped_listening_is_wedged (test_api_supervisor.ApiSupervisorTest) ... ok
+test_grace_and_age_must_make_sense (test_api_supervisor.ApiSupervisorTest) ... ok
+test_health_or_an_open_port_is_not_wedged (test_api_supervisor.ApiSupervisorTest) ... ok
+test_the_wait_comes_from_settings (test_api_supervisor.ApiSupervisorTest) ... ok
+test_a_port_occupied_after_stop_prevents_a_second_api (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_changed_or_incomplete_live_identity_is_preserved_without_restart (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_launch_keeps_an_api_that_already_serves_current_code (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_launch_replaces_a_stale_responsive_api (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_the_window_watchdog_never_replaces_a_responsive_api (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_without_identifiable_processes_nothing_is_killed (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_without_the_api_interpreter_nothing_is_killed (test_api_supervisor_wiring.ApiRefreshWiringTest) ... ok
+test_actual_local_child_is_terminated_when_cancelled (test_effective_preview.AdmissionCancellationTest) ... ok
+test_cancelled_process_still_blocks_gpu_until_exit (test_effective_preview.AdmissionCancellationTest) ... ok
+test_creation_cancel_downloading_keeps_reservation_without_engine_restart (test_effective_preview.AdmissionCancellationTest) ... 2026-11-11 20:19:18.863 | INFO     | main:log_event:698 - [create-c] +0.0s Tarea aceptada; enviada al motor local
+2026-11-11 20:19:18.864 | INFO     | main:log_event:698 - [create-c] +0.0s Audio generado por el motor; descargando�
+2026-11-11 20:19:18.865 | INFO     | main:cancel_job:2245 - Trabajo create-c cancelado (music): No hab�a una tarea ACE-Step activa.
+2026-11-11 20:19:18.872 | INFO     | main:log_event:698 - [create-c] +0.0s Cancelado por el usuario; no se publica un resultado completado
+ok
+test_creation_cancel_during_measurement_never_overwrites_failed_with_success (test_effective_preview.AdmissionCancellationTest) ... 2026-11-11 20:19:18.877 | INFO     | main:log_event:698 - [create-c] +0.0s Tarea aceptada; enviada al motor local
+2026-11-11 20:19:18.877 | INFO     | main:log_event:698 - [create-c] +0.0s Audio generado por el motor; descargando�
+2026-11-11 20:19:18.878 | INFO     | main:log_event:698 - [create-c] +0.0s Audio descargado; verificando duraci�n�
+2026-11-11 20:19:18.879 | INFO     | main:cancel_job:2245 - Trabajo create-c cancelado (music): No hab�a una tarea ACE-Step activa.
+2026-11-11 20:19:18.881 | INFO     | main:log_event:698 - [create-c] +0.0s Cancelado por el usuario; no se publica un resultado completado
+ok
+test_creation_cancel_waiting_restarts_engine_and_keeps_reservation (test_effective_preview.AdmissionCancellationTest) ... 2026-11-11 20:19:18.885 | INFO     | main:log_event:698 - [create-c] +0.0s Tarea aceptada; enviada al motor local
+2026-11-11 20:19:18.887 | INFO     | main:cancel_job:2245 - Trabajo create-c cancelado (music): El motor se detendr� al cerrar la operaci�n activa.
+2026-11-11 20:19:18.888 | INFO     | main:log_event:698 - [create-c] +0.0s Cancelado por el usuario; no se publica un resultado completado
+ok
+test_legacy_mix_phase_does_not_restart_idle_engine (test_effective_preview.AdmissionCancellationTest) ... ok
+test_legacy_remix_rechecks_reservation_after_health_await (test_effective_preview.AdmissionCancellationTest) ... ok
+test_new_generation_immediately_after_cancel_waits_for_process_cleanup (test_effective_preview.AdmissionCancellationTest) ... 2026-11-11 20:19:18.915 | INFO     | main:cancel_job:2245 - Trabajo cleanup cancelado (remix): No hab�a una tarea ACE-Step activa.
+ok
+test_bpm_conflict_rejected_on_direct_build_payload (test_effective_preview.ExplicitConflictTest) ... ok
+test_engine_error_is_not_lost_when_parsing_tracks (test_effective_preview.ExplicitConflictTest) ... ok
+test_explicit_voice_conflicts_rejected_including_discarded_lyrics (test_effective_preview.ExplicitConflictTest) ... ok
+test_meters_checked_and_api_numerator_supported (test_effective_preview.ExplicitConflictTest) ... ok
+test_partial_voice_exclusion_and_negated_bpm_not_misread (test_effective_preview.ExplicitConflictTest) ... ok
+test_real_seed_csv_assigned_per_variant_unknown_not_guessed (test_effective_preview.ExplicitConflictTest) ... ok
+test_repaint_resolution_matches_installed_engine_without_importing_gpu (test_effective_preview.ExplicitConflictTest) ... ok
+test_source_voice_not_inferred_from_empty_lyrics (test_effective_preview.ExplicitConflictTest) ... ok
+test_transport_json_matches_real_preview (test_effective_preview.ExplicitConflictTest) ... 2026-11-11 20:19:19.002 | WARNING  | music_service:_request:261 - El chequeo de vida del motor fall� (Expecting value: line 1 column 1 (char 0)); se contin�a
+2026-11-11 20:19:19.002 | INFO     | music_service:submit:619 - Tarea enviada al motor: test-transport | modelo=acestep-v15-sft | pasos=50 guidance=9.0 | dur=120.0s | thinking=False cot_caption=False cot_metas=False use_format=False batch=2 | prompt='techno 130 bpm'
+ok
+test_deterministic_preview_omits_seed_and_engine (test_effective_preview.PreviewApiTest) ... ok
+test_group_derived_material_is_pending_without_separation_or_jobs (test_effective_preview.PreviewApiTest) ... ok
+test_invalid_generation_never_creates_a_job (test_effective_preview.PreviewApiTest) ... ok
+test_invalid_remix_never_creates_a_job (test_effective_preview.PreviewApiTest) ... ok
+test_preview_no_job_and_defaults_equal_shared_preparer (test_effective_preview.PreviewApiTest) ... ok
+test_remix_preview_uses_original_source_and_repaint_contract (test_effective_preview.PreviewApiTest) ... ok
+test_unknown_generated_seed_does_not_inherit_source_seed_or_payload (test_effective_preview.PreviewApiTest) ... ok
+test_voice_base_preparation_respects_native_bpm_and_user_duration (test_effective_preview.PreviewApiTest) ... ok
+test_busy_does_not_reset_the_global_deadline (test_engine_control_contention.EngineControlContentionTest) ... ok
+test_busy_retries_until_actual_mutex_is_released (test_engine_control_contention.EngineControlContentionTest) ... ok
+test_other_real_errors_are_not_retried (test_engine_control_contention.EngineControlContentionTest) ... ok
+test_only_configured_post_is_leased_and_invalid_request_does_not_wake (test_engine_lifecycle.EngineLifecycleASGITest) ... ok
+test_response_download_and_background_finish_before_release (test_engine_lifecycle.EngineLifecycleASGITest) ... Executing <Task pending name='Task-87' coro=<EngineLifecycleMiddleware.__call__() running at D:\PROJECTS\MUSICIA\backend\engine_lifecycle.py:207> wait_for=<Future pending cb=[Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\tasks.py:337> took 0.156 seconds
+ok
+test_activation_waits_for_supervisor_reconciliation (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_cancellation_during_pause_still_waits_for_cleanup (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_cancelled_operation_releases_and_preserves_cancellation (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_detached_child_cannot_reuse_finished_request_lease (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_disabled_or_not_activated_lifecycle_bypasses_callbacks (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_failed_pause_is_not_reported_as_idle_on_successful_body (test_engine_lifecycle.EngineLifecycleTest) ... 2026-11-11 20:19:28.530 | ERROR    | engine_lifecycle:_record_failure:106 - Local engine lifecycle pause: RuntimeError: cannot stop engine
+ok
+test_failed_pause_preserves_original_error_and_reports_state (test_engine_lifecycle.EngineLifecycleTest) ... 2026-11-11 20:19:28.545 | ERROR    | engine_lifecycle:_record_failure:106 - Local engine lifecycle pause: RuntimeError: process still exists
+ok
+test_failed_start_attempts_cleanup_and_next_cycle_can_retry (test_engine_lifecycle.EngineLifecycleTest) ... 2026-11-11 20:19:28.560 | ERROR    | engine_lifecycle:_record_failure:106 - Local engine lifecycle wake: RuntimeError: readiness failed
+ok
+test_health_call_outside_operation_cannot_wake (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_lease_without_use_does_not_wake_or_pause (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_next_operation_waits_for_pause_then_wakes_again (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_overlapping_operations_wake_once_and_last_one_releases (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_passive_lease_does_not_pause_an_adopted_engine (test_engine_lifecycle.EngineLifecycleTest) ... ok
+test_api_restart_reconciles_surviving_engine_as_not_idle (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:28.675 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.676 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+2026-11-11 20:19:28.684 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.684 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+Executing <Task pending name='Task-151' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.125 seconds
+ok
+test_cancel_endpoint_does_not_interrupt_other_engine_lease (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:28.828 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.829 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+2026-11-11 20:19:28.844 | INFO     | main:cancel_job:2245 - Trabajo da4a9c57 cancelado (music): El motor se detendr� al cerrar la operaci�n activa.
+ok
+test_cancelled_asgi_request_waits_for_cleanup (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:28.868 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.868 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_concurrent_jobs_share_wake_and_only_last_completion_pauses (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:28.904 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.905 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_idle_health_model_poll_and_invalid_request_do_not_wake (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:28.955 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:28.956 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_project_remix_path_is_leased_until_background_returns (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:29.014 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:29.015 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_reachable_health_does_not_adopt_an_unverified_engine (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:29.038 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:29.039 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_submit_failure_releases_engine_and_returns_error (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:29.063 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:29.064 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+2026-11-11 20:19:29.072 | ERROR    | main:generate_music:1950 - No se pudo enviar la generaci�n al motor: engine rejected request
+ok
+test_successful_background_work_holds_lease_and_next_request_wakes_once (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:29.094 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:29.096 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_unreachable_health_keeps_verified_starting_engine_retryable (test_engine_lifecycle_integration.EngineLifecycleProductionIntegrationTest) ... 2026-11-11 20:19:29.142 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+2026-11-11 20:19:29.142 | INFO     | main:lifespan:207 - Musicia API lista | motor ACE-Step: http://127.0.0.1:8001
+ok
+test_default_engine_and_style_worker_share_python_environment (test_engine_python_config.EnginePythonConfigTest) ... ok
+test_launch_respects_custom_models_timeout_python_and_disabled_offload (test_engine_python_config.EnginePythonConfigTest) ... ok
+test_launch_uses_configured_primary_model_and_explicit_offload (test_engine_python_config.EnginePythonConfigTest) ... ok
+test_legacy_config_keeps_offload_defaults_and_its_generation_profile (test_engine_python_config.EnginePythonConfigTest) ... ok
+test_legacy_config_without_engine_python_uses_dataclass_default (test_engine_python_config.EnginePythonConfigTest) ... ok
+test_busy_engine_is_not_restarted (test_engine_recovery.EngineRecoveryTest)
+Generando (busy) no es motor muerto: se contin�a sin reiniciar. ... 2026-11-11 20:19:29.159 | INFO     | music_service:_request:264 - Motor ocupado generando antes de /release_task; se contin�a sin reiniciar
+ok
+test_connect_error_restarts_engine_once_and_retries (test_engine_recovery.EngineRecoveryTest) ... 2026-11-11 20:19:29.162 | WARNING  | music_service:_request:301 - ConnectError en /release_task; reiniciando motor y reintentando
+ok
+test_failing_alive_probe_does_not_block_nor_restart (test_engine_recovery.EngineRecoveryTest)
+Si el propio /health revienta, se contin�a: el error lo dir� la petici�n. ... 2026-11-11 20:19:29.167 | WARNING  | music_service:_request:261 - El chequeo de vida del motor fall� (transporte raro); se contin�a
+ok
+test_status_poll_skips_the_alive_check (test_engine_recovery.EngineRecoveryTest)
+El sondeo /query_result no pasa por el chequeo previo. ... ok
+test_unreachable_engine_is_restarted_and_request_retried (test_engine_recovery.EngineRecoveryTest) ... 2026-11-11 20:19:29.174 | WARNING  | music_service:_request:266 - Motor no reachable antes de /release_task; reiniciando
+ok
+test_absent_engine_requests_one_start (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_accepts_unambiguous_legacy_date_from_other_locale (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_preserves_owner_for_proven_reuse_after_signal (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_preserves_owner_if_root_is_absent_but_engine_remains (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_preserves_owner_on_stop_failure (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_refuses_a_process_without_ownership_record (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_refuses_a_reused_pid (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_refuses_ambiguous_legacy_date (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_refuses_console_host_outside_system_directory (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_revalidates_identity_immediately_before_signal (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_uses_only_the_proven_pid (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_engine_stop_waits_for_incomplete_cim_metadata_during_exit (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_explicit_rearm_requests_stop_then_start (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_health_timeout_preserves_live_pid_and_later_identity (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_does_not_report_awake_when_health_fails (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_preserves_supervisor_error_without_engine_owner (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_preserves_unverified_process_as_error_not_idle (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_reports_idle_only_without_process_or_port (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_reports_verified_live_engine_as_awake (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_inspection_reports_verified_unready_engine_as_starting (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_present_process_without_open_port_is_preserved (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_real_venv_pair_preserves_ambiguous_descendant_and_owner (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_real_venv_pair_preserves_foreign_listener_and_owner (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_real_venv_pair_stops_launcher_child_and_socket (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_real_venv_pair_waits_for_child_cim_teardown_before_launcher (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_real_venv_pair_waits_for_transient_port_close (test_engine_supervisor.EngineSupervisorTest) ... ok
+test_b�squeda_por_subcadena (test_genre_glossary.Busqueda) ... 2026-11-11 20:21:05.758 | INFO     | genre_glossary:_vocab:55 - Glosario cargado: 178572 g�neros de genres_vocab.txt
+ok
+test_combinaciones_son_reales (test_genre_glossary.Busqueda) ... ok
+test_no_inventa_formas_imposibles (test_genre_glossary.Busqueda) ... ok
+test_no_sirve_el_archivo_entero (test_genre_glossary.Busqueda) ... ok
+test_sin_consulta_devuelve_los_primeros (test_genre_glossary.Busqueda) ... ok
+test_todo_resultado_es_una_linea_del_archivo (test_genre_glossary.Busqueda) ... ok
+test_una_linea_entera_es_genero_y_un_texto_ajeno_no (test_genre_glossary.Busqueda) ... ok
+test_estilos_con_nombre_caption_y_bpm (test_genre_glossary.Catalogo) ... ok
+test_genre_es_una_linea_literal_del_vocabulario (test_genre_glossary.Catalogo)
+Lo que el glosario a�ade como g�nero est� en genres_vocab.txt. ... ok
+test_ningun_estilo_se_queda_sin_genre (test_genre_glossary.Catalogo)
+Los 29 estilos ofrecen un genre literal; si ninguna clave es ... ok
+test_archivo_ausente_devuelve_vacio (test_genre_glossary.SinDatos) ... ok
+test_autocorr_window_keeps_configured_bpm_limits_inside (test_groove.GrooveTest) ... ok
+test_bar_accent_does_not_hide_the_kick_grid (test_groove.GrooveTest) ... ok
+test_blurred_fast_period_does_not_replace_a_clear_pulse (test_groove.GrooveTest) ... ok
+test_coarse_subharmonic_cannot_hide_a_legal_fast_pulse (test_groove.GrooveTest) ... ok
+test_decay_ripple_is_not_a_measurable_tempo (test_groove.GrooveTest) ... ok
+test_flat_shoulder_is_not_a_measurable_tempo (test_groove.GrooveTest) ... ok
+test_fractional_phase_fold_does_not_accumulate_rounding_drift (test_groove.GrooveTest) ... ok
+test_insufficient_double_tempo_evidence_remains_half_tempo (test_groove.GrooveTest) ... ok
+test_invalid_refinement_configuration_and_excessive_cost_are_rejected (test_groove.GrooveTest) ... ok
+test_multi_period_refinement_preserves_anchor_octave_and_known_period (test_groove.GrooveTest) ... ok
+test_octave_requires_local_peak_and_score_from_original_anchor (test_groove.GrooveTest) ... ok
+test_onset_beat_rejects_an_invalid_ratio (test_groove.GrooveTest) ... ok
+test_onset_rescue_compares_sustained_evidence_between_attack_candidates (test_groove.GrooveTest) ... ok
+test_onset_rescue_does_not_prefer_a_period_without_a_stronger_attack (test_groove.GrooveTest) ... ok
+test_onset_rescue_keeps_power_choice_for_comparable_evidence (test_groove.GrooveTest) ... ok
+test_plain_pulse_without_a_faster_grid_stays_on_that_pulse (test_groove.GrooveTest) ... ok
+test_real_pulsed_wav_preserves_tempo_and_phase (test_groove.GrooveTest) ... ok
+test_refinement_boundary_is_not_accepted_as_a_supported_period_peak (test_groove.GrooveTest) ... ok
+test_required_measured_tempo_reports_the_detector_reason (test_groove.GrooveTest) ... ok
+test_search_window_endpoint_cannot_hide_an_interior_peak (test_groove.GrooveTest) ... ok
+test_short_nonharmonic_peak_cannot_win (test_groove.GrooveTest) ... ok
+test_single_lag_evidence_matches_the_refiner (test_groove.GrooveTest) ... ok
+test_slow_tremolo_remains_a_tempo (test_groove.GrooveTest) ... ok
+test_smooth_envelope_without_a_hit_is_uncertain (test_groove.GrooveTest) ... ok
+test_supported_octave_uses_refined_evidence (test_groove.GrooveTest) ... ok
+test_a_short_loop_opens_to_the_whole_song_and_a_full_one_stays (test_kick_alignment.KickAlignmentTest) ... ok
+test_asmnama_uncertain_extension_keeps_the_verified_bed_tempo (test_kick_alignment.KickAlignmentTest)
+[R17] ASMNAMA: la ampliaci�n no midi�; la base verificada acredita el tempo. ... ok
+test_offset_kicks_are_squared_onto_the_reference_and_remeasured (test_kick_alignment.KickAlignmentTest) ... ok
+test_saved_group_remix_squares_without_touching_its_files (test_kick_alignment.KickAlignmentTest)
+Lee los WAV del trabajo que fall� y comprueba solo la mezcla cuadrada. ... skipped 'los WAV de ese trabajo no est�n en este equipo'
+test_short_loop_of_the_saved_remix_fails_and_the_whole_song_reaches_240 (test_kick_alignment.KickAlignmentTest)
+El tramo de 4 s no pasa; la canci�n entera, repetida, s� llega a 240 s. ... skipped 'los WAV de ese trabajo no est�n en este equipo'
+test_unmeasurable_kick_returns_nothing_and_writes_no_mix (test_kick_alignment.KickAlignmentTest) ... ok
+test_audio_corto_se_rechaza (test_kick_coverage.KickCoverageTest) ... ok
+test_bombo_en_cada_tiempo_da_cobertura_alta (test_kick_coverage.KickCoverageTest) ... ok
+test_bpm_invalido_se_rechaza (test_kick_coverage.KickCoverageTest) ... ok
+test_fuera_de_la_rejilla_del_bpm_pide_otro_tempo (test_kick_coverage.KickCoverageTest) ... ok
+test_sin_bombo_da_cobertura_cero (test_kick_coverage.KickCoverageTest) ... ok
+test_motivo_de_bombo_es_reconocido_como_regenerable (test_kick_coverage.KickScreenTest) ... ok
+test_por_debajo_del_umbral_da_motivo_y_encima_no (test_kick_coverage.KickScreenTest) ... ok
+test_trozo_con_bombo_en_sus_tiempos_pasa_el_cribado (test_kick_coverage.KickScreenTest) ... ok
+test_umbral_cero_desactiva_el_cribado (test_kick_coverage.KickScreenTest) ... ok
+test_borrado_normal_y_ausente (test_library_delete_history.LibraryDeleteTest) ... 2026-11-11 20:21:43.354 | INFO     | main:delete_audio:2635 - Audio borrado: normal.mp3
+ok
+test_ficha_bloqueada_no_anuncia_exito_completo (test_library_delete_history.LibraryDeleteTest) ... 2026-11-11 20:21:43.366 | ERROR    | main:delete_audio:2633 - Audio �ficha-ocupada.mp3� borrado, pero no se pudo borrar su ficha: [WinError 32] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-jxxd63l1\\ficha-ocupada.ficha.json'
+ok
+test_individual_informa_otros_errores_os_sin_inventar_bloqueo (test_library_delete_history.LibraryDeleteTest) ... 2026-11-11 20:21:43.373 | WARNING  | main:delete_audio:2623 - No se puede borrar �fallo.mp3�: acceso denegado. [Errno 13] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-l9y3l8rx\\fallo.mp3'
+2026-11-11 20:21:43.378 | ERROR    | main:delete_audio:2627 - No se pudo borrar �fallo.mp3�: [Errno 5] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-l9y3l8rx\\fallo.mp3'
+ok
+test_lote_continua_y_separa_bloqueo_ausencia_y_otros_errores (test_library_delete_history.LibraryDeleteTest) ... 2026-11-11 20:21:43.389 | WARNING  | main:delete_audio:2623 - No se puede borrar �ocupado.mp3�: otro proceso utiliza el archivo. [WinError 33] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ih_z_m8u\\ocupado.mp3'
+2026-11-11 20:21:43.390 | INFO     | main:delete_audio:2635 - Audio borrado: libre.mp3
+2026-11-11 20:21:43.391 | WARNING  | main:delete_audio:2623 - No se puede borrar �denegado.mp3�: acceso denegado. [Errno 13] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ih_z_m8u\\denegado.mp3'
+2026-11-11 20:21:43.392 | ERROR    | main:delete_audio:2627 - No se pudo borrar �error-os.mp3�: [Errno 5] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-ih_z_m8u\\error-os.mp3'
+2026-11-11 20:21:43.392 | INFO     | main:delete_many_audio:2662 - Bloque borrado: 1 ok, 1 no encontrados, 1 ocupados, 2 errores
+ok
+test_ocupado_devuelve_conflicto_y_conserva_audio_y_ficha (test_library_delete_history.LibraryDeleteTest) ... 2026-11-11 20:21:43.400 | WARNING  | main:delete_audio:2623 - No se puede borrar �ocupado.mp3�: otro proceso utiliza el archivo. [WinError 32] error OS de prueba: 'C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-delete-36yfa2b_\\ocupado.mp3'
+ok
+test_colisiones_largas_preservan_ordinal_sin_pisar_archivos (test_library_delete_history.LongOutputNameTest) ... ok
+test_renombrado_admite_ultimo_ordinal_configurado_y_respeta_limite (test_library_delete_history.LongOutputNameTest) ... 2026-11-11 20:21:43.417 | INFO     | main:rename_audio:2870 - Audio renombrado: origen.mp3 -> destino (2).mp3
+ok
+test_cancelacion_durante_voz_no_se_convierte_en_exito (test_library_delete_history.VoiceRemixHistoryTest) ... 2026-11-11 20:21:43.433 | INFO     | main:step:1494 - [remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa m�s que en el turbo).
+2026-11-11 20:21:43.436 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+ok
+test_cover_sigue_persistiendo_su_error (test_library_delete_history.VoiceRemixHistoryTest) ... 2026-11-11 20:21:43.438 | INFO     | main:step:1494 - [remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa m�s que en el turbo).
+2026-11-11 20:21:43.438 | INFO     | main:step:1494 - [remix test-voz] Fuerza configurada 0.2.
+2026-11-11 20:21:43.438 | INFO     | main:step:1494 - [remix test-voz] Sin letra nueva: no se a�ade una orden de eliminar la voz; cover puede resintetizarla.
+2026-11-11 20:21:43.438 | INFO     | main:step:1494 - [remix test-voz] Reestilando �origen.mp3�: el motor oye tu pista, no una base nueva�
+2026-11-11 20:21:43.440 | ERROR    | main:_run_ai_remix:1622 - Remix IA fall� (test-voz): fallo cover
+2026-11-11 20:21:43.443 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+ok
+test_exito_del_modo_voz_sobrevive_al_reinicio_con_variantes (test_library_delete_history.VoiceRemixHistoryTest) ... 2026-11-11 20:21:43.445 | INFO     | main:step:1494 - [remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa m�s que en el turbo).
+2026-11-11 20:21:43.454 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+ok
+test_fallo_del_modo_voz_persiste_el_error_real (test_library_delete_history.VoiceRemixHistoryTest) ... 2026-11-11 20:21:43.457 | INFO     | main:step:1494 - [remix test-voz] Modelo del motor: acestep-v15-sft (guidance 9, 50 pasos: el prompt pesa m�s que en el turbo).
+2026-11-11 20:21:43.457 | ERROR    | main:_run_ai_remix:1622 - Remix IA fall� (test-voz): fallo real
+2026-11-11 20:21:43.460 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+ok
+test_callbacks_delegate_to_the_supervisor_controls (test_main_lifecycle_wiring.ProductionLifecycleCallbacksTest) ... ok
+test_wake_and_pause_are_real_coroutines (test_main_lifecycle_wiring.ProductionLifecycleCallbacksTest) ... ok
+test_a_backup_suffix_outside_the_log_name_is_rejected (test_process_logs.ProcessLogTailTest) ... ok
+test_a_long_file_drops_the_beginning (test_process_logs.ProcessLogTailTest) ... ok
+test_a_path_outside_logs_is_rejected (test_process_logs.ProcessLogTailTest) ... ok
+test_backup_rotation_is_shown_below_the_live_file (test_process_logs.ProcessLogTailTest)
+ensure_local trunca el vivo al arrancar: la copia .bak se ense�a. ... ok
+test_tail_keeps_the_end_and_reports_a_missing_file (test_process_logs.ProcessLogTailTest) ... ok
+test_tail_lines_outside_the_configured_limit_fail (test_process_logs.ProcessLogTailTest) ... ok
+test_capas_separadas (test_prompt_style.AnalyzePromptTest) ... ok
+test_chip_activo_no_se_sugiere (test_prompt_style.AnalyzePromptTest)
+Lo ya escrito se marca activo y deja de sugerirse (no duplica). ... ok
+test_chip_lleva_su_clausula_en_ingles (test_prompt_style.AnalyzePromptTest)
+La UI muestra y a�ade la cl�usula en ingl�s, no la etiqueta en ... ok
+test_chips_de_voz_marcados_en_dato (test_prompt_style.AnalyzePromptTest)
+Los 7 modificadores de voz llevan voice:true y el chip lo expone; ... ok
+test_chips_dependen_del_genero (test_prompt_style.AnalyzePromptTest)
+El set de sugeridos cambia con el g�nero: no es una lista fija. ... ok
+test_generico_se_sugiere_siempre (test_prompt_style.AnalyzePromptTest) ... ok
+test_sin_texto_no_hay_activos (test_prompt_style.AnalyzePromptTest) ... ok
+test_todo_modificador_tiene_datos_de_chip (test_prompt_style.AnalyzePromptTest)
+El cat�logo es la fuente �nica: cada fila lleva label/text/suggest. ... ok
+test_borrador_preserva_restricciones_al_annadir_bpm (test_prompt_style.EnhancePromptTest) ... ok
+test_bpm_contradictorio_se_declara_y_no_se_impone (test_prompt_style.EnhancePromptTest) ... ok
+test_bpm_elegido_se_propone_detras_de_la_clausula (test_prompt_style.EnhancePromptTest) ... ok
+test_bpm_existente_no_se_duplica (test_prompt_style.EnhancePromptTest) ... ok
+test_clausula_con_espacios_distintos_no_duplica (test_prompt_style.EnhancePromptTest) ... ok
+test_clausula_ya_escrita_no_se_duplica (test_prompt_style.EnhancePromptTest) ... ok
+test_descripciones_no_contradicen_restricciones (test_prompt_style.EnhancePromptTest) ... ok
+test_estilo_sin_linea_del_modelo_no_se_annade_y_se_avisa (test_prompt_style.EnhancePromptTest) ... ok
+test_etiqueta_del_modelo_recibe_su_clausula_validada (test_prompt_style.EnhancePromptTest) ... ok
+test_negacion_no_annade_el_estilo_negado (test_prompt_style.EnhancePromptTest) ... ok
+test_no_quiero_estilo_no_lo_activa (test_prompt_style.EnhancePromptTest) ... ok
+test_prompt_vacio_se_rechaza (test_prompt_style.EnhancePromptTest) ... ok
+test_prosa_derivada_no_activa_generos_en_segunda_pasada (test_prompt_style.EnhancePromptTest) ... ok
+test_sin_estilo_no_annade_nada (test_prompt_style.EnhancePromptTest) ... ok
+test_texto_largo_se_conserva_y_no_se_amplia (test_prompt_style.EnhancePromptTest) ... ok
+test_varios_estilos_anidan_clausulas_y_avisan (test_prompt_style.EnhancePromptTest) ... ok
+test_caption_combinado_grupos_libre_de_contradiccion (test_prompt_style.ExclusionSourceGroupedTest) ... ok
+test_exclusion_source_vetadescripcion_de_otra_pista (test_prompt_style.ExclusionSourceGroupedTest) ... ok
+test_pista_que_hereda_el_estilo_mantiene_texto_y_papel_juntos (test_prompt_style.ExclusionSourceGroupedTest)
+Una pista con estilo (heredado o propio) se compone como el global. ... ok
+test_sin_exclusion_source_comportamiento_inalterado (test_prompt_style.ExclusionSourceGroupedTest) ... ok
+test_cada_negacion_de_un_compuesto_va_separada (test_prompt_style.ExclusionSpanTest) ... ok
+test_exclusion_en_espanol_va_en_su_tramo (test_prompt_style.ExclusionSpanTest) ... ok
+test_lo_que_ya_esta_en_el_idioma_del_motor_no_se_toca (test_prompt_style.ExclusionSpanTest) ... ok
+test_una_exclusion_desconocida_no_se_traduce (test_prompt_style.ExclusionSpanTest) ... ok
+test_exclusion_de_otra_familia_no_toca_la_ficha (test_prompt_style.ExclusionVocabularyTest) ... ok
+test_exclusion_reconocida_omite_la_ficha_que_la_contradice (test_prompt_style.ExclusionVocabularyTest) ... ok
+test_analyze_expone_todos_los_generos (test_prompt_style.FindStyleTest) ... ok
+test_bpm_multiestilo_es_el_del_primero (test_prompt_style.FindStyleTest) ... ok
+test_caption_conserva_mezcla_sin_presets (test_prompt_style.FindStyleTest) ... ok
+test_caption_multiestilo_es_idempotente (test_prompt_style.FindStyleTest) ... ok
+test_catalogo_json_con_esquema_valido (test_prompt_style.FindStyleTest)
+El cat�logo es datos (NO HARDCODE): existe, valida y las regex compilan. ... ok
+test_el_especifico_gana_al_generico (test_prompt_style.FindStyleTest) ... ok
+test_hardcore_holandes_gana_a_techno (test_prompt_style.FindStyleTest) ... ok
+test_insensible_a_mayusculas_y_acentos (test_prompt_style.FindStyleTest) ... ok
+test_sin_estilo_no_devuelve_nada (test_prompt_style.FindStyleTest) ... ok
+test_tres_estilos_se_detectan_todos (test_prompt_style.FindStyleTest)
+Bug 2026-10-10: con 3 estilos solo viajaba el primero. ... ok
+test_calma_cae_en_ambient (test_prompt_style.NewCatalogTest) ... ok
+test_electronica_antes_que_electro (test_prompt_style.NewCatalogTest)
+�Electr�nica� contiene �electro�: la regla espec�fica gana. ... ok
+test_folk_acustico (test_prompt_style.NewCatalogTest) ... ok
+test_lofi_hiphop_lofi_gana (test_prompt_style.NewCatalogTest)
+Corregido 2026-10-06 (UI negra + auditor�a de vocabulario): lo-fi ... ok
+test_moods_de_crear_caen_en_regla (test_prompt_style.NewCatalogTest) ... ok
+test_rap_no_secuestra_rapido (test_prompt_style.NewCatalogTest)
+No hay clave �rap�: ser�a subcadena de �r�pido� y robar�a tempos. ... ok
+test_sin_voz_como_modificador (test_prompt_style.NewCatalogTest) ... ok
+test_synthwave_del_desplegable (test_prompt_style.NewCatalogTest) ... ok
+test_variantes_del_remix_disparan_regla (test_prompt_style.NewCatalogTest)
+Cada texto de VARIANTS (RemixIAPanel) reconoce estilo o detalle: ... ok
+test_estilo_solo_permite_texto_vacio (test_prompt_style.StructuredPromptTest) ... ok
+test_etiqueta_valida_sin_ficha_conserva_nombre_y_avisa (test_prompt_style.StructuredPromptTest) ... ok
+test_excluir_estilo_vecino_no_rechaza_principal_literal (test_prompt_style.StructuredPromptTest) ... ok
+test_exclusiones_impiden_descripcion_pero_conservan_roles (test_prompt_style.StructuredPromptTest) ... ok
+test_exclusiones_instrumentales_completas_compatibles_permiten_ayuda (test_prompt_style.StructuredPromptTest) ... ok
+test_exclusiones_no_contrastables_omiten_receta_completa (test_prompt_style.StructuredPromptTest) ... ok
+test_negaciones_instrumentales_en_datos (test_prompt_style.StructuredPromptTest) ... ok
+test_pista_de_idioma_solo_exclusiones_es_completas_conocidas (test_prompt_style.StructuredPromptTest) ... ok
+test_preparacion_estable_sin_reanalizar_detalles_como_selecciones (test_prompt_style.StructuredPromptTest) ... ok
+test_principal_y_matices_sin_asignar_instrumentos_a_matices (test_prompt_style.StructuredPromptTest) ... ok
+test_quitar_ayuda_conserva_principal_matices_y_texto (test_prompt_style.StructuredPromptTest) ... ok
+test_seleccion_negada_se_rechaza_sin_sustituir (test_prompt_style.StructuredPromptTest) ... ok
+test_traduccion_solo_compone_y_no_reemplaza_validacion_original (test_prompt_style.StructuredPromptTest) ... ok
+test_validacion_no_sustituye_etiquetas (test_prompt_style.StructuredPromptTest) ... ok
+test_lo_elegido_manda (test_prompt_style.StyleBpmTest) ... ok
+test_sin_regla_no_inventa (test_prompt_style.StyleBpmTest) ... ok
+test_tipico_del_estilo (test_prompt_style.StyleBpmTest) ... ok
+test_clausulas_voluntarias_se_conservan_sin_repetir (test_prompt_style.StyleCaptionTest) ... ok
+test_frase_de_chip_completa_se_reconoce (test_prompt_style.StyleCaptionTest) ... ok
+test_generos_no_autorizan_recetas (test_prompt_style.StyleCaptionTest) ... ok
+test_instrucciones_y_ambiguedad_no_se_resuelven_con_listas (test_prompt_style.StyleCaptionTest) ... ok
+test_instrumentos_conservan_su_papel (test_prompt_style.StyleCaptionTest) ... ok
+test_palabras_de_busqueda_no_se_marcan_como_roles_elegidos (test_prompt_style.StyleCaptionTest) ... ok
+test_puntuacion_saltos_y_texto_largo_no_se_recortan (test_prompt_style.StyleCaptionTest) ... ok
+test_chips_uses_only_vocabulary_the_model_uses (test_realism.TestOfertasRealistas) ... ok
+test_exclusion_keys_use_only_vocabulary_the_model_uses (test_realism.TestOfertasRealistas)
+Cada caption_key debe existir en los captions del fabricante. ... ok
+test_genres_js_agrees_with_the_backend_catalog (test_realism.TestOfertasRealistas)
+Mismo estilo \u21d2 mismo texto en el selector G�NERO y en el GLOSARIO: ... ok
+test_genres_js_only_offers_genres_the_model_can_write (test_realism.TestOfertasRealistas)
+El selector G�NERO (CREAR + ASISTENTE) a�ade al prompt un `genre` ... ok
+test_las_bases_del_remix_son_del_vocabulario_del_modelo (test_realism.TestOfertasRealistas)
+El prompt que sugiere el remix (SUBIR y BIBLIOTECA) va en ingl�s y ... ok
+test_preview_frontend_equals_backend_caption (test_realism.TestOfertasRealistas)
+Recorrido Node \u2192 backend de los prompts que antes cambiaban su intenci�n. ... ok
+test_style_captions_use_only_vocabulary_the_model_uses (test_realism.TestOfertasRealistas) ... ok
+test_style_keys_exist_in_the_model_genre_vocabulary (test_realism.TestOfertasRealistas) ... ok
+test_variantes_del_modelo (test_realism.TestOfertasRealistas)
+Variantes elegidas: datos revisados, conservados sin expansi�n autom�tica. ... ok
+test_vocal_tags_use_only_vocabulary_the_model_uses (test_realism.TestOfertasRealistas) ... ok
+test_cancel_endpoint_404_y_409 (test_remix_logic.CancelAndHistoryTest) ... ok
+test_save_load_roundtrip_marca_interrumpidos (test_remix_logic.CancelAndHistoryTest) ... 2026-11-11 20:21:51.232 | INFO     | main:_load_history:2102 - Historial recuperado de job_history.json
+ok
+test_snapshot_solo_campos_declarados (test_remix_logic.CancelAndHistoryTest) ... ok
+test_uses_motor_solo_si_trabaja (test_remix_logic.CancelAndHistoryTest) ... ok
+test_fuerza_fuera_de_rango_se_rechaza (test_remix_logic.CoverNativoTest) ... ok
+test_modo_remix_solo_reestilar_o_voz (test_remix_logic.CoverNativoTest) ... ok
+test_payload_cover_lleva_origen_y_fuerza (test_remix_logic.CoverNativoTest) ... ok
+test_use_format_sale_de_config_y_se_puede_apagar (test_remix_logic.CoverNativoTest) ... ok
+test_decoding_variants_are_conversion (test_remix_logic.DecodeProgressTest) ... ok
+test_el_sondeo_no_repone_el_numero_quieto (test_remix_logic.DecodeProgressTest) ... ok
+test_la_conversion_no_tiene_porcentaje (test_remix_logic.DecodeProgressTest) ... ok
+test_vae_loading_offloading_and_encoding_are_not_conversion (test_remix_logic.DecodeProgressTest) ... ok
+test_ausente_404 (test_remix_logic.FindAudioTest) ... ok
+test_kind_invalido_400 (test_remix_logic.FindAudioTest) ... ok
+test_output_manda_mezcla (test_remix_logic.FindAudioTest) ... ok
+test_output_recurre_a_uploads (test_remix_logic.FindAudioTest) ... ok
+test_sin_kind_orden_viejo (test_remix_logic.FindAudioTest) ... ok
+test_upload_manda_subida (test_remix_logic.FindAudioTest) ... ok
+test_upload_recurre_a_outputs (test_remix_logic.FindAudioTest) ... ok
+test_borrar_o_renombrar_pista_antigua_cambia_huella (test_remix_logic.LibraryVersionTest) ... ok
+test_el_nombre_pedido_se_ve_mientras_el_remix_sigue (test_remix_logic.LibraryVersionTest) ... ok
+test_huella_detecta_altas_y_borrados (test_remix_logic.LibraryVersionTest) ... ok
+test_jobs_responde_con_la_huella (test_remix_logic.LibraryVersionTest) ... ok
+test_tarea_auxiliar_conserva_fecha_y_no_inventa_audio (test_remix_logic.LibraryVersionTest) ... ok
+test_cover_y_repaint_van_al_modelo_de_remix (test_remix_logic.ModeloRemixTest) ... ok
+test_las_dos_tablas_no_son_la_misma (test_remix_logic.ModeloRemixTest) ... ok
+test_lo_que_pide_el_cliente_manda (test_remix_logic.ModeloRemixTest) ... ok
+test_modelo_fuera_de_la_allowlist_se_rechaza (test_remix_logic.ModeloRemixTest) ... ok
+test_payload_de_crear_conserva_el_prompt_literal (test_remix_logic.ModeloRemixTest)
+Contrato R10 verificado en el payload del motor (auditor�a XCVII): ... ok
+test_payload_de_crear_usa_el_modelo_configurado (test_remix_logic.ModeloRemixTest) ... ok
+test_payload_del_remix_usa_su_modelo_y_sus_parametros (test_remix_logic.ModeloRemixTest) ... ok
+test_text2music_se_queda_en_el_configurado (test_remix_logic.ModeloRemixTest) ... ok
+test_poda_terminados_y_respeta_activos (test_remix_logic.RememberJobsTest) ... ok
+test_como_la_original_fuerza_alta_con_aviso (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_glosa_inglesa_sin_melodias_fuerza_baja (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_neutro_fuerza_base_sin_aviso (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_prompt_vacio_fuerza_base (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_sin_melodias_fuerza_baja (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_solo_bateria_fuerza_baja (test_remix_logic.RemixCoverStrengthTest) ... ok
+test_all_removed_and_nonfinite_gains_rejected (test_remix_project.RemixContractTest) ... ok
+test_classifier_category_never_changes_parameters (test_remix_project.RemixContractTest) ... ok
+test_common_tempo_accepts_retained_groups_and_requires_reliable_source_bpm (test_remix_project.RemixContractTest) ... ok
+test_deterministic_removal_does_not_require_a_generation_prompt (test_remix_project.RemixContractTest) ... ok
+test_engine_launch_timeout_outlasts_the_factory_600s_cut (test_remix_project.RemixContractTest) ... ok
+test_explicit_instrumental_is_still_transmitted (test_remix_project.RemixContractTest) ... ok
+test_imaginary_instrument_group_rejected (test_remix_project.RemixContractTest) ... ok
+test_keep_voice_cannot_also_remove_voice_with_instrumental (test_remix_project.RemixContractTest) ... ok
+test_native_controls_reference_and_lossless_output_survive_payload (test_remix_project.RemixContractTest) ... ok
+test_region_must_be_inside_source (test_remix_project.RemixContractTest) ... ok
+test_regional_fields_not_silently_ignored_in_full_cover (test_remix_project.RemixContractTest) ... ok
+test_source_digest_runs_on_this_python_and_identifies_content (test_remix_project.RemixContractTest)
+Regresi�n 2026-10-12: `hashlib.file_digest` (3.11+) rompi� un job real. ... ok
+test_timeline_keyboard_step_comes_from_configuration (test_remix_project.RemixContractTest) ... ok
+test_whole_prompt_and_absence_of_new_lyrics_do_not_order_instrumental (test_remix_project.RemixContractTest) ... ok
+test_cancelled_and_published_jobs_rejected_without_changes (test_remix_recovery.DownloadedRemixTest) ... ok
+test_changed_job_parameters_request_or_timeline_rejected (test_remix_recovery.DownloadedRemixTest) ... ok
+test_changed_metadata_alone_rejected_by_history_anchor (test_remix_recovery.DownloadedRemixTest) ... ok
+test_conclusive_extension_outside_tolerance_fails_without_publication (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.865 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.869 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.874 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.879 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.885 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpu81vcjsu\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:51.889 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:21:52.685 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-1.wav (2.0 s)
+Executing <Task pending name='Task-328' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:21:53.077 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-1.wav (17.0 s)
+2026-11-11 20:21:54.473 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:21:54.476 | ERROR    | remix_project:_fail:1408 - Proyecto/separaci�n interrupted-job fall�: El BPM final medido 123 no cumple el pedido 120 (tolerancia 2 BPM)
+ok
+test_conclusive_extension_within_tolerance_uses_final_measurement (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.650 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.655 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.660 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.664 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.669 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpfx9r49c1\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:21:54.673 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:21:55.449 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-1.wav (2.0 s)
+Executing <Task pending name='Task-331' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.281 seconds
+2026-11-11 20:21:55.872 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-1.wav (17.0 s)
+2026-11-11 20:21:57.157 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:21:57.928 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-2.wav (2.0 s)
+Executing <Task pending name='Task-331' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:21:58.321 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-1.wav (17.0 s)
+2026-11-11 20:21:59.610 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:21:59.732 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:21:59.854 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+ok
+test_corrupt_wav_source_or_prepared_group_rejected (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmplx1rljwt\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:00.018 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmplx1rljwt\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:00.023 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+ok
+test_explicit_batch_is_downloaded_recovered_and_published_in_full (test_remix_recovery.DownloadedRemixTest)
+El payload, el recibo y la entrega usan el lote elegido, no el default. ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:00.299 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+2026-11-11 20:22:01.634 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:01.652 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.656 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.661 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.666 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.670 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:01.790 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.941 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.949 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\variante-3.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:01.957 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-3.wav (2.0 s)
+2026-11-11 20:22:03.292 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:04.605 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:05.948 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-3.mp3 (4.0 s)
+2026-11-11 20:22:05.969 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+2026-11-11 20:22:05.974 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+2026-11-11 20:22:05.978 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-3.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:05.983 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:05.988 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:05.992 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpctpuzlxc\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:05.996 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:06.112 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:22:06.233 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+2026-11-11 20:22:06.354 | INFO     | music_service:verify_audio:839 - Audio verificado: published-2.mp3 (4.0 s)
+ok
+test_failure_of_second_export_does_not_publish_first_variant (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.490 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.494 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.498 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.504 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.508 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp42tf1goh\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:06.513 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:07.833 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:09.161 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:09.164 | ERROR    | remix_project:_fail:1408 - Proyecto/separaci�n interrupted-job fall�: Real second-stage failure
+ok
+test_finish_reuses_downloaded_cover_and_repeats_without_inference (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.295 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.300 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.304 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.309 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.313 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmphn8e9ilo\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:09.318 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:10.692 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:12.051 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:12.173 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:22:12.294 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+ok
+test_grooveless_chunk_asks_a_new_sample_with_another_seed (test_remix_recovery.DownloadedRemixTest)
+B8b: un trozo sin pulso se vuelve a sortear con semilla nueva. ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.448 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.453 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.457 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.461 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.466 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp1b845dct\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:12.470 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:13.225 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-1.wav (2.0 s)
+Executing <Task pending name='Task-346' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.187 seconds
+2026-11-11 20:22:13.565 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-1.wav (17.0 s)
+Executing <Task pending name='Task-346' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:22:14.409 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-2.wav (17.0 s)
+2026-11-11 20:22:16.228 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:16.969 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-2.wav (2.0 s)
+Executing <Task pending name='Task-346' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.187 seconds
+2026-11-11 20:22:17.306 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-1.wav (17.0 s)
+Executing <Task pending name='Task-346' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:22:18.146 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-2.wav (17.0 s)
+2026-11-11 20:22:19.934 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:20.056 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:22:20.175 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+ok
+test_incomplete_batch_repeated_variant_and_escaped_path_rejected (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp7hpny364\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:20.322 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+2026-11-11 20:22:20.326 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+ok
+test_legacy_cache_binds_task_real_metadata_and_wav_hash (test_remix_recovery.DownloadedRemixTest) ... Executing <Task pending name='Task-352' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:95> wait_for=<Future pending cb=[Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.156 seconds
+ok
+test_missing_history_anchor_is_not_trusted (test_remix_recovery.DownloadedRemixTest) ... ok
+test_normal_download_saves_anchored_receipt_before_postprocessing_failure (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpty6445z9\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:20.984 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpty6445z9\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:20.987 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+2026-11-11 20:22:21.030 | ERROR    | remix_project:_fail:1408 - Proyecto/separaci�n interrupted-job fall�: postprocessing failure
+ok
+test_offline_guard_only_excludes_verified_venv_launcher_parent (test_remix_recovery.DownloadedRemixTest) ... ok
+test_offline_process_guard_distinguishes_musicia_from_other_main (test_remix_recovery.DownloadedRemixTest) ... ok
+test_prepublication_guard_prevents_a_partial_delivery (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.410 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.415 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.420 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.425 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.430 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpc8o3uwmh\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:21.435 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:22.749 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:24.077 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:24.079 | ERROR    | remix_project:_fail:1408 - Proyecto/separaci�n interrupted-job fall�: History changed before publication
+ok
+test_replacement_seed_uses_the_explicit_batch_stride (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp717rmfvu\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.225 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+ok
+test_roundtrip_atomic_receipt_preserves_real_seeds (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.365 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.369 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.374 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.379 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.384 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpt2bm8vl5\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.388 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+ok
+test_uncertain_extension_with_short_sample_preserves_continuation_and_base_tempo (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.555 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.560 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.564 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.570 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.574 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmph37jpm7c\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:24.578 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:25.355 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-1.wav (2.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.265 seconds
+2026-11-11 20:22:25.764 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-1.wav (17.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:22:26.432 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-2.wav (17.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.235 seconds
+2026-11-11 20:22:27.103 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-1-1-3.wav (17.0 s)
+2026-11-11 20:22:28.200 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:28.972 | INFO     | music_service:verify_audio:839 - Audio verificado: mezcla-2.wav (2.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:22:29.364 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-1.wav (17.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.250 seconds
+2026-11-11 20:22:30.024 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-2.wav (17.0 s)
+Executing <Task pending name='Task-376' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:101> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\futures.py:385, Task.task_wakeup()] created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\INdaHouse\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.234 seconds
+2026-11-11 20:22:30.697 | INFO     | music_service:verify_audio:839 - Audio verificado: continuacion-2-1-3.wav (17.0 s)
+2026-11-11 20:22:31.786 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:31.910 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:22:32.028 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+ok
+test_uncertain_mix_delivers_both_variants_with_the_honest_notice (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.213 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.219 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.224 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.228 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.233 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvnq784hu\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:32.237 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:33.578 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:34.910 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+2026-11-11 20:22:35.031 | INFO     | music_service:verify_audio:839 - Audio verificado: published-0.mp3 (4.0 s)
+2026-11-11 20:22:35.151 | INFO     | music_service:verify_audio:839 - Audio verificado: published-1.mp3 (4.0 s)
+ok
+test_uncertain_mix_delivers_even_when_the_final_measurement_falls_outside_tolerance (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.333 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\variante-2.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.338 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-2.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\tempo-vocals.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.342 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-vocals.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\tempo-drums.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.347 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-drums.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\tempo-bass.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.351 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-bass.wav (2.0 s)
+D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmpvx6hgb1n\\_remix\\interrupted-job\\tempo-other.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:35.356 | INFO     | music_service:verify_audio:839 - Audio verificado: tempo-other.wav (2.0 s)
+2026-11-11 20:22:36.728 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-1.mp3 (4.0 s)
+2026-11-11 20:22:38.058 | INFO     | music_service:verify_audio:839 - Audio verificado: exportada-2.mp3 (4.0 s)
+ok
+test_valid_hash_does_not_hide_wrong_natural_duration (test_remix_recovery.DownloadedRemixTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\tmp32oodig4\\_remix\\interrupted-job\\variante-1.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:22:38.195 | INFO     | music_service:verify_audio:839 - Audio verificado: variante-1.wav (1.0 s)
+ok
+test_apply_region_gain_keeps_the_head_and_crossfades_the_border (test_remix_timeline.RemixTimelineTest) ... ok
+test_cache_rejects_wrong_signature_incomplete_groups_and_nonfinite_samples (test_remix_timeline.RemixTimelineTest) ... ok
+test_continuation_level_gain_matches_medians_and_respects_the_cap (test_remix_timeline.RemixTimelineTest) ... ok
+test_continuation_payload_repaints_the_end_of_the_created_bed (test_remix_timeline.RemixTimelineTest) ... ok
+test_continuation_spans_repaint_the_faded_tail_and_trim_the_final_margin (test_remix_timeline.RemixTimelineTest) ... ok
+test_full_dsp_changes_real_pulses_without_changing_carrier_pitch (test_remix_timeline.RemixTimelineTest) ... ok
+test_full_preview_says_one_unmeasured_variant_does_not_drop_the_lot (test_remix_timeline.RemixTimelineTest) ... ok
+test_full_preview_waits_for_independent_generated_tempo (test_remix_timeline.RemixTimelineTest) ... ok
+test_full_uncertainty_and_wrong_final_tempo_are_errors (test_remix_timeline.RemixTimelineTest) ... ok
+test_groups_mix_tempo_keeps_the_requested_duration (test_remix_timeline.RemixTimelineTest)
+El segundo atempo modifica tambi�n el recorte, sin cambiar el objetivo. ... ok
+test_groups_preview_announces_delivery_when_the_mix_has_no_reliable_pulse (test_remix_timeline.RemixTimelineTest) ... ok
+test_groups_tempo_ratio_uses_the_measurement_and_the_configured_tolerance (test_remix_timeline.RemixTimelineTest) ... ok
+test_invalid_scope_and_nonfinite_or_short_sections_rejected (test_remix_timeline.RemixTimelineTest) ... ok
+test_keep_remove_continuation_asks_for_style_before_separating (test_remix_timeline.RemixTimelineTest) ... ok
+test_level_continuation_writes_a_leveled_track (test_remix_timeline.RemixTimelineTest) ... ok
+test_manual_tempo_maps_section_and_duration_once (test_remix_timeline.RemixTimelineTest) ... ok
+test_marked_cut_is_placed_once_at_the_start_of_the_extra (test_remix_timeline.RemixTimelineTest) ... ok
+test_one_transformed_group_keeps_the_style_filed_outside_that_stem (test_remix_timeline.RemixTimelineTest) ... ok
+test_pcm_common_tempo_keeps_relative_channels_and_extends_real_samples (test_remix_timeline.RemixTimelineTest) ... ok
+test_repetition_period_keeps_the_pulse_already_measured (test_remix_timeline.RemixTimelineTest) ... ok
+test_repetition_rule_does_not_invent_a_pulse_or_chase_the_request (test_remix_timeline.RemixTimelineTest) ... ok
+test_screen_continuation_chunk_requires_measurable_pulse (test_remix_timeline.RemixTimelineTest) ... ok
+test_several_transformed_groups_keep_the_hit_filed_outside_drums (test_remix_timeline.RemixTimelineTest) ... ok
+test_short_duration_reports_concrete_rounded_minimum (test_remix_timeline.RemixTimelineTest) ... ok
+test_short_sample_is_rejected_and_an_unmarked_extension_has_no_window (test_remix_timeline.RemixTimelineTest) ... ok
+test_uncertain_mix_delivers_with_notice_only_for_groove_errors (test_remix_timeline.RemixTimelineTest) ... ok
+test_uncertain_mix_marks_the_plan_without_inventing_a_bpm (test_remix_timeline.RemixTimelineTest) ... ok
+test_apply_groups_mix_tempo_expands_marked_interval_with_repeat_crossfade (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Con recorte, sus coordenadas siguen el segundo atempo de la mezcla. ... ok
+test_apply_groups_mix_tempo_expands_with_repeat_crossfade (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Tras atempo de mezcla, la expansi�n usa repeat_crossfade. ... ok
+test_extend_timeline_beat_aligned_when_clock_verified (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Con BPM y reloj verificado, costuras alineadas al comp�s. ... ok
+test_extend_timeline_reaches_target_without_silence (test_remix_timeline.RepeatCrossfadeExpansionTest)
+extend_timeline alarga hasta la duraci�n pedida sin relleno de silencio. ... ok
+test_extend_timeline_simple_crossfade_when_no_clock (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Sin reloj verificado, crossfade simple y aviso (no falla). ... ok
+test_full_measured_variant_keeps_the_requested_transition (test_remix_timeline.RepeatCrossfadeExpansionTest) ... ok
+test_no_engine_used_for_expansion_deterministic (test_remix_timeline.RepeatCrossfadeExpansionTest)
+La ampliaci�n no invoca el motor: es determinista (sin GPU extra). ... ok
+test_production_plan_extends_real_pcm_without_bpm_and_keeps_transition (test_remix_timeline.RepeatCrossfadeExpansionTest) ... ok
+test_second_atempo_fills_whole_interval_even_if_initial_plan_did_not_expand (test_remix_timeline.RepeatCrossfadeExpansionTest) ... ok
+test_timeline_plan_groups_expansion_returns_repeat_crossfade (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Con BPM com�n y duraci�n > natural, el m�todo es repeat_crossfade. ... ok
+test_timeline_plan_groups_expansion_with_marked_interval (test_remix_timeline.RepeatCrossfadeExpansionTest)
+Con recorte marcado, mapped_repeat es ese intervalo escalado. ... ok
+test_uncertain_mix_repeats_real_pcm_without_claiming_a_clock (test_remix_timeline.RepeatCrossfadeExpansionTest) ... ok
+test_a_conclusive_final_tempo_still_stops_the_job (test_remix_timeline.UncertainExtensionTest) ... ok
+test_only_por_pistas_continuing_the_bed_qualifies (test_remix_timeline.UncertainExtensionTest) ... ok
+test_uncertain_groupsextension_keeps_the_verified_bed_measurement (test_remix_timeline.UncertainExtensionTest) ... ok
+test_without_a_fiable_bed_measurement_there_is_nothing_to_credit (test_remix_timeline.UncertainExtensionTest) ... ok
+test_a_measured_bpm_outside_tolerance_is_not_left_out (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_a_missed_target_bpm_does_not_generate_again (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_a_pulseless_draw_is_replaced_and_the_new_measurement_is_kept (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_a_tempo_change_too_short_to_measure_asks_for_another_sample (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_an_unmeasurable_full_variant_stays_out_and_names_itself (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_exhausted_draws_keep_the_detector_error (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_only_an_unmeasurable_draw_asks_for_another_sample (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_replacement_payload_is_one_track_and_the_batch_stays_two (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_replacement_seed_skips_the_batch_already_heard (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_retry_count_comes_from_configuration (test_remix_timeline.UnmeasuredVariantRetryTest) ... ok
+test_no_vuelve_a_importar_torch_en_cada_llamada (test_separator_status.CacheDisponibilidad)
+Dos consultas = UNA comprobaci�n real (el import de torch cuesta ... 2026-11-11 20:22:48.608 | INFO     | separator_service:_instalado:82 - Motor de separaci�n verificado (demucs+torch en 0.0 s)
+ok
+test_sin_demucs_la_respuesta_tambien_se_cachea (test_separator_status.CacheDisponibilidad) ... 2026-11-11 20:22:48.609 | WARNING  | separator_service:_instalado:60 - Motor de separaci�n ausente: no existe no_existe_ningun.exe
+ok
+test_un_fallo_cacheado_se_reintenta_tras_el_ttl (test_separator_status.CacheDisponibilidad)
+Un chequeo que falla (fr�o, carga, timeout) NO deja la separaci�n ... 2026-11-11 20:22:48.609 | INFO     | separator_service:_instalado:82 - Motor de separaci�n verificado (demucs+torch en 0.0 s)
+ok
+test_el_bucle_sigue_mientras_se_comprueba (test_separator_status.FueraDelHiloDeEventos)
+Mientras el estado tarda, otras peticiones se atienden. ... ok
+test_el_estado_se_calcula_fuera_del_hilo_del_evento (test_separator_status.FueraDelHiloDeEventos) ... ok
+test_mensajes_honestos_cuando_no_esta_instalado (test_separator_status.FueraDelHiloDeEventos) ... ok
+test_sin_venv_dice_no_instalado_y_no_lanza_nada (test_separator_status.SeparateSinDependerDelCache) ... ok
+test_un_negativo_cacheado_no_bloquea_la_separacion (test_separator_status.SeparateSinDependerDelCache)
+Bug 2026-10-10: el cache dec�a �no instalado� con el venv perfecto. ... 2026-11-11 20:22:48.926 | INFO     | separator_service:separate:308 - Separando test_separator_status.py en cpu (VRAM libre: 0 MB)
+ok
+test_analysis_does_not_mutate_model_metadata (test_source_understanding.SourceUnderstandingTest) ... ok
+test_analysis_phase_hides_engine_log (test_source_understanding.SourceUnderstandingTest) ... ok
+test_audio_genre_electronic (test_source_understanding.SourceUnderstandingTest) ... ok
+test_audio_genre_non_electronic (test_source_understanding.SourceUnderstandingTest) ... ok
+test_glossary_genre_is_only_a_whole_vocab_line (test_source_understanding.SourceUnderstandingTest) ... ok
+test_hybrid_does_not_force_binary_result (test_source_understanding.SourceUnderstandingTest) ... ok
+test_unavailable_genre_does_not_guess_from_description (test_source_understanding.SourceUnderstandingTest) ... ok
+test_unmapped_ambiguous_genre_is_unknown (test_source_understanding.SourceUnderstandingTest) ... ok
+test_componer_dos_veces_no_anade_estilos_por_la_descripcion (test_style_fidelity.StyleFidelityTest) ... ok
+test_descripcion_no_introduce_genero_diferente (test_style_fidelity.StyleFidelityTest) ... ok
+test_detalles_positivos_siguen_viajando_con_descripcion_excluida (test_style_fidelity.StyleFidelityTest) ... ok
+test_gabber_y_hardcore_no_envian_hardstyle (test_style_fidelity.StyleFidelityTest) ... ok
+test_generos_especificos_no_anaden_genero_vecino (test_style_fidelity.StyleFidelityTest) ... ok
+test_mezclas_explicitas_se_conservan (test_style_fidelity.StyleFidelityTest) ... ok
+test_negacion_de_instrumento_no_recibe_descripcion_positiva (test_style_fidelity.StyleFidelityTest) ... ok
+test_negaciones_coordinadas_no_anaden_instrumentos (test_style_fidelity.StyleFidelityTest) ... ok
+test_negaciones_no_anaden_positivos (test_style_fidelity.StyleFidelityTest) ... ok
+test_repeticion_positiva_despues_de_negacion_se_reconoce (test_style_fidelity.StyleFidelityTest) ... ok
+test_traducciones_del_catalogo_son_generos_literales_del_modelo (test_style_fidelity.StyleFidelityTest) ... ok
+test_a_missing_or_empty_file_is_not_sent (test_style_translation.CorrectedTermsTest) ... D:\PROJECTS\MUSICIA\backend\style_translator.py:78: ResourceWarning: unclosed file <_io.TextIOWrapper name=4 encoding='utf-8'>
+  _WORKER.stop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+D:\PROJECTS\MUSICIA\backend\style_translator.py:78: ResourceWarning: unclosed file <_io.TextIOWrapper name=5 encoding='utf-8'>
+  _WORKER.stop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_measured_untranslated_bombo_is_corrected_only_with_spanish_source (test_style_translation.CorrectedTermsTest) ... ok
+test_measured_words_change_and_english_battery_does_not (test_style_translation.CorrectedTermsTest) ... ok
+test_broken_language_map_still_stops (test_style_translation.EnglishStyleStaysTest) ... ok
+test_empty_stays_empty (test_style_translation.EnglishStyleStaysTest) ... ok
+test_english_captions_are_not_rewritten (test_style_translation.EnglishStyleStaysTest) ... ok
+test_language_without_code_is_sent_unchanged (test_style_translation.EnglishStyleStaysTest) ... ok
+test_french_and_german_sentences_change_and_lyrics_do_not (test_style_translation.LocalTranslationTest) ... ok
+test_spanish_and_the_mixed_phrase_become_stable_english (test_style_translation.LocalTranslationTest) ... ok
+{
+  "plural_measured": {
+    "original": "sin bombos",
+    "enhanced": "Predominantly gabber. without kicks",
+    "genre_detected": "gabber",
+    "suggested_bpm": 180,
+    "genres": [
+      {
+        "name": "gabber",
+        "genre": "gabber",
+        "clause": "A track with heavily distorted, punchy kick drums, aggressive snare, a pounding relentless rhythm, dark energy and a raw, aggressive mix"
+      }
+    ],
+    "additions": [
+      "Predominantly gabber."
+    ],
+    "warnings": [
+      "No se a�ade la descripci�n de �gabber�: contradice tus instrucciones."
+    ],
+    "adaptation": "structured",
+    "selection": {
+      "main_style": "gabber",
+      "influence_styles": [],
+      "include_descriptions": true
+    }
+  }
+}
+test_structured_plural_exclusion_is_measured_with_real_translator (test_style_translation.LocalTranslationTest) ... ok
+test_structured_prompt_translates_details_before_english_roles (test_style_translation.LocalTranslationTest) ... ok
+test_structured_short_exclusions_use_local_translation_and_keep_roles (test_style_translation.LocalTranslationTest) ... ok
+[
+  {
+    "raw": "sin bombo",
+    "result": {
+      "original": "sin bombo",
+      "enhanced": "Predominantly gabber. without kick",
+      "genre_detected": "gabber",
+      "suggested_bpm": 180,
+      "genres": [
+        {
+          "name": "gabber",
+          "genre": "gabber",
+          "clause": "A track with heavily distorted, punchy kick drums, aggressive snare, a pounding relentless rhythm, dark energy and a raw, aggressive mix"
+        }
+      ],
+      "additions": [
+        "Predominantly gabber."
+      ],
+      "warnings": [
+        "No se a�ade la descripci�n de �gabber�: contradice tus instrucciones."
+      ],
+      "adaptation": "structured",
+      "selection": {
+        "main_style": "gabber",
+        "influence_styles": [],
+        "include_descriptions": true
+      }
+    }
+  },
+  {
+    "raw": "sin bajo",
+    "result": {
+      "original": "sin bajo",
+      "enhanced": "Predominantly trance. without bass",
+      "genre_detected": "trance",
+      "suggested_bpm": 138,
+      "genres": [
+        {
+          "name": "trance",
+          "genre": "trance",
+          "clause": "An uplifting track with shimmering arpeggiated synths, a rolling bassline and an emotional, euphoric build"
+        }
+      ],
+      "additions": [
+        "Predominantly trance."
+      ],
+      "warnings": [
+        "No se a�ade la descripci�n de �trance�: contradice tus instrucciones."
+      ],
+      "adaptation": "structured",
+      "selection": {
+        "main_style": "trance",
+        "influence_styles": [],
+        "include_descriptions": true
+      }
+    }
+  },
+  {
+    "raw": "sin voz",
+    "result": {
+      "original": "sin voz",
+      "enhanced": "Predominantly techno. without a voice, A hypnotic track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove",
+      "genre_detected": "techno",
+      "suggested_bpm": 135,
+      "genres": [
+        {
+          "name": "techno",
+          "genre": "techno",
+          "clause": "A hypnotic track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove"
+        }
+      ],
+      "additions": [
+        "Predominantly techno.",
+        "A hypnotic track with a steady four-on-the-floor kick, punchy electronic stabs and a dark, driving club groove"
+      ],
+      "warnings": [],
+      "adaptation": "structured",
+      "selection": {
+        "main_style": "techno",
+        "influence_styles": [],
+        "include_descriptions": true
+      }
+    }
+  }
+]
+test_carry_ficha_acepta_medicion_fresca (test_verify_align.FichaMedidaTest) ... ok
+test_carry_ficha_no_arrastra_el_tempo_medido_del_origen (test_verify_align.FichaMedidaTest) ... ok
+test_measure_bpm_de_audio_inexistente_no_lanza (test_verify_align.FichaMedidaTest) ... 2026-11-11 20:23:20.754 | WARNING  | main:_measure_bpm:642 - Sin BPM medido para no-existe.mp3: No existe el audio: C:\Users\INdaHouse\AppData\Local\Temp\musicia-ficha-m3-v_i9rvio\no-existe.mp3
+ok
+test_measure_bpm_de_un_silencio_no_devuelve_nada (test_verify_align.FichaMedidaTest) ... 2026-11-11 20:23:20.797 | WARNING  | main:_measure_bpm:642 - Sin BPM medido para silencio.wav: No se ha detectado un tempo claro (sin periodicidad)
+ok
+test_original_measurement_preserves_groove_precision_for_tempo_duration (test_verify_align.FichaMedidaTest) ... ok
+test_write_ficha_con_medicion_lleva_los_campos (test_verify_align.FichaMedidaTest) ... ok
+test_write_ficha_sin_medicion_no_inventa_campos (test_verify_align.FichaMedidaTest) ... ok
+test_ajuste_demasiado_grande_no_cuadra (test_verify_align.PlanAlignmentTest) ... ok
+test_confianza_baja_no_cuadra (test_verify_align.PlanAlignmentTest) ... ok
+test_desfase_se_normaliza_al_intervalo_de_un_golpe (test_verify_align.PlanAlignmentTest) ... ok
+test_pista_en_tono_propone_cuadrar (test_verify_align.PlanAlignmentTest) ... ok
+test_ratio_en_los_limites_acepta (test_verify_align.PlanAlignmentTest) ... ok
+test_ratio_fuera_de_los_limites_rechaza (test_verify_align.PlanAlignmentTest) ... ok
+test_bpm_invalido_lanza (test_verify_align.TimingHelpersTest) ... ok
+test_cuatro_compases_de_cuatro_no_son_cuatro_golpes (test_verify_align.TimingHelpersTest) ... ok
+test_fase_negativa_es_un_golpe_anterior (test_verify_align.TimingHelpersTest) ... ok
+test_fase_positiva_se_queda (test_verify_align.TimingHelpersTest) ... ok
+test_loop_sin_compases_lanza (test_verify_align.TimingHelpersTest) ... ok
+test_archivo_inexistente_lanza_error_real (test_verify_align.VerifyAudioTest) ... ok
+test_archivo_vacio_lanza_error_real (test_verify_align.VerifyAudioTest) ... ok
+test_wav_bajo_el_umbral_lanza_error (test_verify_align.VerifyAudioTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-verify-ijar2aba\\corto.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_wav_valido_devuelve_su_duracion (test_verify_align.VerifyAudioTest) ... D:\PROJECTS\MUSICIA\backend\music_service.py:835: ResourceWarning: unclosed file <_io.BufferedReader name='C:\\Users\\INdaHouse\\AppData\\Local\\Temp\\musicia-verify-7x5nwaal\\ok.wav'>
+  lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+2026-11-11 20:23:22.767 | INFO     | music_service:verify_audio:839 - Audio verificado: ok.wav (0.5 s)
+ok
+
+----------------------------------------------------------------------
+Ran 466 tests in 310.038s
+
+OK (skipped=2)

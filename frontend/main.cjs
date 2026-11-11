@@ -184,7 +184,21 @@ async function loadWhenReady() {
   startUiWatch();
 }
 
-ipcMain.handle('musica:exit', () => exitApp());
+const isAppUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return [API_URL, DEV_URL].some((base) => url.origin === new URL(base).origin);
+  } catch {
+    return false;
+  }
+};
+
+ipcMain.handle('musica:exit', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents
+      || event.senderFrame !== mainWindow.webContents.mainFrame
+      || !isAppUrl(event.senderFrame.url)) return false;
+  return exitApp();
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -201,15 +215,23 @@ function createWindow() {
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     webPreferences: {
       contextIsolation: true, // seguro por defecto; sin nodeIntegration
-      sandbox: false, // el preload necesita require('electron') para el puente
+      sandbox: true,
+      nodeIntegration: false,
       preload: fs.existsSync(PRELOAD_PATH) ? PRELOAD_PATH : undefined,
     },
   });
 
   // Los enlaces externos se abren en el navegador del sistema, no dentro de la app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      if (['http:', 'https:'].includes(new URL(url).protocol)) {
+        void shell.openExternal(url).catch((error) => console.error('[ENLACE]', error.message));
+      }
+    } catch { /* Una URL inválida no se abre. */ }
     return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isAppUrl(url)) event.preventDefault();
   });
 
   // Diagnóstico: registrar errores de la página y fallos de carga en consola/log

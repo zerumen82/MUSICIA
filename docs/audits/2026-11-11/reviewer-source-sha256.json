@@ -1,0 +1,102 @@
+[
+  {
+    "path": "frontend/main.cjs",
+    "sha256": "c47d383af3845fd96fbcf7a9e37d84dfa615ccdd6c69e1d0f911a0981e884a74",
+    "length": 13977
+  },
+  {
+    "path": "frontend/src/App.jsx",
+    "sha256": "c6d6d3054c19a7d1ff9e38b8e82cb9e41b2cec82991ca00023eb0fcf1705a9d2",
+    "length": 13207
+  },
+  {
+    "path": "frontend/src/components/Composer.jsx",
+    "sha256": "6e0ed3a83453e2a3f9c45160604e4bfa17db6b3643a41fef92b09553be8f307d",
+    "length": 31668
+  },
+  {
+    "path": "frontend/src/components/RemixWorkspace.jsx",
+    "sha256": "baec4f89dccc5c2276bd13f668f26831d53fffdc61ee18b056a66ec8ce1335a6",
+    "length": 50509
+  },
+  {
+    "path": "frontend/src/components/MixLab.jsx",
+    "sha256": "c17ae3c3c159d462ed33397291791f17cbca505791a5901863520fb26e3e8f07",
+    "length": 15250
+  },
+  {
+    "path": "frontend/src/components/Waveform.jsx",
+    "sha256": "5a5940f1f2442119da9bc041e097f0f7b6347c5f63933d5b8f4f0a9a62625748",
+    "length": 6396
+  },
+  {
+    "path": "frontend/src/components/Uploads.jsx",
+    "sha256": "b9ec9a54680f911c3220b0064820b383d2ee1c3bfc58509c023f206b9c0d1390",
+    "length": 18475
+  },
+  {
+    "path": "backend/main.py",
+    "sha256": "c3603e27972f028ba1146aaa99b533f862a0c2fa2c4c19e84e094224272edaed",
+    "length": 126805
+  },
+  {
+    "path": "backend/config.py",
+    "sha256": "d5716e643382fcceed03ad50cdc14093a202b3153fbba00b3deb49aee9043cb2",
+    "length": 26253
+  },
+  {
+    "path": "backend/remix_project.py",
+    "sha256": "e26a0040f4df2ceaf80f527e27db35e9e5a01be11a15764fab7fc63baa800c60",
+    "length": 113352
+  },
+  {
+    "path": "backend/test_advanced_prompt_params.py",
+    "sha256": "4130f72e23a6763324c5019b8169ffdf20a32d3ab35f7d3f03f7e933da7c064f",
+    "length": 3735
+  },
+  {
+    "path": "backend/test_engine_control_contention.py",
+    "sha256": "c59b0749430b73a5eb7767b323ee695da529b780a0919c849abe4fc140ebafb4",
+    "length": 4771
+  },
+  {
+    "path": "frontend/src/components/AudioComparator.jsx",
+    "sha256": "44ce8d34d52fcba14b0a29675d3a7fd413d377d042dd55c9f0b031570769ebc0",
+    "length": 8397
+  },
+  {
+    "path": "scripts/open_musicia.ps1",
+    "sha256": "440d25cdae6c6db882330dc9d34043764983042016082277b26935f186454683",
+    "length": 2960
+  },
+  {
+    "path": "scripts/api_identity.ps1",
+    "sha256": "6a18f73a4ffba4dd37a58f4a44b45f3a74eebee241a6cdb5daa917a91a9ef055",
+    "length": 3448
+  },
+  {
+    "path": "scripts/ensure_local.ps1",
+    "sha256": "e13607474dcbc793be3ac31bc35e5f7ab0d0d91f46efd1058e77650224e05e36",
+    "length": 22790
+  },
+  {
+    "path": "scripts/stop_local.ps1",
+    "sha256": "c4859072682aa0a8728336653375fe7e813de4603946a9159b16e0b75dae8ccf",
+    "length": 6857
+  },
+  {
+    "path": "backend/test_api_process_identity.py",
+    "sha256": "b8a9cb48b4a35ac51f2773918514a18ae0941eefc44c4072dbfa8756c9110448",
+    "length": 7855
+  },
+  {
+    "path": "backend/test_api_supervisor_wiring.py",
+    "sha256": "8d8b425fe3ddd9309366313ce2f052f8745ad1044a73ebe928a14d694bf5084c",
+    "length": 9654
+  },
+  {
+    "path": "backend/test_engine_supervisor.py",
+    "sha256": "d11aec3595944bfd6d8a980adcb3734e7d19a67f44ba520e314af671efa99a9a",
+    "length": 37293
+  }
+]

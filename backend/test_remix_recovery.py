@@ -231,7 +231,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
 
         return submitted, submit, wait, download
 
-    async def test_finish_reuses_the_downloaded_cover_and_continues_the_bed(self):
+    async def test_finish_reuses_downloaded_cover_and_repeats_without_inference(self):
         published = []
         runtime = self.runtime(published)
         manifest = {"groups": [{"id": key, "file_name": path.name} for key, path in self.originals.items()]}
@@ -242,11 +242,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
                 patch.object(self.music, "download", new=download), \
                 patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
             await runtime.finish_downloaded(self.job, self.source, None, self.request, 2, self.receipt)
-        self.assertEqual(len(submitted), 2)
-        for generation in submitted:
-            self.assertEqual(generation.task_type, "repaint")
-            self.assertEqual(generation.batch_size, 1)
-            self.assertGreater(generation.repaint_end, generation.repaint_start)
+        self.assertEqual(submitted, [])
         self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
         self.assertEqual(self.job["project"], before)
         self.assertEqual(len(published), 2)
@@ -254,9 +250,22 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         for path, ficha in published:
             self.assertAlmostEqual(await self.music.verify_audio(path) / 1000, 4, places=2)
             self.assertEqual(ficha["project"], before)
+            self.assertEqual(ficha["arrangement"]["method"], "repeat_crossfade")
+            self.assertGreater(ficha["arrangement"]["repetitions"], 0)
+
+    def legacy_continuation(self):
+        """R17/B8b conservan su contrato para recibos del método anterior a R19."""
+        plan = self.job["operations"]["timeline"]
+        plan.update(method="continue_bed", transition_seconds=0.0)
+        if self.request.repeat_start is None:
+            plan.update(mapped_repeat_start=None, mapped_repeat_end=None)
+        self.receipt = build_receipt(self.job, self.source, None, self.request, 2,
+                                    self.settings, self.generated, self.originals)
+        self.job["operations"]["downloaded_batch_sha256"] = receipt_digest(self.receipt)
 
     async def test_grooveless_chunk_asks_a_new_sample_with_another_seed(self):
         """B8b: un trozo sin pulso se vuelve a sortear con semilla nueva."""
+        self.legacy_continuation()
         published = []
         runtime = self.runtime(published)
         manifest = {"groups": [{"id": key, "file_name": path.name} for key, path in self.originals.items()]}
@@ -334,9 +343,7 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.job["operations"]["timeline"] = timeline_plan(self.request, 2, self.settings)
         self.job["effective_parameters"] = self.music.build_payload(project_generation(
             self.request, self.work / "material-a-transformar.wav", None, self.settings))
-        self.receipt = build_receipt(self.job, self.source, None, self.request, 2,
-                                    self.settings, self.generated, self.originals)
-        self.job["operations"]["downloaded_batch_sha256"] = receipt_digest(self.receipt)
+        self.legacy_continuation()
         published, measured_paths = [], []
         runtime = self.runtime(published)
         manifest = {"groups": [{"id": key, "file_name": path.name}
@@ -476,9 +483,8 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         published, submitted, measured_paths = await self.finish_uncertain_mix(error)
         self.assertEqual(self.job["status"], "succeeded", self.job.get("error"))
         self.assertEqual(len(published), 2)
-        # El detector nunca se fía: B8b agota sus reintentos por trozo y
-        # luego se entrega con el aviso honesto de la mezcla incierta.
-        self.assertEqual(len(submitted), 6)
+        # R19 repite PCM sin generación, incluso con groove incierto.
+        self.assertEqual(submitted, [])
         self.assertIn("mezcla-1.wav", measured_paths)
         notices = self.job["warnings"]
         self.assertTrue(any("no se ajustó al BPM pedido" in notice for notice in notices))
@@ -491,6 +497,8 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(timeline["final_tempo_verification"], "uncertain_at_mix")
             self.assertIsNone(timeline["beat_clock_bpm"])
             self.assertEqual(timeline["beat_clock_origin"], "unverified_uncertain_groove")
+            self.assertEqual(timeline["target_bpm"], 120)
+            self.assertEqual(ficha["arrangement"]["seam_method"], "selected_interval_crossfade")
             self.assertIsNone(ficha["operations"]["tempo_after"])
             self.assertNotIn("bpm_measured", ficha)
 
@@ -548,6 +556,74 @@ class DownloadedRemixTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.job["status"], "failed")
         self.assertEqual(self.job["operations"]["downloaded_batch_sha256"], receipt_digest(saved))
         self.assertEqual([entry["track"]["seed"] for entry in saved["tracks"]], [8123, 7429])
+
+    async def test_explicit_batch_is_downloaded_recovered_and_published_in_full(self):
+        """El payload, el recibo y la entrega usan el lote elegido, no el default."""
+        for batch in (1, 3):
+            with self.subTest(batch=batch):
+                request = self.request.model_copy(update={"batch_size": batch})
+                published = []
+                runtime = self.runtime(published)
+                job = copy.deepcopy(self.job)
+                job.update(project=request.model_dump(), provenance={}, result=None)
+                manifest = {"groups": [{"id": key, "file_name": path.name}
+                                       for key, path in self.originals.items()]}
+                tracks = [GeneratedTrack(file=f"/v1/audio?path=batch-{index}.wav", seed=900 + index,
+                                         seed_origin="engine.seed") for index in range(batch)]
+                status = EngineStatus(task_id="explicit-batch", status=STATUS_SUCCEEDED, tracks=tracks)
+                sent = []
+
+                async def submit(generation):
+                    sent.append(self.music.build_payload(generation))
+                    return "explicit-batch", "queued"
+
+                async def download(_remote, path):
+                    self.audio.export(path, format="wav").close()
+                    return path
+
+                with patch.object(self.music, "submit", new=submit), \
+                        patch.object(self.music, "wait", new=AsyncMock(return_value=status)), \
+                        patch.object(self.music, "download", new=download), \
+                        patch.object(runtime, "_groups", new=AsyncMock(return_value=manifest)):
+                    await runtime.run(job, self.source, None, request, 2)
+                self.assertEqual(job["status"], "succeeded", job.get("error"))
+                self.assertEqual([entry["batch_size"] for entry in sent], [batch])
+                self.assertEqual(len(published), batch)
+                self.assertEqual(len(job["result"]["variants"]), batch)
+                receipt = json.loads((self.work / RECEIPT_NAME).read_text(encoding="utf-8"))
+                self.assertEqual(len(receipt["tracks"]), batch)
+                self.assertEqual(receipt["context"]["effective_parameters"]["batch_size"], batch)
+                interrupted = copy.deepcopy(job)
+                interrupted.update(status="failed", result=None,
+                                   error="Interrumpido: la API se reinició antes de terminar")
+                recovered, _originals = await validate_receipt(
+                    receipt, interrupted, self.source, None, request, 2, self.settings, self.music)
+                self.assertEqual(len(recovered), batch)
+                for output, ficha in published:
+                    self.assertGreater(output.stat().st_size, 0)
+                    self.assertAlmostEqual(await self.music.verify_audio(output) / 1000, 4, places=2)
+                    self.assertEqual(ficha["effective_parameters"]["batch_size"], batch)
+
+    async def test_replacement_seed_uses_the_explicit_batch_stride(self):
+        request = self.request.model_copy(update={"batch_size": 3, "seed": 42})
+        runtime = self.runtime([])
+        path = self.generated[0][0]
+        status = EngineStatus(task_id="replacement", status=STATUS_SUCCEEDED,
+                              tracks=[GeneratedTrack(file="/v1/audio?path=replacement.wav", seed=45)])
+
+        async def download(_remote, output):
+            self.audio.export(output, format="wav").close()
+            return output
+
+        submit = AsyncMock(return_value=("replacement", "queued"))
+        with patch.object(self.music, "submit", new=submit), \
+                patch.object(self.music, "wait", new=AsyncMock(return_value=status)), \
+                patch.object(self.music, "download", new=download):
+            _path, _track, payload = await runtime._replace_unmeasured_variant(
+                self.job, request, self.work, 0, path, self.source, None, 2, 1, self.settings.remix)
+        self.assertEqual(payload["seed"], 45)
+        self.assertEqual(payload["batch_size"], 1)
+        self.assertEqual(submit.await_args.args[0].seed, 45)
 
     async def test_legacy_cache_binds_task_real_metadata_and_wav_hash(self):
         from scripts.complete_downloaded_remix import legacy_receipt

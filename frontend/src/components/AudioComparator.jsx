@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { comparisonBounds, comparisonPosition, switchComparisonSource } from '../audio_comparison';
 import { arrowDirection, nudgePosition } from '../timeline_nudge';
 
@@ -16,6 +16,11 @@ export default function AudioComparator({ tracks, interval = null, nudgeStep = n
   const position = useRef(0);
   const resume = useRef(false);
   const currentBounds = useRef(null);
+  const playbackFailed = useCallback((failure) => {
+    // Pausar o cambiar de fuente cancela legítimamente un play pendiente.
+    // Los errores de formato/permisos y el evento media error siguen visibles.
+    if (failure.name !== 'AbortError') setError(failure.message);
+  }, []);
   const active = tracks.find((track) => track.id === selected) ?? tracks[0];
   const activeUrl = active?.url;
   const signature = `${interval?.start ?? 0}:${interval?.end ?? ''}`;
@@ -30,9 +35,9 @@ export default function AudioComparator({ tracks, interval = null, nudgeStep = n
     const player = audio.current;
     if (player?.readyState >= 1 && limits.valid) {
       player.currentTime = comparisonPosition(player.currentTime, limits);
-      if (resume.current && player.paused) player.play().catch((err) => setError(err.message));
+      if (resume.current && player.paused) player.play().catch(playbackFailed);
     }
-  }, [bounds.start, bounds.end, bounds.valid, ready]);
+  }, [bounds.start, bounds.end, bounds.valid, ready, playbackFailed]);
 
   useEffect(() => {
     let active = true;
@@ -70,8 +75,8 @@ export default function AudioComparator({ tracks, interval = null, nudgeStep = n
   useEffect(() => {
     if (!audio.current || !activeUrl) return undefined;
     return switchComparisonSource(audio.current, activeUrl, position.current, () => resume.current,
-      () => currentBounds.current, (err) => setError(err.message));
-  }, [activeUrl]);
+      () => currentBounds.current, playbackFailed);
+  }, [activeUrl, playbackFailed]);
 
   const choose = (track) => {
     if (track.url === active.url) return;
@@ -89,7 +94,7 @@ export default function AudioComparator({ tracks, interval = null, nudgeStep = n
     if (!player || !currentBounds.current.valid) return;
     if (!player.paused) { resume.current = false; player.pause(); return; }
     player.currentTime = comparisonPosition(player.currentTime, bounds);
-    resume.current = true; player.play().catch((err) => setError(err.message));
+    resume.current = true; player.play().catch(playbackFailed);
   };
   const tick = () => {
     const player = audio.current;
