@@ -57,6 +57,15 @@ Durante la auditoría inicial API y motor estaban apagados. La prueba posterior 
 
 **Cobertura documental del glosario (B9c, 2026-11-12):** el vocabulario contiene 178.572 etiquetas, no definiciones. Usuario aprueba fichas editoriales exactas de Musicia respaldadas en fuentes y la primera ampliación `techno hard house`; implementación/verificación en curso. Las etiquetas sin ficha propia siguen sin descripción, con disponibilidad visible y aviso; no heredar recetas de géneros vecinos ni prometer cobertura total. `acid jazz` es un control de esa ausencia, no una nueva ficha autorizada. Fuentes/plan/evidencia en `logs/glossary-20261112/`; no cambia prioridades de pendientes anteriores.
 
+**Secuencia de pasos (R20, 2026-11-12) — lo que queda declarado:**
+
+| ID | Deuda | Impacto | Plan |
+|----|-------|---------|------|
+| R20.B | Subir **stems propios** y asignarlos a pista (`vocals`/`drums`/`bass`/`other`) para trabajar con material real en vez de separar una mezcla terminada | El flujo actual es un bootleg: separación estimada, sin melodía aislable. Sin stems, "remix" y "bootleg" son el mismo trabajo | Historia aprobada por el usuario (2026-11-12) y **no implementada**: falta el contrato de subida y el uso de un stem como fuente del motor |
+| R20.D | **Foco por pista en cada paso** (rehacer solo la batería de un tramo) | Cada paso rehace hoy el tramo entero; cambiar el ritmo sin tocar la voz exige separar ese tramo | Criterios en spec/02 [R20.D]. El backend rechaza los focos no implementados y la UI no los ofrece |
+| R20.L | El **master de −14 LUFS no se aplica** en la exportación de remix: `MixerService.export_remix` solo atenúa el pico (`normalization: "peak attenuation only"`). Medido en salidas nuevas de secuencia: −20,73 / −18,60 / −19,49 LUFS | La ficha de las salidas de remix dice "peak attenuation only": no miente, pero el criterio histórico de "master −14 LUFS" (spec/02 [F4]) no se cumple en ningún ámbito de remix | **Deuda heredada**, no introduzida por R20: afecta igual a `full`, `region` y `groups`. Corregirlo cambia el volumen de todo el remix y necesita su propio plan y su escucha |
+| R20.E | La **escucha artística** de la secuencia (costuras entre pasos, si el resultado suena a canción) | El tester acreditó que el audio es real, medido y entregable; no que suene bien | Escucha del usuario (B7) |
+
 | ID | Deuda | Impacto | Plan |
 |----|-------|---------|------|
 | T2 | `Sequencer.jsx` sigue en el repo y no está en la navegación. Si vuelve, sus samples salen de tonejs.github.io | R4: sin internet no sonaría | [C2] empaquetar samples locales antes de remontarlo |

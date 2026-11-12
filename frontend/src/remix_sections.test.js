@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_BUSY, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from './remix_sections.js';
 
 test('un desplegable elige la acción', () => {
-  assert.deepEqual(ACTIONS.map((item) => item.id), ['full', 'region', 'groups', 'voice', 'adjust']);
+  assert.deepEqual(ACTIONS.map((item) => item.id), ['full', 'region', 'groups', 'sequence', 'voice', 'adjust']);
   assert.match(actionWhy('voice'), /voz/);
   assert.match(actionWhy('adjust'), /archivo/);
 });
@@ -12,6 +12,7 @@ test('cada ámbito dice para qué está', () => {
   assert.match(SCOPE_WHY.full, /canción/);
   assert.match(SCOPE_WHY.region, /trozo/);
   assert.match(SCOPE_WHY.groups, /pista/);
+  assert.match(SCOPE_WHY.sequence, /pasos/);
 });
 
 test('los títulos de sección no cambian: las sondas los pulsan', () => {

@@ -157,6 +157,14 @@ export const api = {
     } catch (error) { throw new Error(describeError(error)) }
   },
 
+  /** Pide parar la secuencia: se entrega lo hecho hasta el paso actual. */
+  remixProjectStop: async (jobId) => {
+    try {
+      const { data } = await client.post(`/music/remix/project/${encodeURIComponent(jobId)}/stop`)
+      return data
+    } catch (error) { throw new Error(describeError(error)) }
+  },
+
   separateJob: async (jobId) => {
     try {
       const { data } = await client.get(`/audio/separate/${encodeURIComponent(jobId)}`)

@@ -23,6 +23,8 @@ from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from prompt_style import style_caption
+from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, material_origin,
+                            sequence_timeline, step_seed, validate_steps)
 from style_translator import style_for_engine
 from separator_service import SeparatorService
 from source_understanding import category_catalog
@@ -36,7 +38,8 @@ class RemixProjectRequest(BaseModel):
     source_name: str
     source_kind: Literal["upload", "output"] | None = None
     prompt: str = ""
-    scope: Literal["full", "region", "groups"] = "full"
+    scope: Literal["full", "region", "groups", "sequence"] = "full"
+    steps: list[SequenceStep] | None = None
     output_name: str | None = None
     reference_name: str | None = None
     reference_kind: Literal["upload", "output"] | None = None
@@ -94,10 +97,27 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
     config = settings.remix
     if not math.isfinite(duration) or duration <= 0 or duration > settings.generation.max_duration_seconds:
         raise ValueError("La fuente debe tener una duración positiva dentro del límite configurado")
+    if request.scope == "sequence":
+        validate_steps(request.steps, config)
+        # La secuencia conserva duración y tempo: lo que no se usa se rechaza,
+        # no se ignora en silencio (spec/02 [R20.A]).
+        if request.bpm is not None:
+            raise ValueError("La secuencia no cambia el tempo: quita el BPM")
+        if request.duration_seconds is not None:
+            raise ValueError("La secuencia conserva la duración del original: quita la duración pedida")
+        if request.repeat_start is not None or request.repeat_end is not None:
+            raise ValueError("La secuencia no recorta: el reparto lo hace el servidor")
+        if request.transition_seconds is not None:
+            raise ValueError("La secuencia no usa transiciones: cada paso va encadenado")
+        if request.groups:
+            raise ValueError("La secuencia no trabaja por pistas: los pasos rehacen el tramo entero")
+        if request.batch_size is not None and request.batch_size != 1:
+            raise ValueError("La secuencia genera una variante por paso: el lote tiene que ser 1")
     transforms = request.scope != "groups" or any(
         action == "transform" for action in (request.groups or {}).values()
     )
-    if transforms and not request.prompt.strip():
+    # En la secuencia cada paso lleva su propio texto: el prompt general es opcional.
+    if transforms and not request.prompt.strip() and request.scope != "sequence":
         raise ValueError("Escribe qué transformación quieres en el prompt")
     for key, limits in config.parameters.items():
         if key == "gain_db":
@@ -142,7 +162,12 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
         raise ValueError("La duración y repetición solo se aplican a Canción completa o Por pistas")
     if request.source_bpm is not None:
         limits = config.parameters["bpm"]
-        if (request.scope != "groups" or request.bpm is None or not math.isfinite(request.source_bpm)
+        if request.scope == "sequence":
+            # En la secuencia es el tempo con el que se reparten los pasos.
+            if (not math.isfinite(request.source_bpm)
+                    or not limits["min"] <= request.source_bpm <= limits["max"]):
+                raise ValueError("El BPM original revisado debe estar dentro de sus límites")
+        elif (request.scope != "groups" or request.bpm is None or not math.isfinite(request.source_bpm)
                 or not limits["min"] <= request.source_bpm <= limits["max"]):
             raise ValueError("El BPM original revisado requiere BPM común en Por pistas dentro de sus límites")
     if request.duration_seconds is not None and (
@@ -173,6 +198,22 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
 def timeline_plan(request, duration, settings, measured=None) -> dict:
     config = settings.remix
     measured = measured or {}
+    if request.scope == "sequence":
+        steps = sorted(request.steps or [], key=lambda item: item.index)
+        limits = config.parameters["bpm"]
+        source_bpm, origin = request.source_bpm, "manual"
+        if source_bpm is None:
+            source_bpm, origin = measured.get("bpm_measured"), "measurement"
+            confidence = measured.get("bpm_confidence", 0)
+            if (not source_bpm or not math.isfinite(source_bpm)
+                    or not math.isfinite(confidence) or confidence < config.timeline_min_groove_confidence
+                    or not limits["min"] <= source_bpm <= limits["max"]):
+                raise ValueError("No hay un BPM fiable para repartir la secuencia en compases: "
+                                 "indica el BPM original revisado")
+        elif not math.isfinite(source_bpm) or not limits["min"] <= source_bpm <= limits["max"]:
+            raise ValueError(f"El BPM original revisado debe estar entre {limits['min']} y {limits['max']}")
+        return sequence_timeline(duration, source_bpm, steps, config, settings.mixer.beats_per_bar,
+                                    bpm_origin=origin)
     if request.scope == "full" and request.bpm is not None:
         marked = request.repeat_start is not None
         return {"source_duration_seconds": duration, "natural_duration_seconds": None,
@@ -900,6 +941,28 @@ def _visible_phase(status) -> str:
     return "Rehaciendo el audio"
 
 
+def sequence_preview_request(request, timeline, source, reference, settings) -> GenerationRequest:
+    """El primer paso encendido resume la secuencia en la vista previa.
+
+    Cada paso es una llamada propia al motor; la vista previa enseña el
+    contrato del primero (repintar un tramo) y el bloque `sequence` trae el
+    detalle de todos los pasos.
+    """
+    steps = timeline.get("steps") or []
+    enabled = [segment for segment in steps if segment.get("enabled")]
+    if not enabled:
+        raise ValueError("Enciende al menos un paso de la secuencia")
+    first = enabled[0]
+    preview = request.model_copy(update={
+        "scope": "region",
+        "region_start": first["start"],
+        "region_end": first["end"],
+        "prompt": first["prompt"],
+        "batch_size": 1,
+    })
+    return project_generation(preview, source, reference, settings)
+
+
 def project_generation(request, source, reference, settings) -> GenerationRequest:
     """Contrato único para el preview y el envío tras preparar el material."""
     config = settings.remix
@@ -953,6 +1016,22 @@ class RemixProjectRuntime:
         app.add_api_route("/music/remix/project", self.create, methods=["POST"])
         app.add_api_route("/music/remix/preview", self.preview, methods=["POST"])
         app.add_api_route("/music/remix/separate", self.separate, methods=["POST"])
+        app.add_api_route("/music/remix/project/{job_id}/stop", self.stop, methods=["POST"])
+
+    async def stop(self, job_id: str) -> dict:
+        """Pide parar la secuencia: se entrega lo hecho hasta el paso actual."""
+        job = self.remix_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Ese remix no existe")
+        if job.get("status") not in {"queued", "running"}:
+            raise HTTPException(status_code=409, detail="Ese trabajo ya terminó")
+        project = job.get("project") or {}
+        if project.get("scope") != "sequence":
+            raise HTTPException(status_code=409, detail="Solo la secuencia se puede parar así")
+        job["stop_requested"] = True
+        self.event(job, "Parada pedida: se entrega lo hecho hasta el paso actual")
+        self.save()
+        return {"status": "stopping", "job_id": job_id}
 
     async def capabilities(self) -> dict:
         remix, generation = self.settings.remix, self.settings.generation
@@ -991,6 +1070,17 @@ class RemixProjectRuntime:
                 "max_latent_frames": remix.repaint_resolution_max_frames,
                 "max_wav_seconds": remix.repaint_resolution_max_wav_seconds,
             },
+            "sequence": {
+                "default_steps": remix.sequence_default_steps,
+                "max_steps": remix.sequence_max_steps,
+                "min_bars_per_step": remix.sequence_min_bars_per_step,
+                # Solo los focos que el backend ejecuta de verdad. El foco por
+                # pista (separar la batería del tramo y rehacerla) es un
+                # incremento posterior declarado en spec/03.
+                "focuses": list(IMPLEMENTED_FOCUSES),
+                "focuses_pending": [focus for focus in STEP_FOCUSES if focus not in IMPLEMENTED_FOCUSES],
+                "stoppable": True,
+            },
             "intermediate_format": remix.intermediate_format,
             "limitations": {
                 "other": "Puede contener guitarra, piano, sintetizadores, pads y efectos juntos.",
@@ -1020,7 +1110,10 @@ class RemixProjectRuntime:
         transform = request.scope != "groups" or "transform" in request.groups.values()
         continues = engine_timeline
         if transform:
-            generation_request = project_generation(request, source, reference, self.settings)
+            if request.scope == "sequence":
+                generation_request = sequence_preview_request(request, timeline, source, reference, self.settings)
+            else:
+                generation_request = project_generation(request, source, reference, self.settings)
             result = self.music.preview(generation_request)
             # El prompt en inglés que recibirá el motor (tras style_for_engine).
             result["effective_prompt"] = generation_request.prompt
@@ -1035,6 +1128,19 @@ class RemixProjectRuntime:
             for key in ("task_type", "audio_format"):
                 result["provenance"][key] = "operation_contract"
             result["provenance"]["model"] = "configuration"
+            if request.scope == "sequence":
+                steps = timeline.get("steps") or []
+                enabled = [segment for segment in steps if segment.get("enabled")]
+                result["effective_parameters"]["batch_size"] = 1
+                result["provenance"]["src_audio_path"] = "source"
+                result["provenance"]["batch_size"] = "one_variant_per_step"
+                result["sequence"] = {
+                    "steps": [dict(segment, effective_prompt=style_for_engine(segment["prompt"], self.settings))
+                              for segment in steps],
+                    "engine_calls": len(enabled),
+                    "bar_aligned": bool(timeline.get("bar_aligned")),
+                    "stoppable": True,
+                }
             if request.scope == "region":
                 for key in ("repaint_wav_crossfade_sec", "repaint_latent_crossfade_frames"):
                     result["provenance"][key] = "engine_mode_strength_contract"
@@ -1082,6 +1188,16 @@ class RemixProjectRuntime:
                     "Si el ritmo de la mezcla no se puede medir con fiabilidad, su tempo no se "
                     "ajusta al pedido y el trabajo se entrega con un aviso: el BPM pedido no "
                     "queda garantizado.")
+        if request.scope == "sequence":
+            sequence_info = result.get("sequence") or {}
+            calls = int(sequence_info.get("engine_calls") or 0)
+            if calls > 1:
+                result["warnings"].append(
+                    f"Cada paso encendido es una llamada al motor: {calls} pasos son {calls} generaciones. "
+                    "Puedes parar en cualquier paso y quedarte con lo hecho.")
+            if not sequence_info.get("bar_aligned"):
+                result["warnings"].append(
+                    "No se midió un tempo fiable: los cortes de los pasos pueden no caer en el golpe.")
         if request.scope == "full" and request.bpm:
             result["warnings"].append(full_bpm_preview_notice())
             result["pending_material"].append({"parameter": "variant_tempo", "path": None,
@@ -1106,7 +1222,8 @@ class RemixProjectRuntime:
         try:
             validate_project(request, duration, self.settings)
             measured = (await asyncio.to_thread(self.measure_bpm, source)
-                        if request.scope == "groups" and request.bpm is not None and request.source_bpm is None else None)
+                        if (request.scope == "groups" and request.bpm is not None
+                            and request.source_bpm is None) or request.scope == "sequence" else None)
             prepared = await asyncio.to_thread(
                 self.prepare, request, source, reference, duration, measured)
             if digest != await asyncio.to_thread(source_digest, source):
@@ -1136,6 +1253,10 @@ class RemixProjectRuntime:
         job.update(effective_parameters=prepared["effective_parameters"],
                    provenance=prepared["provenance"], warnings=prepared["warnings"],
                    operations=prepared["operations"], pending_material=prepared["pending_material"])
+        if request.scope == "sequence":
+            job["steps"] = [dict(segment, status="pending" if segment.get("enabled") else "kept",
+                                 engine_task_id=None, duration_seconds=None, warning=None)
+                            for segment in prepared["operations"]["timeline"].get("steps", [])]
         self.remember(self.remix_jobs, job["job_id"], job)
         self.save()
         runner = self._run_with_engine_lease if prepared["operations"]["engine_required"] else self.run
@@ -1404,6 +1525,91 @@ class RemixProjectRuntime:
             bed_seconds, target, config)
         return extended, {**info, "chunks": chunks, "bed_seconds": bed_seconds}
 
+    async def _run_sequence(self, job, request, work, source, plan, config, reference):
+        """Ejecuta la secuencia: un repintar por paso, en orden y sobre el anterior.
+
+        Cada paso se aplica sobre el resultado del paso previo, así que la
+        secuencia acumula. Si se pide parar, se entrega lo hecho y los pasos
+        siguientes quedan con el material original.
+        """
+        all_steps = list(plan.get("steps") or [])
+        steps_info = [{
+            "index": segment["index"], "start": segment["start"], "end": segment["end"],
+            "focus": segment["focus"], "prompt": segment["prompt"],
+            "enabled": bool(segment.get("enabled")),
+            "status": "pending" if segment.get("enabled") else "kept",
+            "engine_task_id": None, "duration_seconds": None, "warning": None,
+        } for segment in all_steps]
+        by_index = {entry["index"]: entry for entry in steps_info}
+        enabled = [segment for segment in all_steps if segment.get("enabled")]
+        current = source
+        produced = None
+        for position, segment in enumerate(enabled):
+            self.cancelled(job)
+            entry = by_index[segment["index"]]
+            entry["status"] = "running"
+            job["steps"] = steps_info
+            self.event(job, f"Paso {segment['index'] + 1} de {len(enabled)}: rehaciendo "
+                            f"{segment['start']:.1f}-{segment['end']:.1f} s")
+            step_request = request.model_copy(update={
+                "scope": "region",
+                "region_start": segment["start"],
+                "region_end": segment["end"],
+                "prompt": segment["prompt"],
+                "batch_size": 1,
+                # El primer paso usa la semilla pedida; los siguientes, derivadas.
+                "seed": step_seed(request.seed, position, config.parameters["seed"]["max"]),
+            })
+            generation = project_generation(step_request, current, reference, self.settings)
+            job["effective_parameters"] = self.music.build_payload(generation)
+            job["provenance"]["src_audio_path"] = "source" if position == 0 else "previous_step"
+
+            def update(status, entry=entry):
+                self.cancelled(job)
+                job["status"] = "running"
+                job["engine_progress"] = status.progress
+                job["progress_ratio"] = status.moving_progress()
+                job["engine_progress_text"] = status.progress_text or ""
+                job["phase"] = _visible_phase(status)
+
+            job["engine_active"] = True
+            try:
+                task_id, _ = await self.music.submit(generation)
+                entry["engine_task_id"] = task_id
+                self.save()
+                final = await self.music.wait(task_id, on_update=update)
+            finally:
+                job["engine_active"] = False
+            self.cancelled(job)
+            if not final.succeeded:
+                raise MusicEngineError(final.error or "El motor terminó sin audio válido")
+            track = next((item for item in final.tracks if item.file), None)
+            if track is None:
+                raise MusicEngineError("El motor no devolvió audio para este paso")
+            path = work / f"paso-{segment['index'] + 1}.wav"
+            await self.music.download(track.file, path)
+            seconds = await self.music.verify_audio(path) / 1000
+            if abs(seconds - plan["natural_duration_seconds"]) > config.duration_tolerance_seconds:
+                raise MusicEngineError("El motor cambió la duración del paso; no se mezclan tiempos distintos")
+            current = path
+            produced = track
+            entry["status"] = "done"
+            entry["duration_seconds"] = seconds
+            job["steps"] = steps_info
+            self.save()
+            if job.get("stop_requested"):
+                job["sequence_partial"] = True
+                job["sequence_stopped_at"] = segment["index"] + 1
+                self.event(job, f"Secuencia detenida en el paso {segment['index'] + 1}; "
+                                "los pasos siguientes conservan el material original")
+                break
+        for entry in steps_info:
+            if entry["status"] == "pending":
+                entry["status"] = "kept"
+                entry["warning"] = "Este paso no llegó a rehacerse: conserva el material original."
+        job["steps"] = steps_info
+        return current, produced, steps_info
+
     def _fail(self, job: dict, error: Exception) -> None:
         logger.error(f"Proyecto/separación {job['job_id']} falló: {error}")
         job.update(status="failed", phase="Cancelado" if job.get("cancelled") else "Error",
@@ -1486,6 +1692,11 @@ class RemixProjectRuntime:
                 generated = []
                 if recovered is not None:
                     generated = recovered[0]
+                elif request.scope == "sequence":
+                    path, track, steps_info = await self._run_sequence(
+                        job, request, work, source, plan, config, reference)
+                    generated.append((path, track))
+                    job["steps"] = steps_info
                 elif request.scope != "groups" or targets:
                     task = "repaint" if request.scope == "region" else "cover"
                     self.event(job, f"Transformando el audio original con {task}")
@@ -1864,7 +2075,12 @@ class RemixProjectRuntime:
                                  groove_replacements=groove_replacements,
                                  kick_replacements=kick_replacements,
                                  replacement_parameters=replacement_parameters,
-                                 provenance=job.get("provenance"), **(measured or {}))
+                                 provenance=job.get("provenance"),
+                                 steps=job.get("steps"),
+                                 material_origin=material_origin(request),
+                                 partial=bool(job.get("sequence_partial")),
+                                 stopped_at_step=job.get("sequence_stopped_at"),
+                                 **(measured or {}))
                     publications.append((staged_output, stem, ficha, variant))
                     metadata.append(variant)
                 self.cancelled(job)
@@ -1894,6 +2110,8 @@ class RemixProjectRuntime:
                            elapsed_seconds=time.monotonic() - job["started"],
                            result={"mix": exported[0], "variants": exported, "metadata": metadata,
                                    "scope": request.scope, "groups": request.groups,
+                                   "steps": job.get("steps"),
+                                   "material_origin": material_origin(request),
                                    "source": source.name, "source_kind": request.source_kind,
                                    "source_classification": request.source_classification,
                                    "classification_origin": request.classification_origin,

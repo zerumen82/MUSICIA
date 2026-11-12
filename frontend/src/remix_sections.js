@@ -5,6 +5,7 @@ export const ACTIONS = [
   { id: 'full', label: 'Rehacer la canción' },
   { id: 'region', label: 'Cambiar un trozo' },
   { id: 'groups', label: 'Cambiar por pistas' },
+  { id: 'sequence', label: 'Secuencia de pasos' },
   { id: 'voice', label: 'Dejar la voz y crear música nueva' },
   { id: 'adjust', label: 'Ajustar tempo, tono, recorte o loop' },
 ];
@@ -13,12 +14,14 @@ export const SCOPE_WHY = {
   full: 'Rehace toda la canción a partir de esta. El texto dice qué cambia.',
   region: 'Cambia solo el trozo que marques. El resto se queda.',
   groups: 'Elige en cada pista si se queda, se rehace o se quita.',
+  sequence: 'Divide la canción en pasos y enciende los que quieras rehacer, cada uno con su texto.',
 };
 
 export const SCOPE_BUSY = {
   full: 'Rehaciendo la canción entera',
   region: 'Rehaciendo el trozo marcado',
   groups: 'Rehaciendo las pistas elegidas',
+  sequence: 'Rehaciendo los pasos de la secuencia',
   voice: 'Creando la música nueva',
   adjust: 'Ajustando el audio',
 };

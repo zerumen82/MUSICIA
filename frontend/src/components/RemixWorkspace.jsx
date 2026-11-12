@@ -1,22 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
-import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS } from '../api';
+import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS, PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
 import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
 import useStylePrompt, { usePreparedStylePrompts } from '../useStylePrompt';
 import { applyTrackAction, effectiveTrackSelection, emptyStyleSelection, emptyTouchedRoles, stylePromptRequest } from '../style_prompt';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
+import { defaultSequenceSteps, sequencePayloadSteps, sequencePreparationError, sequenceStepsPending, sequenceValidation } from '../remix_sequence';
+import { MATERIAL_ENTRY_NOTE, materialOriginLabel } from '../remix_material';
 import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import AudioComparator from './AudioComparator';
+import RemixSequence from './RemixSequence';
 import VoiceBackingPanel from './VoiceBackingPanel';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
 const mediaUrl = (url, name) => url ? new URL(url, API_BASE_URL).href : api.audioUrl(name);
+const SEQUENCE_STYLE_PLACEHOLDER = 'Estilo común a todos los pasos (opcional).';
 const TEMPO_TEXT = {
   full: 'Cada variante se mide y se ajusta al BPM pedido con DSP local, sin cambiar el tono. Si la medición es incierta, el remix mostrará el error.',
   region: 'En un tramo, el BPM orienta al motor; el audio generado puede tener otro tempo.',
@@ -39,8 +43,9 @@ function Fold({ title, why, children, ...rest }) {
 export default function RemixWorkspace({ fileName, onDone, initialAction = '', ficha = null, sourceKind = null }) {
   const [capabilities, setCapabilities] = useState(null);
   const [action, setAction] = useState(initialAction === 'tramo' ? 'region' : 'full');
-  const remixing = action === 'full' || action === 'region' || action === 'groups';
+  const remixing = action === 'full' || action === 'region' || action === 'groups' || action === 'sequence';
   const scope = remixing ? action : 'full';
+  const sourceKey = JSON.stringify([sourceKind, fileName]);
   const [prompt, setPrompt] = useState('');
   const [controls, setControls] = useState({});
   const [bpm, setBpm] = useState('');
@@ -68,10 +73,49 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [trackSelections, setTrackSelections] = useState({});
   // Qué papeles ha tocado el usuario en cada pista: lo demás se hereda.
   const [trackSelectionRoles, setTrackSelectionRoles] = useState({});
+  // Secuencia de pasos (spec/02 [R20.A]): el estado va con la fuente, así que
+  // al cambiar de archivo los pasos vuelven a los que declara el servidor.
+  const [sequenceState, setSequenceState] = useState({ sourceKey: null, steps: null });
+  const [sequencePreview, setSequencePreview] = useState(null);
+  const [sequencePreviewError, setSequencePreviewError] = useState(null);
+  const defaultStepsCount = Number(capabilities?.sequence?.default_steps) || 0;
+  const defaultSequence = useMemo(() => defaultSequenceSteps(defaultStepsCount), [defaultStepsCount]);
+  const sequenceSteps = sequenceState.sourceKey === sourceKey && sequenceState.steps
+    ? sequenceState.steps
+    : defaultSequence;
+  const setSequenceSteps = (next) => setSequenceState({
+    sourceKey,
+    steps: typeof next === 'function' ? next(sequenceSteps) : next,
+  });
   const exclusionSource = scope === 'groups'
     ? [prompt, ...groups.filter((group) => actions[group.id] === 'transform').map((group) => trackText[group.id] ?? '')].filter(Boolean).join(' ')
-    : null;
+    : scope === 'sequence'
+      ? sequenceSteps.map((step) => step.prompt ?? '').filter(Boolean).join(' ')
+      : null;
   const prepared = useStylePrompt(prompt, exclusionSource);
+  // Cada paso pasa por el mismo preparador común que el prompt general
+  // (glosario, exclusiones y matices). El estilo común lo lleva el prompt
+  // general, que se antepone al texto de cada paso.
+  const sequenceInputs = useMemo(() => Object.fromEntries(sequenceSteps.map((step) => [
+    `paso-${step.index}`,
+    stylePromptRequest(scope === 'sequence' ? (step.prompt ?? '') : '', emptyStyleSelection(), null),
+  ])), [sequenceSteps, scope]);
+  const preparedSequence = usePreparedStylePrompts(sequenceInputs);
+  const preparedSequenceByIndex = useMemo(() => Object.fromEntries(
+    sequenceSteps.map((step) => [step.index, preparedSequence[`paso-${step.index}`]])), [sequenceSteps, preparedSequence]);
+  const sequenceStepTexts = useMemo(() => Object.fromEntries(sequenceSteps.map((step) => {
+    const own = preparedSequenceByIndex[step.index]?.effectivePrompt ?? '';
+    return [step.index, [prepared.effectivePrompt, own].filter(Boolean).join('\n')];
+  })), [sequenceSteps, preparedSequenceByIndex, prepared.effectivePrompt]);
+  // Lo que se envía de verdad por paso: el estilo común delante del texto del
+  // paso. Mientras el texto del paso se prepara, no se enseña nada en falso.
+  const sequenceSentTexts = useMemo(() => Object.fromEntries(sequenceSteps.map((step) => {
+    const status = preparedSequenceByIndex[step.index];
+    const own = status?.effectivePrompt ?? '';
+    const written = Boolean((step.prompt ?? '').trim());
+    const value = (!written || status?.ready) ? [prepared.effectivePrompt, own].filter(Boolean).join('\n') : null;
+    return [step.index, value];
+  })), [sequenceSteps, preparedSequenceByIndex, prepared.effectivePrompt]);
   // La pista hereda del prompt general PAPEL POR PAPEL (principal, matices y
   // ficha): lo que el usuario no toca sigue viniendo del general; lo que toca
   // pasa a ser de la pista. Así su texto va en su línea, con su papel, y no
@@ -100,7 +144,6 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const alive = useRef(true);
   const classificationEdited = useRef(false);
   const workspace = useRef(null);
-  const sourceKey = JSON.stringify([sourceKind, fileName]);
   const currentSourceKey = useRef(sourceKey);
   currentSourceKey.current = sourceKey;
   const measurementRequest = useRef(0);
@@ -269,6 +312,50 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     return () => { active = false; setAnalysisStatus(null); };
   }, [advanced, fileName, sourceKind]);
 
+  // La secuencia pide al servidor la división de la canción: los tramos y si
+  // caen en compases completos los calcula él (spec/02 [R20.A]). Solo se
+  // vuelve a pedir cuando cambia la forma de la secuencia, no al escribir.
+  const sequencePreviewKey = useMemo(() => JSON.stringify({
+    steps: sequenceSteps.map((step) => ({
+      index: step.index, enabled: step.enabled, focus: step.focus, hasText: Boolean((step.prompt ?? '').trim()),
+    })),
+    sourceBpm: sourceBpm || '',
+  }), [sequenceSteps, sourceBpm]);
+  const sequencePreviewRequest = useMemo(() => ({
+    source_name: fileName, source_kind: sourceKind, scope: 'sequence',
+    // El preview solo reparte la canción en tramos: para eso el texto da igual.
+    // Se manda el texto escrito, no el preparado, para que el reparto se pueda
+    // pedir mientras el usuario escribe y no dependa del traductor.
+    steps: sequencePayloadSteps(sequenceSteps.map((step) => ({ ...step, prompt: step.prompt ?? '' }))),
+    // Solo viaja el BPM **revisado a mano**: si el valor viene de la medición
+    // automática lo mide el servidor, y así la ficha declara bien su origen.
+    ...(sourceBpm !== '' && sourceBpmOrigin === 'manual' ? { source_bpm: Number(sourceBpm) } : {}),
+  }), [fileName, sourceKind, sequenceSteps, sourceBpm, sourceBpmOrigin]);
+  const latestSequenceRequest = useRef(null);
+  useEffect(() => { latestSequenceRequest.current = sequencePreviewRequest; }, [sequencePreviewRequest]);
+  useEffect(() => {
+    if (scope !== 'sequence' || !capabilities) return undefined;
+    let active = true;
+    const timer = setTimeout(async () => {
+      const request = latestSequenceRequest.current;
+      if (!request) return;
+      const problem = sequenceValidation(request.steps, { maxSteps: Number(capabilities?.sequence?.max_steps) || 0 }).error;
+      if (problem) { if (active) { setSequencePreview(null); setSequencePreviewError(null); } return; }
+      while (active) {
+        try {
+          const result = await api.remixPreview(request);
+          if (active) { setSequencePreview(result); setSequencePreviewError(null); }
+          return;
+        } catch (err) {
+          if (!active) return;
+          if (!isTransportBlip(err.message)) { setSequencePreviewError(err.message); return; }
+          await new Promise((resolve) => setTimeout(resolve, TRANSPORT_ERROR_CLEAR_MS));
+        }
+      }
+    }, PROMPT_PREVIEW_DEBOUNCE_MS);
+    return () => { active = false; clearTimeout(timer); };
+  }, [scope, capabilities, sequencePreviewKey]);
+
   const onRange = useCallback((selection) => setRegion({ start: selection.trim_start_s ?? 0, end: selection.trim_end_s }), []);
   const onRepeatRange = useCallback((selection) => {
     const bounds = repeatBoundsFromWave(selection);
@@ -343,7 +430,19 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     setGroups(actual); setActions(Object.fromEntries(actual.map((group) => [group.id, 'keep'])));
     setNotice('Pistas separadas. Escucha cada grupo y elige su acción.');
   }, SEPARATION_SUBMITTING);
-  const promptsReady = prepared.ready && (scope !== 'groups' || Object.values(preparedTracks).every((item) => item.ready));
+  const sequenceValidationError = scope === 'sequence'
+    ? sequenceValidation(sequenceSteps, { maxSteps: Number(capabilities?.sequence?.max_steps) || 0 }).error
+    : null;
+  // El BPM revisado a mano reparte los pasos: se comprueba aquí, no en el servidor.
+  const sequenceBpmLimits = bounds('source_bpm') ?? bounds('bpm');
+  const sequenceBpmError = scope === 'sequence' && sourceBpm !== ''
+    && (!Number.isFinite(Number(sourceBpm))
+      || (sequenceBpmLimits?.min != null && Number(sourceBpm) < sequenceBpmLimits.min)
+      || (sequenceBpmLimits?.max != null && Number(sourceBpm) > sequenceBpmLimits.max))
+    ? 'El BPM original revisado tiene que ser un número dentro de los límites indicados.' : null;
+  const sequencePreparationNote = scope === 'sequence' ? sequencePreparationError(sequenceSteps, preparedSequenceByIndex) : null;
+  const sequencePending = scope === 'sequence' && sequenceStepsPending(sequenceSteps, preparedSequenceByIndex);
+  const promptsReady = prepared.ready && !sequencePending && (scope !== 'groups' || Object.values(preparedTracks).every((item) => item.ready));
   const sentPrompt = scope === 'groups'
     ? [prepared.effectivePrompt, ...groups.filter((group) => actions[group.id] === 'transform').map((group) => preparedTracks[group.id]?.effectivePrompt || '')].filter(Boolean).join('\n')
     : prepared.effectivePrompt;
@@ -366,29 +465,38 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     || (bounds(key)?.min != null && Number(value) < bounds(key).min)
     || (bounds(key)?.max != null && Number(value) > bounds(key).max)
   )) ? 'Revisa los parámetros avanzados: pasos y lote deben ser enteros positivos; guidance debe ser finito y no negativo, dentro de los límites indicados.' : null;
-  const requestError = bpmError || timeline.error || advancedError;
+  const requestError = bpmError || timeline.error || advancedError || sequenceValidationError || sequenceBpmError;
   const hasTargetDuration = durationMinutes !== '' || durationSeconds !== '';
   const chosenReference = needsCover ? references.find((item) => item.id === reference) : null;
   const payload = {
     source_name: fileName, source_kind: sourceKind, source_classification: classification, classification_origin: classificationOrigin, prompt: needsStyle ? sentPrompt : '', scope,
     output_name: outputName.trim() || null,
     ...(seed !== '' && needsStyle ? { seed: Number(seed) } : {}),
-    ...(bpm !== '' ? { bpm: Number(bpm) } : {}),
+    ...(scope !== 'sequence' && bpm !== '' ? { bpm: Number(bpm) } : {}),
     ...timeline.fields,
     ...(scope !== 'groups' && vocalMode === 'instrumental' ? { instrumental: true } : {}),
     ...(scope !== 'groups' && vocalMode === 'lyrics' ? { instrumental: false, lyrics: lyrics.trim() } : {}),
     ...(scope === 'region' ? { region_start: Number(region.start), region_end: Number(region.end ?? duration), repaint_mode: controls.repaint_mode, ...(controls.repaint_mode === 'balanced' ? { repaint_strength: controls.repaint_strength } : {}) }
-      : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
+      : scope === 'sequence' ? {} : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
+    // La secuencia manda orden e intención: el servidor reparte los tramos.
+    ...(scope === 'sequence' ? { steps: sequencePayloadSteps(sequenceSteps.map((step) => ({ ...step, prompt: sequenceStepTexts[step.index] ?? '' }))) } : {}),
+    // El BPM revisado a mano es el tempo con el que el servidor reparte los pasos.
+    ...(scope === 'sequence' && sourceBpm !== '' && sourceBpmOrigin === 'manual' ? { source_bpm: Number(sourceBpm) } : {}),
     ...(chosenReference ? { reference_name: chosenReference.name, reference_kind: chosenReference.kind } : {}),
     ...(needsStyle && advancedGuidance !== '' ? { guidance_scale: Number(advancedGuidance) } : {}),
     ...(needsStyle && advancedSteps !== '' ? { inference_steps: Number(advancedSteps) } : {}),
     ...(needsStyle ? { use_format: advancedUseFormat } : {}),
-    ...(needsStyle && advancedBatch !== '' ? { batch_size: Number(advancedBatch) } : {}),
+    ...(needsStyle && advancedBatch !== '' && scope !== 'sequence' ? { batch_size: Number(advancedBatch) } : {}),
   };
   const run = () => execute(async () => {
     if (needsStyle && !promptsReady) throw new Error('Espera a que todos los prompts estén preparados.');
-    if (needsStyle && !sentPrompt) throw new Error('Describe los cambios que quieres hacer');
+    if (needsStyle && !sentPrompt && scope !== 'sequence') throw new Error('Describe los cambios que quieres hacer');
+    if (scope === 'sequence') {
+      if (sequenceValidationError) throw new Error(sequenceValidationError);
+      if (sequencePreparationNote) throw new Error(sequencePreparationNote);
+      if (sequencePending) throw new Error('Espera a que los textos de los pasos estén preparados.');
+    }
     if (scope === 'groups' && !groups.length) throw new Error('Separa primero las pistas del original');
     if (scope === 'region' && !(Number(region.end ?? duration) > Number(region.start))) throw new Error('Selecciona un tramo con final posterior al inicio');
     if (grooveBusy) throw new Error('Espera a que termine la medición del BPM original.');
@@ -419,6 +527,11 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const cancel = async () => {
     if (!currentJob.current) return;
     try { await api.cancelJob(currentJob.current); setNotice('Cancelación solicitada. Esperando confirmación.'); }
+    catch (err) { setError(actionError(err.message)); }
+  };
+  const stopSequence = async () => {
+    if (!currentJob.current) return;
+    try { await api.remixProjectStop(currentJob.current); setNotice('Parada pedida: se entrega lo hecho hasta el paso actual.'); }
     catch (err) { setError(actionError(err.message)); }
   };
 
@@ -461,6 +574,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       {!capabilities && !error && <span className="text-[13px] text-[var(--muted)]">Cargando opciones…</span>}
     </div>
     {scopeWhy && <p className="text-[13px] leading-snug">{scopeWhy}</p>}
+    {remixing && <p className="text-[13px] leading-snug text-[var(--muted)]" data-material-origin-note>{MATERIAL_ENTRY_NOTE}</p>}
     {remixing && scope === 'region' && <div className="flex flex-col gap-2"><Waveform key={`${sourceKind}:${fileName}`} fileName={fileName} sourceKind={sourceKind} onSelection={onRange} selection={region} disabled={busy} nudgeStep={nudgeStep} scales={false} />
       <div className="flex gap-3 flex-wrap">
         <label className="label">DESDE <input aria-label="Inicio del tramo" type="number" min="0" step={Number(nudgeStep) > 0 ? nudgeStep : undefined} disabled={busy} value={region.start} onKeyDown={nudgeRegion('start')} onChange={(event) => setRegion((current) => ({ ...current, start: event.target.value }))} className={`${field} w-24`} /> s</label>
@@ -508,13 +622,22 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         why="El modelo recibe un solo texto: el prompt general más una línea por cada pista en «transformar». Se muestra el texto efectivo del servidor. Las pistas no se tratan por separado." />}
       <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo del prompt general se hereda en cada pista: si eliges otro en la pista, manda ese. El texto de una pista se suma. Una pista vacía no añade nada.</p>
     </div>}
+    {remixing && scope === 'sequence' && <p className="text-[13px] text-[var(--muted)]">El estilo de aquí se aplica a todos los pasos: viaja delante del texto de cada paso. El motor no lo recibe solo, sino dentro de cada paso.</p>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
-      placeholder={activeScope?.placeholder || 'Qué quieres cambiar.'} className={`${field} resize-y w-full`} />}
+      placeholder={scope === 'sequence' ? SEQUENCE_STYLE_PLACEHOLDER : (activeScope?.placeholder || 'Qué quieres cambiar.')} className={`${field} resize-y w-full`} />}
     {remixing && scope === 'groups' && groups.length > 0 && !needsStyle && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
     {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />}
-    {remixing && needsStyle && promptsReady && !requestError && scope !== 'groups' && <StyleEnglish request={payload}
+    {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">
+      <RemixSequence steps={sequenceSteps} onSteps={setSequenceSteps} capabilities={capabilities}
+        preview={sequencePreview} prepared={preparedSequenceByIndex} sent={sequenceSentTexts} job={job} busy={busy} />
+      {sequencePreviewError && <p role="alert" className="mono text-[11px] st-err">No se pudo calcular la división de la canción: {sequencePreviewError}</p>}
+      {sequencePreparationNote && <p role="alert" className="mono text-[11px] st-err">{sequencePreparationNote}</p>}
+      {sequencePending && <p role="status" className="mono text-[10px] text-[var(--muted)]">PREPARANDO LOS TEXTOS DE LOS PASOS…</p>}
+      {sequenceValidationError && <p role="alert" className="text-[13px] st-err">{sequenceValidationError}</p>}
+    </div>}
+    {remixing && needsStyle && promptsReady && !requestError && scope !== 'groups' && scope !== 'sequence' && <StyleEnglish request={payload}
       why="Se muestra el texto efectivo del servidor, con la misma petición que se usa al generar. Los parámetros avanzados modifican cómo lo procesa el motor." />}
-    {remixing && scope !== 'region' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
+    {remixing && scope !== 'region' && scope !== 'sequence' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
     {remixing && needsStyle && (
       <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-3 mb-2">
         <div className="flex items-center gap-2">
@@ -537,15 +660,27 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
               <input aria-label="Reescribir prompt con LM" type="checkbox" checked={advancedUseFormat} onChange={() => setAdvancedUseFormat((c) => !c)} disabled={busy} />
               <span className="label text-[11px]">use_format (LM reescribe el prompt)</span>
             </label>
-            <label className="flex flex-col gap-1">
+            {scope !== 'sequence' && <label className="flex flex-col gap-1">
               <span className="label text-[11px]">Lote (batch)</span>
               <input aria-label="Lote del remix" type="number" min={bounds('batch_size')?.min} max={bounds('batch_size')?.max} step="1" value={advancedBatch} onChange={(e) => setAdvancedBatch(e.target.value)} disabled={busy} className={`${field} w-24`} />
-            </label>
+            </label>}
+            {scope === 'sequence' && <p className="mono text-[10px] text-[var(--faint)]">Cada paso genera una variante: el lote es 1.</p>}
           </div>
         )}
       </div>
     )}
-    {remixing && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
+    {remixing && scope !== 'sequence' && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
+    {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">
+      <p className="text-[13px] text-[var(--muted)]">El tempo lo mide el servidor sobre el original: los cortes caen en compases completos. Si la medición no es fiable, indica el BPM original revisado.</p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="label">BPM ORIGINAL <input aria-label="BPM original de la secuencia" type="number" min={(bounds('source_bpm') ?? bounds('bpm'))?.min} max={(bounds('source_bpm') ?? bounds('bpm'))?.max} step="any" value={sourceBpm} disabled={busy} placeholder="Detección automática" onChange={(event) => setSourceTempo({ sourceKey, value: event.target.value, origin: 'manual' })} className={`${field} w-44`} /></label>
+        <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void measureSourceTempo()} className="btn btn-ghost h-8 px-3">{grooveBusy ? 'MIDIENDO…' : 'MEDIR BPM ORIGINAL'}</button>
+      </div>
+      {grooveBusy && <p role="status" className="text-[13px] text-[var(--muted)]">Midiendo el tempo del original con DSP local…</p>}
+      {groove && <p className="text-[13px] text-[var(--muted)]" data-source-tempo-measurement>{Number(groove.bpm) > 0 ? `Medido: ${Number(groove.bpm).toFixed(1)} BPM.` : 'No se pudo determinar el tempo.'} {Number.isFinite(Number(groove.confidence)) ? `Confianza: ${(Number(groove.confidence) * 100).toFixed(0)}%. ` : ''}{measuredRemixBpm(groove, capabilities) != null ? 'Los cortes caen en compases completos.' : 'Medición incierta o fuera de límites: indica el BPM original para repartir los pasos.'}</p>}
+      {grooveError && <p role="alert" className="text-[13px] st-err">Medición del BPM original: {grooveError}</p>}
+      {sourceBpm !== '' && <p className="mono text-[10px] text-[var(--faint)]">{sourceBpmOrigin === 'manual' ? 'BPM original revisado manualmente.' : 'BPM original precargado de la medición automática.'}</p>}
+    </div>}
     {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
     {remixing && scope === 'region' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.region}</p>}
     {remixing && scope === 'groups' && bpm !== '' && <div className="flex flex-col gap-2">
@@ -559,7 +694,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       {grooveError && <p role="alert" className="text-[13px] st-err">Medición del BPM original: {grooveError}</p>}
       {sourceBpm !== '' && <p className="mono text-[10px] text-[var(--faint)]">{sourceBpmOrigin === 'manual' ? 'BPM original revisado manualmente.' : 'BPM original precargado de la medición automática.'}</p>}
     </div>}
-    {remixing && scope !== 'region' && <div className="flex flex-col gap-2" data-remix-duration>
+    {remixing && scope !== 'region' && scope !== 'sequence' && <div className="flex flex-col gap-2" data-remix-duration>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="label">DURACIÓN</span>
         <label className="flex items-center gap-1"><input aria-label="Minutos del remix" type="number" min="0" step="1" value={durationMinutes} disabled={busy} placeholder="min" onChange={(event) => setDurationMinutes(event.target.value)} className={`${field} w-20`} /><span className="text-[12px] text-[var(--muted)]">min</span></label>
@@ -588,7 +723,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <input aria-label="Nombre del remix" value={outputName} disabled={busy} onChange={(event) => setOutputName(event.target.value)}
           placeholder={fileName ? `${fileName.replace(/\.[^.]+$/, '')}-remix` : 'Nombre de las variantes'} className={field} />
       </label>
-      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && (!promptsReady || !sentPrompt))} className="btn btn-signal h-10 px-5">
+      <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && (!promptsReady || (!sentPrompt && scope !== 'sequence')))} className="btn btn-signal h-10 px-5">
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {busy ? 'TRABAJANDO…' : 'REMIX'}</button></div>}
     {action === 'voice' && <VoiceBackingPanel fileName={fileName} sourceKind={sourceKind} duration={duration} capabilities={capabilities} busy={busy} onRun={voiceBacking} />}
     {action === 'adjust' && <div className="flex flex-col gap-3">
@@ -609,6 +744,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <span className="num text-[13px]">{percent}%</span>
       </>}
       {percent == null && busyLine === CONVERTING && <progress className="flex-1 min-w-[120px]" />}
+      {currentJob.current && scope === 'sequence' && <button type="button" onClick={() => void stopSequence()} className="btn btn-signal h-8 px-3">PARAR SECUENCIA</button>}
       {currentJob.current && <button type="button" onClick={() => void cancel()} className="btn btn-ghost h-8 px-3">CANCELAR</button>}
     </div>}
     {(error || (!spoken && job?.error)) && <p role="alert" className="mono text-[11px] st-err flex gap-2 items-center"><AlertTriangle size={13} />{error || job.error}</p>}
@@ -626,7 +762,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </div>
       {analysis?.description && <p className="mono text-[10px] text-[var(--faint)]">{analysis.description}</p>}
       {analysisError && <p className="mono text-[10px] st-err">Detección no disponible: {analysisError}</p>}
-      {scope !== 'region' && needsCover && range('cover_noise_strength', 'VARIACIÓN DEL AUDIO')}
+      {scope !== 'region' && scope !== 'sequence' && needsCover && range('cover_noise_strength', 'VARIACIÓN DEL AUDIO')}
       {needsCover && <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Referencia tímbrica <select aria-label="Referencia tímbrica" value={reference} disabled={busy} onChange={(event) => setReference(event.target.value)} className="desk-select">
         <option value="">Sin referencia adicional</option>{references.map((item) => <option key={item.id} value={item.id}>{item.kind === 'upload' ? 'SUBIDA' : 'BIBLIOTECA'} · {item.name}</option>)}</select></label>
       }
@@ -642,7 +778,10 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     </Fold>}
     {remixing && (!needsStyle || promptsReady) && !requestError && !grooveBusy && (scope !== 'groups' || groups.length > 0) && <EffectivePreview request={payload} loadPreview={api.remixPreview} why={SECTIONS.engine.why} />}
     {remixing && (job?.effective_parameters || job?.result?.metadata || job?.variant_metadata) && <Fold title={SECTIONS.executed.title} why={SECTIONS.executed.why}>
+      {scope === 'sequence' && <p className="mono text-[10px] text-[var(--faint)]">Estos son los parámetros del último paso ejecutado: cada paso es una llamada propia al motor.</p>}
       <pre className="mono text-[10px] whitespace-pre-wrap break-words py-2">{JSON.stringify({ effective_parameters: job.effective_parameters,
+        material_origin: job.result?.material_origin ?? null,
+        steps: job.result?.steps ?? job.steps ?? null,
         variants: (job.result?.metadata ?? job.variant_metadata ?? []).map(({ file_name, seed, seed_origin, timeline, arrangement }) => ({ file_name, seed, seed_origin, timeline, arrangement })),
         provenance: job.provenance, classification: job.result?.source_classification, classification_origin: job.result?.classification_origin,
         source_analysis: job.result?.source_analysis ?? job.source_analysis }, null, 2)}</pre>
@@ -650,6 +789,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     </Fold>}
     {outputs.length > 0 && <div className="flex flex-col gap-2">
       <p className="text-[13px]">Resultado, al lado del original.</p>
+      {materialOriginLabel(job?.result?.material_origin) && <p className="text-[13px] text-[var(--muted)]" data-material-origin>{materialOriginLabel(job?.result?.material_origin)}</p>}
       <AudioComparator tracks={comparisonTracks} interval={scope === 'region' ? region : null} nudgeStep={nudgeStep} />
     </div>}
   </div>;

@@ -2025,6 +2025,7 @@ _REMIX_KEPT = (
     "created_at", "completed_at", "elapsed_seconds", "result", "error", "project",
     "source_digest", "effective_parameters", "engine_task_id", "preserved_groups", "duration_seconds", "source_analysis",
     "provenance", "warnings", "operations", "pending_material",
+    "steps", "stop_requested", "sequence_partial", "sequence_stopped_at",
 )
 _SEPARATE_KEPT = (
     "job_id", "status", "phase", "source", "prompt", "device", "vocals",

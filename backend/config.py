@@ -188,6 +188,7 @@ class RemixSettings:
         {"id": "full", "label": "Canción completa", "why": "Rehace toda la canción a partir de esta. El texto dice qué cambia.", "how": "Rehace toda la canción a partir de esta. El texto dice qué cambia.", "placeholder": "Qué cambia y qué se queda."},
         {"id": "region", "label": "Tramo", "why": "Cambia solo el trozo que marques. El resto se queda.", "how": "Cambia solo el trozo que marques. El resto se queda.", "placeholder": "Qué debe sonar en el trozo marcado."},
         {"id": "groups", "label": "Por pistas", "why": "Elige en cada pista si se queda, se rehace o se quita.", "how": "Elige en cada pista si se queda, se rehace o se quita.", "placeholder": "Qué debe sonar en las pistas que pongas en transformar."},
+        {"id": "sequence", "label": "Secuencia", "why": "Divide la canción en pasos y enciende los que quieras rehacer, cada uno con su texto.", "how": "Divide la canción en pasos y enciende los que quieras rehacer, cada uno con su texto.", "placeholder": "Qué debe sonar en cada paso."},
     ])
     groups: list[dict[str, str]] = field(default_factory=lambda: [
         {"id": "vocals", "label": "Voz"},
@@ -201,6 +202,12 @@ class RemixSettings:
         {"id": "remove", "label": "Quitar"},
     ])
     repaint_modes: list[str] = field(default_factory=lambda: ["conservative", "balanced", "aggressive"])
+    # Secuencia de pasos (spec/02 [R20.A]): cuántos pasos se ofrecen por
+    # defecto y cuál es el máximo absoluto. El reparto en compases completos
+    # exige al menos `sequence_min_bars_per_step` compases por paso.
+    sequence_default_steps: int = 8
+    sequence_max_steps: int = 16
+    sequence_min_bars_per_step: int = 1
     cover_noise_strength: float = 0.0
     repaint_mode: str = "balanced"
     repaint_strength: float = 0.5

@@ -1027,6 +1027,94 @@ El usuario ha elegido explícitamente **un estilo principal y los demás como ma
 5. Regresiones pertinentes, lint/build, API/UI reales y generación local con archivo/duración/parámetros verificables; fidelidad artística pendiente del oído del usuario. PASS del tester y APPROVE del reviewer independientes, archivos completos y bitácora antes de cierre.
 6. Sin instalaciones, cambio de perfil SFT, separación/BPM/mezcla/continuación ni alteración del alcance T9–T12. Cobertura del resto de etiquetas sin ficha declarada en spec/03, sin promesa de 178.572 definiciones.
 
+## [R20] Secuencia visual de pasos, stems propios y origen del material declarado - propuesto 2026-11-12, pendiente de aprobación
+
+**Petición del usuario (2026-11-12):** «quiero que la secuencia sea visual, como con botones, y lo de remix ¿se ajusta a la definición?», con la definición industrial de remix (stems independientes, reestructurar, añadir ritmos, cambiar género, colaboraciones) y la de bootleg (grabación o remix sin autorización del artista o su editorial). Pregunta además por el encaje del bootleg en el producto.
+
+**Diagnóstico verificado en el código (2026-11-12), no solo en documentación:**
+
+- Los 4 grupos (`vocals`, `drums`, `bass`, `other`) salen de **separar la mezcla terminada** con Demucs (`source_understanding.py`, `separator_service.py`): no hay stems oficiales ni stem de melodía. El flujo actual es técnicamente un **bootleg**, no un remix con stems.
+- `scope=groups` con acción `transform` (`remix_project.py:1477-1602`) mezcla los grupos marcados en un WAV, lo manda al motor como `cover` y **vuelve a separar la generación**: la batería nueva es un trozo de una canción nueva, no un stem generado en contexto.
+- El motor **omite el LM en `cover` y `repaint`** y la app manda `use_cot_caption=false`: el caption es el texto escrito, sin planificación ni orden garantizado. **El orden de una secuencia hay que garantizarlo en el tiempo, no en el prompt.**
+- Hoy `region_start`/`region_end` admite **una sola región por trabajo**; R19 amplía repitiendo material real, no componiendo secciones.
+- No hay colaboraciones: solo «conservar tu voz + base nueva» o voz generada por el mismo motor; `reference` es timbre, no un segundo intérprete.
+- `lego`/`extract`/`complete` (las únicas tareas que trabajan a nivel de stem) exigen `acestep-v15-base`, **no instalado** (solo `sft` y `turbo` en `vendor/ACE-Step-1.5/checkpoints/`) y no habilitado por decisión del 2026-10-02.
+- Las acciones de bootleg ya existen y están repartidas: `INSTRUMENTAL`, `ACAPELLA`, `LOOP`, `MEDIO/DOBLE TIEMPO`, `FORZAR TEMPO`, `CROSSFADE` y la mezcla de dos temas (`mixer_service.py`, `MixLab.jsx`, `RemixPanel.jsx`, `RemixIAPanel.jsx`). Falta agruparlas y declararlas.
+
+**Definición de producto que se propone (aún sin aprobar):** una app, dos orígenes declarados del material:
+
+- **BOOTLEG**: fuente = una canción terminada → se separa → se remezcla. Es lo que hace hoy Musicia; funciona con material no autorizado, con la limitación del bleeding y la pérdida de la separación.
+- **REMIX**: fuente = **stems aportados por el usuario** → se remezcla con material real. Es el flujo de un remix oficial y el techo de calidad sube.
+
+La app no autoriza ni publica nada: la diferencia es de derechos sobre el material y sobre la publicación, no de herramienta.
+
+### [R20.A] Secuencia de pasos visual — rejilla de botones por tramo
+
+**Como** usuario, **quiero** escribir una secuencia de varios tramos con un botón de encendido por tramo, un foco de pista y un texto propio, **para** estructurar un remix por secciones (por ejemplo, 8 pasos donde cambia la batería) sin depender de que el modelo ordene el prompt.
+
+**Criterios de aceptación:**
+
+1. Rejilla de botones: un botón ON/OFF por paso, un selector de foco y un texto de instrucción por paso. Un paso apagado conserva el material original de ese tramo. El selector de foco **solo ofrece los focos que el backend ejecuta**; los pendientes se declaran como tales, nunca como un control que no hace nada.
+2. Los tramos se reparten en **compases completos** según el tempo (el medido, o el BPM original revisado a mano). Nunca cortan un golpe por la mitad. **Si no hay un tempo fiable la secuencia se rechaza con un aviso**: no se reparte a ciegas, porque un corte a mitad de golpe destroza el groove.
+3. Cada paso activo ejecuta **una llamada real al motor** (`repaint` sobre su intervalo, con el caption de ese paso), aplicada sobre el audio del paso anterior. El progreso se muestra por paso y se puede **parar tras el paso N conservando lo ya generado**; la ficha marca que quedó a medias.
+4. El foco por pista (`BATERÍA`, `BAJO`, `VOZ`, `ACOMPAÑAMIENTO`) regenera **solo esa pista de ese tramo**. **Pendiente: no está implementado.** Hoy cada paso rehace el tramo entero (`todo`) y el backend rechaza los demás focos con un error explícito. La entrega queda en [R20.D].
+5. El texto de cada paso pasa por el mismo preparador común (glosario B9c, exclusiones y matices) y el caption efectivo de cada paso es visible antes de enviar. El preview pide el reparto con el texto escrito (el reparto no depende del texto) y el envío manda el texto preparado.
+6. La duración final coincide con la del original: la secuencia **conserva la duración** y **no cambia el tempo**. Los campos que no apliquen (`bpm`, `duration_seconds`, `repeat_start/end`, `transition_seconds`, `groups`, `batch_size` distinto de 1) se **rechazan con un error**, no se ignoran en silencio.
+7. Coste declarado en la UI: N pasos = N generaciones en GPU (medido: 2 pasos de una canción de 20 s, 72,41 s en total; el primer paso ~52 s y el segundo ~12 s). No se promete resultado rápido.
+8. Regresiones backend/frontend, lint/build, API/UI reales y al menos **una** generación real con audio de varios pasos verificable (archivo, duración, ffprobe, parámetros por paso en el recibo). Fidelidad musical y costuras: pendientes de la escucha del usuario. PASS del tester y APPROVE del reviewer sobre los archivos completos.
+
+### [R20.D] Foco por pista en cada paso - pendiente, no implementado
+
+**Por qué queda fuera de R20.A:** separar la pista concreta de cada tramo y remezclarla exige una separación por paso (Demucs) además de la llamada al motor: el coste y la calidad de esa separación no están medidos, y ofrecer el selector sin ejecutarlo sería un autoengaño.
+
+**Criterios de aceptación (a cumplir cuando se implemente):**
+
+1. El foco `BATERÍA` regenera **solo la batería de ese tramo** (separar ese tramo → motor → remezclar con el resto original conservado), para cambiar el ritmo sobre el groove original.
+2. El backend acepta los focos implementados y **rechaza los demás** con un error explícito (esto ya se cumple hoy).
+3. La UI solo ofrece los focos ejecutables y declara los pendientes (esto ya se cumple hoy).
+4. Verificación: audio real con la batería cambiada y el resto conservado, más la escucha del usuario.
+
+### [R20.B] Trae tus stems — el material real
+
+**Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.
+
+**Criterios de aceptación:**
+
+1. Se pueden subir varios audios y **asignarlos a una pista** (`vocals`, `drums`, `bass`, `other`), incluso sin los cuatro.
+2. La mezcla conserva el material tal cual; `transform` sobre un stem usa **ese stem** como fuente del motor, no una canción remezclada de la que hay que volver a separar.
+3. La ficha de cada salida declara el **origen del material**: `stems_del_usuario` o `separado_de_mezcla`.
+4. Con stems del usuario, cambiar el género de un stem (por ejemplo, la batería) es una operación real de motor y deja el resto intacto.
+5. Sin red, sin publicación, sin instalar modelos. Los stems del usuario son su material y su responsabilidad.
+
+### [R20.C] Origen del material declarado y encaje del bootleg
+
+**Como** usuario, **quiero** saber si lo que obtuve es un remix con mis stems o un bootleg hecho con una canción terminada, **para** saber qué puedo publicar y cómo se llama a lo que he hecho.
+
+**Criterios de aceptación:**
+
+1. La ficha de cada salida registra `material_origin` (`stems_del_usuario` | `separado_de_mezcla`), la traza del material y el tipo de tarea del motor. Visible en BIBLIOTECA y en la comparación A/B.
+2. La entrada de REMIX dice en una línea qué va a pasar con el material (separar o usar tus stems), sin jerga.
+3. Las acciones de bootleg existentes (`INSTRUMENTAL`, `ACAPELLA`, `LOOP`, `MEDIO/DOBLE TIEMPO`, `FORZAR TEMPO`, `CROSSFADE`, mezcla de dos temas) quedan **agrupadas** bajo un bloque bootleg en la UI, sin cambiar su comportamiento ni sus contratos DSP.
+4. Documentación: la Épica F ya se llama «Mezcla y remixes (bootlegs)»; se declara en `spec/07` que **sin stems del autor el resultado es un bootleg** y que la app no autoriza ni distribuye. Se anota que la diferencia entre bootleg y remix oficial es de derechos y de calidad del material, no de herramienta.
+5. No se promete monetización, publicación oficial ni autorización; no se implementa ninguna función de subida a plataformas.
+
+**Decisiones del usuario (2026-11-12), ya tomadas:**
+
+1. **R20.B entra en esta historia**, no queda para una fase posterior: se pueden subir stems propios y asignarlos a pista.
+2. **La palabra «bootleg» aparece en la UI y en la ficha**: la entrada de REMIX declara qué pasa con el material y cada salida registra su origen.
+3. **8 pasos por defecto, hasta 16 como máximo absoluto.**
+4. **Se puede parar en cualquier paso** y conservar lo ya generado. El coste (una llamada al motor por paso) se declara en la UI antes de empezar.
+
+**Contrato de API (para que frontend y backend no diverjan):**
+
+- `POST /music/remix/project` y `POST /music/remix/preview` admiten `scope: "sequence"` con `steps: [{ "index": int, "enabled": bool, "focus": "todo", "prompt": str }]`. El número de pasos sale de `GET /music/remix/capabilities` (`sequence.default_steps` = 8, `sequence.max_steps` = 16); el cliente no manda el máximo. El resto del contrato actual (`source_name`, `source_kind`, `lyrics`, `instrumental`, `seed`, `reference_name`, parámetros del motor) se conserva, y `source_bpm` se acepta **solo** en este ámbito, como el tempo con el que se reparten los pasos.
+- El servidor **reparte los pasos en la línea de tiempo** (compases completos según el tempo) y **no acepta que el cliente invente los intervalos**: el cliente manda orden e intención, el servidor calcula tiempos. Sin tempo fiable (ni medido ni revisado a mano) la secuencia se **rechaza con un aviso**; con compases insuficientes para los pasos pedidos, también.
+- `GET /audio/remix/ai/{job_id}` devuelve el trabajo con `steps: [{ "index", "start", "end", "focus", "prompt", "enabled", "status", "engine_task_id", "duration_seconds", "warning" }]`, donde `status` va de `pending` a `running` a `done` (o `kept` si el paso está apagado o no llegó a tiempo). Ese es el progreso real por paso que ve la UI.
+- `POST /music/remix/project/{job_id}/stop` pide parar la secuencia: se entrega lo hecho hasta el paso actual y los siguientes conservan el material original.
+- Al terminar (o al parar), la salida se publica en BIBLIOTECA con la ficha de siempre **más** `material_origin` (`stems_del_usuario` | `separado_de_mezcla`), `steps` (qué hizo cada paso) y `partial`/`stopped_at_step` cuando quedó a medias.
+
+**Límites declarados:** esta historia no habilita `lego`/`extract`/`complete` ni instala `acestep-v15-base`; no cambia el perfil SFT (50 pasos, guidance 9, lote 2, LM 0.6B, thinking/use_format off); no altera T9–T12, R19 ni el alcance de B9c; no cierra R9/R10/B6/B7 ni la escucha artística.
+
 ## [R19] Por pistas alarga repitiendo material real, no generando música nueva - aprobado 2026-10-24
 
 **Estado**: correcciones técnicas verificadas el 2026-10-26; escucha `PENDING_USER`. Decisión del usuario 2026-10-24 (ask_user): «Repetir material real». El 2026-10-26 autoriza solucionar los hallazgos de la revisión: transiciones, reloj incierto, recorte tras DSP, lote avanzado y regresiones de UI/glosario/prompt efectivo. Nuevos **PASS del tester + APPROVE del reviewer**, suite backend 452 tests sin fallos (2 omitidos), frontend 77/77, lint/build, UI/API reales y E2E GPU sobre extracto de «Animales muertos». Evidencias: `logs/fix-review-20261026/tester-final.json`, `reviewer-final.md`, `gpu-e2e.json` y `memory.md`. No acredita fidelidad artística ni cierre integral R9/R10/B6/B7. Evidencia inicial de los fallos: `logs/review-state-20261026/`.
