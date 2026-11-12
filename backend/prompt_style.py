@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from copy import deepcopy
 from pathlib import Path
 
 # Catálogo de sugerencias fuera del código. Las claves completas o regex
@@ -29,6 +30,7 @@ def _freeze(rule: dict) -> dict:
 
 STYLE_RULES: tuple[dict, ...] = tuple(_freeze(r) for r in _CATALOG["styles"])
 STYLE_MODIFIERS: tuple[dict, ...] = tuple(_freeze(m) for m in _CATALOG["modifiers"])
+DOCUMENTED_DESCRIPTIONS: tuple[dict, ...] = tuple(_CATALOG["documented_descriptions"])
 _NEGATION_BEFORE = re.compile(_CATALOG["matching"]["negation_before"])
 _NEGATION_OBJECTS = re.compile(_CATALOG["matching"]["negation_objects"])
 _NEGATION_OBJECT_SEPARATOR = re.compile(_CATALOG["matching"]["negation_object_separator"])
@@ -80,6 +82,8 @@ def without_catalog_descriptions(prompt: str) -> str:
         clause = rule.get("style", rule.get("clause", ""))
         if clause:
             text = re.sub(_clause_pattern(_plain(clause)), " ", text)
+    for entry in DOCUMENTED_DESCRIPTIONS:
+        text = re.sub(_clause_pattern(_plain(entry["text"])), " ", text)
     return text
 
 
@@ -92,6 +96,22 @@ def selected_style_rule(label: str) -> dict | None:
         for key in rule["keys"]:
             if (key.startswith("re:") and re.fullmatch(key[3:], text)) or text == key:
                 return rule
+    return None
+
+
+def style_description(label: str) -> dict | None:
+    """Ficha de la etiqueta entera; nunca deriva una receta por subfrases.
+
+    Las fichas editoriales no amplían las reglas de detección ni sus BPM.
+    El catálogo anterior conserva sus equivalencias explícitas completas.
+    """
+    normalized = " ".join((label or "").lower().split())
+    for entry in DOCUMENTED_DESCRIPTIONS:
+        if normalized == " ".join(entry["label"].lower().split()):
+            return {"text": entry["text"], "provenance": deepcopy(entry["provenance"])}
+    rule = selected_style_rule(label)
+    if rule and rule.get("style"):
+        return {"text": rule["style"], "provenance": deepcopy(_CATALOG["catalog_provenance"])}
     return None
 
 

@@ -20,7 +20,7 @@ from typing import Any
 from loguru import logger
 
 from config import PROJECT_ROOT
-from prompt_style import STYLE_RULES
+from prompt_style import STYLE_RULES, style_description
 
 VOCAB_PATH = PROJECT_ROOT / "vendor" / "ACE-Step-1.5" / "acestep" / "genres_vocab.txt"
 
@@ -59,6 +59,16 @@ def _vocab() -> tuple[list[str], list[str]]:
 def _norm(value: str) -> str:
     """Minúsculas y espacios colapsados: la comparación no distingue mayúsculas."""
     return " ".join((value or "").lower().split())
+
+
+def _descriptions(items: list[str]) -> dict[str, dict[str, Any]]:
+    """Solo fichas exactas de las etiquetas efectivamente devueltas."""
+    result = {}
+    for item in items:
+        description = style_description(item)
+        if description:
+            result[item] = description
+    return result
 
 
 def glossary_line(text: str) -> str | None:
@@ -161,6 +171,7 @@ def search(q: str = "", limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
         return {
             "q": q, "total": 0, "limit": limit, "items": [], "styles": catalog_styles(set(lower)),
             "available": False, "source": str(VOCAB_PATH),
+            "descriptions": {},
         }
     if not needle:
         picked, total = items[:limit], len(items)
@@ -174,6 +185,7 @@ def search(q: str = "", limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     return {
         "q": q, "total": total, "limit": limit, "items": picked, "styles": catalog_styles(set(lower)),
         "available": True, "source": str(VOCAB_PATH),
+        "descriptions": _descriptions(picked),
     }
 
 
@@ -190,6 +202,7 @@ def combine(a: str, b: str, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
     base: dict[str, Any] = {
         "a": left, "b": right, "total": 0, "items": [], "exact": [],
         "available": bool(items), "source": str(VOCAB_PATH),
+        "descriptions": {},
     }
     if not items or not left or not right or left == right:
         return base
@@ -203,7 +216,9 @@ def combine(a: str, b: str, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
             exact.append(item)
         elif left in low and right in low and both.search(low) and also.search(low):
             matched.append(item)
+    picked = (exact + matched)[:limit]
     return {
-        **base, "exact": exact, "items": (exact + matched)[:limit],
+        **base, "exact": exact, "items": picked,
         "total": len(exact) + len(matched),
+        "descriptions": _descriptions(picked),
     }

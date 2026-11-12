@@ -1,5 +1,45 @@
 {
   "_doc": "Catálogo de estilos y modificadores como datos (NO HARDCODE). Lo lee prompt_style.py; matching se comparte con la glosa frontend. Claves completas o regex re: para inflexiones explícitas; gana la coincidencia más específica en cada fragmento y se conservan todos los estilos pedidos en fragmentos independientes. Se respetan negaciones y caption_exclusions. Las descripciones no sustituyen el género literal por un vecino; las traducciones ES/EN declaradas deben existir en genres_vocab.txt. BPM típico del estilo como dato: lo pedido manda. La prosa de las descripciones y cláusulas se verifica contra las 400 captions locales del fabricante. Ese vocabulario valida los datos, no garantiza fidelidad audible. Revisado 2026-10-12 tras los logs de gabber/hardcore y el recordatorio del usuario.",
+  "catalog_provenance": {
+    "kind": "musicia_catalog",
+    "label": "Descripción del catálogo de Musicia",
+    "sources": [],
+    "catalog_path": "backend/style_catalog.json",
+    "note": "Ficha local existente; el contraste léxico con ejemplos no acredita una definición oficial del fabricante."
+  },
+  "documented_descriptions": [
+    {
+      "label": "techno hard house",
+      "text": "A high-energy electronic track with a steady four-on-the-floor rhythm, hard kicks, driving basslines and hypnotic synth patterns.",
+      "provenance": {
+        "kind": "musicia_editorial",
+        "label": "Descripción de Musicia basada en fuentes",
+        "approved_at": "2026-11-12",
+        "revision": "2026-11-12",
+        "note": "Síntesis editorial aprobada de ejemplos de los componentes; no es una definición oficial de ACE-Step ni una definición documental exacta del híbrido.",
+        "sources": [
+          {
+            "title": "ACE-Step — ejemplo techno 179",
+            "url": "https://github.com/ace-step/ACE-Step-1.5/blob/ca1e85fe9430179831e6bc6be790c332190a3866/examples/text2music/example_179.json",
+            "revision": "ca1e85fe9430179831e6bc6be790c332190a3866",
+            "local_path": "vendor/ACE-Step-1.5/examples/text2music/example_179.json",
+            "sha256": "72f587e9288dc966e98133e5aa8d642a4054c6074294ec441d005f5f881cb88b",
+            "license": "MIT",
+            "accessed_at": "2026-11-12",
+            "access_method": "local_checkout",
+            "scope": "Ejemplo de techno con ritmo a negras, bajo y sintetizadores; se omiten voz y estructura."
+          },
+          {
+            "title": "SHARP / Function Loops — Hard House",
+            "url": "https://www.functionloops.com/hard-house.html",
+            "accessed_at": "2026-11-12",
+            "access_method": "web",
+            "scope": "Componentes de kits de producción hard house; síntesis propia, sin importar prosa comercial ni samples."
+          }
+        ]
+      }
+    }
+  ],
   "matching": {
     "negation_before": "(?:^|[^a-z0-9])(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?|not|without|excepto|evita|avoid)(?:\\s+(?:el|la|los|las|un|una|unos|unas|any|the))?\\s+(?:[a-z0-9-]+(?:\\s+[a-z0-9-]+)*\\s*,?\\s+(?:ni|nor|or|y|and)\\s+)*$",
     "negation_objects": "(?:^|[^a-z0-9])(?:sin(?:\\s+anadir)?|nada\\s+de|no(?:\\s+(?:quiero|anadir|anadas|incluir|incluyas))?|not|without|excepto|evita|avoid)\\s+([^,;.!?\\n]+(?:,\\s*(?:ni|nor)\\s+[^,;.!?\\n]+)*)",
@@ -23,11 +63,11 @@
   },
   "caption_exclusions": [
     {"keys": ["re:\\bguitarr\\w*", "re:\\bguitars?\\b"], "caption_keys": ["re:\\bguitars?\\b"]},
-    {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b", "re:\\b(?:cajas?|drums?box)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kick|percussion|hi-hats|breakbeats)\\b"]},
-    {"keys": ["re:\\b(?:bombos?|kick(?: drum)?)\\b"], "caption_keys": ["re:\\bkick\\b", "double bass drumming"]},
+    {"keys": ["re:\\b(?:baterias?|drums?|percusion|percussion)\\b", "re:\\b(?:cajas?|drums?box)\\b"], "caption_keys": ["re:\\b(?:drums?|drumming|kicks?|percussion|hi-hats|breakbeats)\\b"]},
+    {"keys": ["re:\\b(?:bombos?|kick(?: drum)?)\\b"], "caption_keys": ["re:\\bkicks?\\b", "double bass drumming"]},
     {"keys": ["re:\\b(?:melodias?|melody|melodies)\\b"], "caption_keys": ["re:\\b(?:melody|melodies|melodic|arpeggios|arpeggiated|leads)\\b"]},
     {"keys": ["re:\\b(?:voz|voces|vocals?|cantar)\\b"], "caption_keys": ["re:\\b(?:vocals?|sung|rapped|choir)\\b"]},
-    {"keys": ["re:\\b(?:bajos?|bass|bassline)\\b"], "caption_keys": ["re:\\b(?:bass|sub-bass|bassline)\\b"]},
+    {"keys": ["re:\\b(?:bajos?|bass|bassline)\\b"], "caption_keys": ["re:\\b(?:bass|sub-bass|basslines?)\\b"]},
     {"keys": ["re:\\b(?:pianos?)\\b"], "caption_keys": ["re:\\bpianos?\\b"]},
     {"keys": ["re:\\b(?:sintetizadores?|sintes?|synths?|synthesizers?)\\b"], "caption_keys": ["re:\\b(?:synths?|synthesizers?)\\b"]},
     {"keys": ["re:\\bsnares?\\b"], "caption_keys": ["re:\\bsnare\\b"]},

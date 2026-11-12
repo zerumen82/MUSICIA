@@ -8,6 +8,16 @@ Prioridad: `P0` = esenciales del producto · `P1` = importantes · `P2` = mejora
 
 Estado documental sincronizado 2026-11-11: las decisiones fechadas describen su contexto histórico. Las decisiones posteriores SFT, B9b y R19 sustituyen las condiciones antiguas de sus rutas; el cierre correctivo R9/R10 sigue abierto. Las comprobaciones históricas conservan su alcance, pero no acreditan automáticamente una nueva interfaz ni aprobación musical. Las casillas sin marcar de historias históricas no significan necesariamente ausencia de implementación: prevalecen el estado explícito y sus límites posteriores.
 
+## Corrección de pendientes T9–T12 — 2026-11-11, autorizada y en curso
+
+**Petición y prioridad aprobada:** «EMPIEZA CON PENDIENTES»; el usuario elige «T9–T12 primero (recomendado)». Corregir los cuatro defectos existentes antes de continuar los recorridos GPU integrales. Sin nuevas funcionalidades, instalaciones, cambio del perfil SFT ni reactivación de continuación B8 en R19.
+
+- [ ] **T9:** las cinco rutas DSP de escritura (mezcla, tempo, crossfade, remix DSP y proceso) completan el trabajo fuera del bucle API. Sondeo HTTP concurrente sigue respondiendo; éxito solo tras audio y ficha reales. Dos peticiones simultáneas con el mismo nombre conservan salidas y fichas distintas, sin pisar material existente ni dejar reservas definitivas tras errores. Mantener validación, códigos y mensajes de error.
+- [ ] **T10:** criba B8 mide duración en frames/sample_rate una sola vez, tanto mono como estéreo. Comprobar regiones por debajo, en y por encima del mínimo configurado, WAV recortado real y detector/criba conservados. No cambiar umbrales ni activar esta ruta en la ampliación R19.
+- [ ] **T11:** la API de letras describe el resultado real cuando conserva frases del usuario; no promete estructura que no devuelve. Frases intactas, source=tus_frases y sin despertar/invocar LM. Preservar la estructuración local existente en Composer y su política sin LM para frases escritas.
+- [ ] **T12:** el lanzador espera únicamente Musicia y termina tras SALIR aunque otra aplicación Electron permanezca abierta. Una segunda apertura conserva servicios de la primera. Fallos de consulta o identidad ambigua no autorizan parar procesos/servicios; no señalar otras aplicaciones.
+- [ ] Regresión backend/frontend, lint/build verdes, verificación real de recorridos afectados y revisión de archivos completos con PASS independiente del tester y APPROVE del reviewer; evidencia y límites en memory.md. Los cierres integrales históricos y la escucha conservan sus criterios propios.
+
 ## Auditoría de código, documentación y UI — 2026-11-11, VALIDADA técnicamente en el alcance ejecutado
 
 **Petición del usuario**: revisar el código y sincronizar la documentación; comprobar que la UI está conectada y es usable, completar su validación y realizar pruebas. Es una auditoría de recorridos existentes, sin funcionalidad nueva ni cambio de diseño, dependencias, perfil musical o prioridades.
@@ -1001,6 +1011,21 @@ El usuario ha elegido explícitamente **un estilo principal y los demás como ma
 4. Crear, Remix, acompañamiento y campos por pista usan el mismo preparador. La vista y la petición de generación usan el mismo texto efectivo; ninguna carrera de debounce permite enviar un resultado anterior. BPM, tono y compás permanecen en sus controles.
 5. Regresiones de los contraejemplos del diagnóstico, contratos preview/envío, suites relevantes, lint y build verdes. Prueba real de UI/API y generación local con evidencia de archivo, duración y parámetros; fidelidad artística pendiente de escucha del usuario. PASS independiente del tester y APPROVE del reviewer necesarios para cierre técnico.
 6. Sin instalaciones, nube ni cambios al perfil SFT, separación, criba de bombo o continuación B8/B8b. Compatibilidad de peticiones sin selección estructurada preservada.
+
+## [B9c] Fichas documentadas del glosario — aprobado 2026-11-12, en implementación
+
+**Petición:** al elegir `techno hard house`, el motor recibe solo `Predominantly techno hard house.` y no su descripción. Diagnóstico reproducido por funciones y cuatro POST reales, sin confundir etiqueta válida con ficha descriptiva. Usuario elige «Descripciones documentadas» y aprueba explícitamente el plan y la primera ficha: «Aprobar el plan y la ficha (recomendado)».
+
+**Alcance aprobado:** fichas exactas de Musicia basadas en fuentes, diferenciadas de definiciones oficiales del fabricante. Primera ampliación: `techno hard house` con caption `A high-energy electronic track with a steady four-on-the-floor rhythm, hard kicks, driving basslines and hypnotic synth patterns.`. Es una síntesis editorial aceptada por el usuario de ejemplos documentados de sus componentes, no una definición publicada del híbrido. Fuentes: ejemplo local ACE-Step `examples/text2music/example_179.json`, revisión `ca1e85fe9430179831e6bc6be790c332190a3866`, y SHARP/Function Loops `https://www.functionloops.com/hard-house.html` (leída 2026-11-12). Informe/plan/evidencia en `logs/glossary-20261112/`.
+
+**Criterios de aceptación:**
+
+1. Fichas ampliables como datos, con etiqueta exacta, caption, procedencia, referencias y fecha. Conservar los 29 estilos existentes y sus selectores; no ampliar silenciosamente la detección automática de texto libre ni heredar fichas por subfrases. `acid jazz` sigue sin ficha mientras no exista una ficha propia aprobada.
+2. Seleccionar `techno hard house` como principal conserva literalmente su nombre y añade el caption aprobado cuando las descripciones están activas y no hay exclusiones incompatibles. QUITAR conserva roles/detalles; matices no añaden sus propias recetas instrumentales. Sin acceso web/LM en tiempo de selección.
+3. GLOSARIO muestra disponibilidad de descripción antes de elegir y permite leer ficha/procedencia. Tras seleccionar, las herramientas de prompt muestran la descripción realmente aplicada y su procedencia. Sin ficha, se mantiene la etiqueta y un aviso claro; no se declara cobertura completa del vocabulario.
+4. Crear, Remix, Voz + base y Por pistas siguen usando el preparador común, conservan detalles/exclusiones y envían el mismo caption efectivo que el mostrado. No se envían respuestas de una selección anterior ni se pega la prosa derivada al texto editable.
+5. Regresiones pertinentes, lint/build, API/UI reales y generación local con archivo/duración/parámetros verificables; fidelidad artística pendiente del oído del usuario. PASS del tester y APPROVE del reviewer independientes, archivos completos y bitácora antes de cierre.
+6. Sin instalaciones, cambio de perfil SFT, separación/BPM/mezcla/continuación ni alteración del alcance T9–T12. Cobertura del resto de etiquetas sin ficha declarada en spec/03, sin promesa de 178.572 definiciones.
 
 ## [R19] Por pistas alarga repitiendo material real, no generando música nueva - aprobado 2026-10-24
 

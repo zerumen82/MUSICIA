@@ -4,6 +4,9 @@ import Glossary from './Glossary';
 import { applyModelTerm } from '../glossary_pick';
 import SelectBox from './SelectBox';
 import VariantChips from './VariantChips';
+import StyleDescription from './StyleDescription';
+
+const DESCRIPTION_APPLIED = 'DESCRIPCIÓN APLICADA';
 
 /** Details remain editable; preparation never writes derived prose into them. */
 export default function PromptTools({ prompt, setPrompt, prepared, disabled = false }) {
@@ -40,6 +43,10 @@ export default function PromptTools({ prompt, setPrompt, prepared, disabled = fa
     <button type="button" onClick={() => prepared.setSelection((current) => ({ ...current, include_descriptions: !current.include_descriptions }))} className="btn btn-ghost h-7 px-2 self-start" data-description-toggle>
       {selection.include_descriptions ? 'QUITAR DESCRIPCIÓN' : 'AÑADIR DESCRIPCIÓN DEL CATÁLOGO'}
     </button>
+    {(prepared.result?.applied_descriptions ?? []).map((description) => <section key={description.label} aria-label={`Descripción aplicada de ${description.label}`} className="border border-[var(--line)] px-2 py-1 min-w-0">
+      <p className="label">{DESCRIPTION_APPLIED} · {description.label}</p>
+      <StyleDescription description={description} label={description.label} />
+    </section>)}
     {prepared.pending && <p role="status" className="mono text-[10px]">PREPARANDO PROMPT…</p>}
     {prepared.retrying && <p role="status" className="mono text-[10px]">REINTENTANDO CONEXIÓN PARA PREPARAR EL PROMPT…</p>}
     {(prepared.result?.warnings ?? []).map((warning) => <p key={warning} className="mono text-[10px] text-[var(--warn)]">{warning}</p>)}

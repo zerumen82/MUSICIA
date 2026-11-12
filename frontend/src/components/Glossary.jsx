@@ -3,11 +3,17 @@ import { BookOpen, Shuffle, X } from 'lucide-react';
 import { api, TRANSPORT_ERROR_CLEAR_MS } from '../api';
 import { applyModelTerm, glossaryFoot, glossaryShown, modelTerms, stylesForQuery } from '../glossary_pick';
 import { chooseStyle } from '../style_prompt';
+import { descriptionFor } from '../style_description';
+import StyleDescription from './StyleDescription';
 
 /** Alto máximo del panel. Si no cabe debajo del botón, se abre hacia arriba. */
 const PANEL_MAX_PX = 360;
+const PANEL_WIDTH_PX = 344;
+const PANEL_MARGIN_PX = 8;
+const PANEL_GAP_PX = 4;
 const DEBOUNCE_MS = 250;
 const LIMIT = 50;
+const NO_DESCRIPTION = 'SOLO ETIQUETA · SIN DESCRIPCIÓN';
 
 /**
  * Glosario de estilos, en cualquier sitio que tenga prompt (CREAR, remix,
@@ -43,11 +49,14 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
     const rect = el.getBoundingClientRect();
     const below = window.innerHeight - rect.bottom;
     const up = below < PANEL_MAX_PX && rect.top > below;
+    const width = Math.min(PANEL_WIDTH_PX, window.innerWidth - PANEL_MARGIN_PX * 2);
     setBox({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 352)),
+      left: Math.max(PANEL_MARGIN_PX, Math.min(rect.left, window.innerWidth - width - PANEL_MARGIN_PX)),
+      width,
+      maxHeight: Math.max(0, Math.min(PANEL_MAX_PX, (up ? rect.top : below) - PANEL_GAP_PX - PANEL_MARGIN_PX)),
       ...(up
-        ? { bottom: window.innerHeight - rect.top + 4 }
-        : { top: rect.bottom + 4 }),
+        ? { bottom: window.innerHeight - rect.top + PANEL_GAP_PX }
+        : { top: rect.bottom + PANEL_GAP_PX }),
     });
   };
 
@@ -61,9 +70,13 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
     const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
     return () => {
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
     };
   }, [open]);
 
@@ -158,23 +171,27 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
       : prev.length < 2 ? [...prev, name] : [prev[0], name]));
   };
 
-  const row = (k, text, extra = null, hint = '') => {
+  const row = (k, text, extra = null, description = null) => {
     const on = elegido(text);
     return (
-      <div key={k} className="flex items-center gap-1 pr-1 hover:bg-[var(--acc-dim)]">
-        <button onClick={() => add(text)}
-          title={on ? `Quitar «${text}» de tu frase` : `Añade al prompt: «${text}»${hint}`}
+      <div key={k} className="flex flex-col pr-1 hover:bg-[var(--acc-dim)]">
+        <div className="flex items-center gap-1 min-w-0">
+        <button type="button" onClick={() => add(text)}
+          title={on ? `Quitar «${text}» de tu frase` : `Añade al prompt: «${text}»`}
           className={`flex-1 text-left px-2 py-1 text-[11.5px] truncate ${on ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
           {text}
         </button>
         {on && <span className="mono text-[7.5px] text-[var(--acc)] shrink-0">{selection ? (selection.main_style === text ? 'PRINCIPAL' : 'MATIZ') : 'ELEGIDO'}</span>}
         {extra}
+        </div>
+        {description ? <StyleDescription description={description} label={text} collapsible />
+          : <span className="mono text-[8px] px-2 pb-1 text-[var(--faint)]">{NO_DESCRIPTION}</span>}
       </div>
     );
   };
 
   const pickBtn = (name) => (
-    <button key={`p:${name}`} onClick={() => togglePick(name)}
+    <button type="button" key={`p:${name}`} onClick={() => togglePick(name)}
       title="Elegir para combinar con otro estilo"
       className={`shrink-0 p-1 ${pick.includes(name) ? 'text-[var(--acc)]' : 'text-[var(--faint)] hover:text-[var(--text)]'}`}>
       <Shuffle size={12} />
@@ -189,31 +206,32 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
 
   return (
     <span className="relative inline-flex" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} title="Glosario de estilos del modelo (y combinaciones reales)"
+      <button type="button" onClick={() => setOpen((o) => !o)} title="Glosario de estilos del modelo (y combinaciones reales)"
         className={`btn btn-ghost h-3.5 px-1.5 text-[8px] leading-none gap-1 ${open ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}>
         <BookOpen size={9} /> GLOSARIO
       </button>
       {open && box && (
-        <div ref={menuRef} style={{ left: box.left, top: box.top, bottom: box.bottom }}
-          className="fixed z-50 w-[344px] border border-[var(--line-strong)] bg-[var(--surface-2)] p-2 flex flex-col gap-2 shadow-lg">
-          <div className="flex items-center justify-between">
+        <div ref={menuRef} style={box}
+          className="fixed z-50 border border-[var(--line-strong)] bg-[var(--surface-2)] p-2 flex flex-col gap-2 shadow-lg overflow-hidden">
+          <div className="flex items-center justify-between shrink-0">
             <span className="label">GLOSARIO DEL MODELO</span>
-            <button onClick={() => setOpen(false)} className="text-[var(--faint)] hover:text-[var(--text)]">
+            <button type="button" aria-label="Cerrar glosario" onClick={() => setOpen(false)} className="text-[var(--faint)] hover:text-[var(--text)]">
               <X size={13} />
             </button>
           </div>
 
-          {selection && <label className="label">ELEGIR COMO <select aria-label="Rol del estilo" value={role} onChange={(event) => setRole(event.target.value)} className="desk-select"><option value="main">PRINCIPAL</option><option value="influence">MATIZ</option></select></label>}
+          {selection && <label className="label shrink-0">ELEGIR COMO <select aria-label="Rol del estilo" value={role} onChange={(event) => setRole(event.target.value)} className="desk-select"><option value="main">PRINCIPAL</option><option value="influence">MATIZ</option></select></label>}
           <input aria-label="Buscar estilo" value={q} onChange={(e) => { setQ(e.target.value); setFail(null); }} autoFocus
             placeholder="Buscar estilo o subestilo…"
-            className="w-full bg-transparent border border-[var(--line)] px-2 py-1 text-[12px] text-zinc-100 placeholder:text-[var(--faint)] focus:border-[var(--acc-line)] outline-none" />
+            className="w-full shrink-0 bg-transparent border border-[var(--line)] px-2 py-1 text-[12px] text-zinc-100 placeholder:text-[var(--faint)] focus:border-[var(--acc-line)] outline-none" />
 
+          <div className="min-h-0 overflow-y-auto flex flex-col gap-2">
           {(pick.length > 0 || (combos?.items?.length > 0)) && (
             <div className="border border-[var(--line)] p-1.5 flex flex-col gap-1">
               <div className="flex items-center gap-1 flex-wrap">
                 <span className="label">COMBINAR</span>
                 {pick.map((p) => (
-                  <button key={p} onClick={() => togglePick(p)} title="Quitar de la combinación"
+                  <button type="button" key={p} onClick={() => togglePick(p)} title="Quitar de la combinación"
                     className="mono text-[10px] px-1.5 py-0.5 border border-[var(--acc-line)] text-[var(--acc)]">
                     {p} ×
                   </button>
@@ -229,7 +247,7 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
                   <span className="text-[10px] text-[var(--faint)]">{combos.error}</span>
                 ) : combos.items?.length > 0 ? (
                   <div className="flex flex-col">
-                    {combos.items.map((item) => row(item, item))}
+                    {combos.items.map((item) => row(item, item, null, descriptionFor(combos.descriptions, item)))}
                   </div>
                 ) : (
                   <span className="text-[10px] text-[var(--faint)]">
@@ -248,12 +266,15 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
                 if (!termino) return null;
                 const on = elegido(termino);
                 return (
-                  <button key={style.name} type="button" onClick={() => meter(termino, style.bpm ?? null)}
+                  <div key={style.name}>
+                  <button type="button" onClick={() => meter(termino, style.bpm ?? null)}
                     title={on ? `Quitar «${termino}»` : `El modelo escribe «${termino}»`}
                     className={`text-left px-1 py-1 ${on ? 'text-[var(--acc)]' : 'text-zinc-200'}`}>
                     <span className="label">{style.name}{style.bpm ? ` · ${style.bpm}` : ''}</span>
                     <span className="block text-[12px] leading-snug">{termino}</span>
                   </button>
+                  <StyleDescription label={termino} description={descriptionFor(current?.descriptions, termino) || { text: style.text }} collapsible />
+                  </div>
                 );
               })}
             </div>
@@ -261,15 +282,16 @@ export default function Glossary({ prompt = '', setPrompt, onBpm = null, bpm = n
 
           <div className="flex flex-col">
             <span className="label">{query ? 'RESULTADOS' : 'DEL VOCABULARIO DEL MODELO'}</span>
-            <div className="max-h-[280px] overflow-y-auto">
-              {items.map((item) => row(item, item, pickBtn(item)))}
+            <div className="flex flex-col">
+              {items.map((item) => row(item, item, pickBtn(item), descriptionFor(current?.descriptions, item)))}
               {!busy && foot === 'ready' && items.length === 0 && (
                 <span className="text-[10px] text-[var(--faint)] px-1">nada por aquí</span>
               )}
             </div>
           </div>
+          </div>
 
-          <div className="mono text-[9.5px] text-[var(--faint)] border-t border-[var(--line)] pt-1">
+          <div className="mono text-[9.5px] text-[var(--faint)] border-t border-[var(--line)] pt-1 shrink-0">
             {foot === 'ready'
               ? `${current.total.toLocaleString('es')} entradas${query ? ' para «' + query + '»' : ''} · whitelist del motor`
               : foot === 'missing'

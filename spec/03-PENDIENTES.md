@@ -1,4 +1,4 @@
-﻿# 03 · Pendientes y deudas técnicas (backlog vivo)
+# 03 · Pendientes y deudas técnicas (backlog vivo)
 
 > Lo que aquí aparece **declarado** no es un stub oculto: es deuda reconocida
 > con plan. Lo peligroso es lo que NO está aquí y debería estar.
@@ -54,6 +54,8 @@ La revisión inicial emitió **CHANGES_REQUESTED**. El usuario autorizó corregi
 Durante la auditoría inicial API y motor estaban apagados. La prueba posterior usa SFT directamente con offload configurado y mantiene el PID; no carga Turbo primero. Se sincronizaron las rutas de Python en knowledge/arquitectura. La aceleración FlashAttention no tiene comparación estadística de velocidad; el procesamiento CPU real de 239 s pasó de 6,848 a 1,825 s en una muestra por versión. Evidencias de corrección en `logs/stability-fix-20261018/` y memory; auditoría inicial en `logs/status-audit-20261018/`. La prueba GPU concluyó en timeout por contención con ComfyUI y sus procesos se liberaron a las 12:07:41. R9/R10/Q2/B6/B7 siguen abiertos. **R18 estaba pendiente de implementación en aquella auditoría del 18/10; se implementó después y su cierre integral sigue pendiente**, según el estado consolidado anterior.
 
 ## Deudas técnicas (abiertas)
+
+**Cobertura documental del glosario (B9c, 2026-11-12):** el vocabulario contiene 178.572 etiquetas, no definiciones. Usuario aprueba fichas editoriales exactas de Musicia respaldadas en fuentes y la primera ampliación `techno hard house`; implementación/verificación en curso. Las etiquetas sin ficha propia siguen sin descripción, con disponibilidad visible y aviso; no heredar recetas de géneros vecinos ni prometer cobertura total. `acid jazz` es un control de esa ausencia, no una nueva ficha autorizada. Fuentes/plan/evidencia en `logs/glossary-20261112/`; no cambia prioridades de pendientes anteriores.
 
 | ID | Deuda | Impacto | Plan |
 |----|-------|---------|------|

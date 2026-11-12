@@ -13,7 +13,7 @@ import re
 from genre_glossary import catalog_styles, glossary_line
 from prompt_style import (
     PROMPT_PREPARATION, caption_conflicts, clause_present, find_styles, has_unchecked_exclusions,
-    selected_style_negated, selected_style_rule, without_catalog_descriptions,
+    selected_style_negated, selected_style_rule, style_description, without_catalog_descriptions,
 )
 
 MIN_LENGTH = PROMPT_PREPARATION["min_length"]
@@ -98,6 +98,7 @@ def enhance_prompt(
         raise ValueError(f"El prompt necesita al menos {MIN_LENGTH} caracteres")
 
     additions: list[str] = []
+    applied_descriptions: list[dict] = []
     warnings: list[str] = []
     enhanced = details_for_engine.strip() if details_for_engine is not None else original
     if original and not enhanced:
@@ -113,10 +114,11 @@ def enhance_prompt(
         rules = []
         for label in [main, *influences]:
             rule = selected_style_rule(label)
-            genres.append({"name": label, "genre": label, "clause": rule["style"] if rule else ""})
+            description = style_description(label)
+            genres.append({"name": label, "genre": label, "clause": description["text"] if description else ""})
             if rule:
                 rules.append(rule)
-            else:
+            if not description:
                 warnings.append(f"El estilo «{label}» no tiene descripción de catálogo: se conserva su etiqueta literal.")
         # Un matiz no autoriza a introducir sus instrumentos o su arreglo.
         descriptions = genres[:1]
@@ -151,6 +153,9 @@ def enhance_prompt(
         if len(candidate) <= MAX_PROMPT_CHARS:
             enhanced = candidate
             additions.append(clause)
+            description = style_description(literal)
+            if description:
+                applied_descriptions.append({"label": literal, **description})
         else:
             warnings.append(
                 "No se añade la descripción del estilo: el borrador excedería el límite de caracteres.")
@@ -177,9 +182,10 @@ def enhance_prompt(
         "original": original,
         "enhanced": enhanced,
         "genre_detected": genres[0]["name"] if genres else None,
-        "suggested_bpm": rules[0]["bpm"] if rules else None,
+        "suggested_bpm": rules[0].get("bpm") if rules else None,
         "genres": genres,
         "additions": additions,
+        "applied_descriptions": applied_descriptions,
         "warnings": warnings,
         "adaptation": "structured" if main else "literal",
         "selection": {"main_style": main, "influence_styles": influences,
