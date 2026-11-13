@@ -23,9 +23,10 @@ from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from prompt_style import style_caption
-from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, check_kick_pattern,
-                            material_origin, pattern_onset_gap_ms, sequence_timeline, step_caption,
-                            step_seed, validate_steps)
+from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, SequencePattern,
+                            check_kick_pattern, material_origin, pattern_onset_gap_ms,
+                            sequence_timeline, step_caption, step_seed, validate_steps,
+                            validate_pattern)
 from style_translator import style_for_engine
 from separator_service import SeparatorService
 from source_understanding import category_catalog
@@ -68,6 +69,7 @@ class RemixProjectRequest(BaseModel):
     use_format: bool | None = None
     batch_size: int | None = Field(default=None, gt=0)
     groups: dict[str, Literal["keep", "transform", "remove"]] | None = None
+    patterns: dict[str, SequencePattern] | None = None
     gains_db: dict[str, float] = Field(default_factory=dict)
     source_classification: Literal["electronic", "non_electronic", "mixed", "unknown"] | None = None
     classification_origin: Literal["manual", "analysis", "unknown"] = "unknown"
@@ -96,6 +98,8 @@ def source_digest(source: Path) -> str:
 
 def validate_project(request: RemixProjectRequest, duration: float, settings) -> None:
     config = settings.remix
+    if request.patterns and request.scope != "groups":
+        raise ValueError("El patrón solo se aplica en Por pistas")
     if not math.isfinite(duration) or duration <= 0 or duration > settings.generation.max_duration_seconds:
         raise ValueError("La fuente debe tener una duración positiva dentro del límite configurado")
     if request.scope == "sequence":
@@ -156,7 +160,16 @@ def validate_project(request: RemixProjectRequest, duration: float, settings) ->
             raise ValueError("Una letra nueva requiere transformar el grupo de voz")
         if request.instrumental is True and request.groups.get("vocals") == "keep":
             raise ValueError("Conservar la voz y eliminarla mediante instrumental son instrucciones incompatibles")
-    elif request.groups is not None or request.gains_db:
+        if request.patterns:
+            if set(request.patterns) - {"drums"}:
+                raise ValueError("El patrón solo se ofrece en la fila de batería")
+            if set(request.patterns) - set(request.groups or {}):
+                raise ValueError("Hay patrones para grupos inexistentes")
+            for group_id, pattern in request.patterns.items():
+                if request.groups.get(group_id) != "transform":
+                    raise ValueError("El patrón solo se aplica a la batería en transformar")
+                validate_pattern(pattern, 1, config)
+    elif request.groups is not None or request.gains_db or request.patterns:
         raise ValueError("Los grupos y sus volúmenes solo se aplican al ámbito Por pistas")
     timeline_fields = (request.duration_seconds, request.repeat_start, request.repeat_end, request.transition_seconds)
     if request.scope == "region" and any(value is not None for value in timeline_fields):
@@ -1137,6 +1150,13 @@ class RemixProjectRuntime:
                 "focuses_pending": [focus for focus in STEP_FOCUSES if focus not in IMPLEMENTED_FOCUSES],
                 "pattern": {"steps": remix.pattern_steps,
                             "instruments": list(remix.pattern_instruments)},
+            "groups_pattern": {
+                "groups": ["drums"],
+                "steps": remix.pattern_steps,
+                "instruments": list(remix.pattern_instruments),
+                "legacy_instruments": list(remix.pattern_legacy_instruments),
+                "labels": dict(remix.pattern_labels),
+            },
                 "stoppable": True,
             },
             "intermediate_format": remix.intermediate_format,
@@ -1170,6 +1190,10 @@ class RemixProjectRuntime:
         if transform:
             if request.scope == "sequence":
                 generation_request = sequence_preview_request(request, timeline, source, reference, self.settings)
+            elif request.scope == "groups" and (request.patterns or {}).get("drums") is not None:
+                composed = sequence_step_caption(request.prompt or "", (request.patterns or {})["drums"],
+                                                self.settings)
+                generation_request = project_generation(request, source, reference, self.settings, prompt=composed)
             else:
                 generation_request = project_generation(request, source, reference, self.settings)
             result = self.music.preview(generation_request)
@@ -1834,6 +1858,37 @@ class RemixProjectRuntime:
             }
         job["steps"] = steps
 
+    async def _measure_groups_pattern(self, job: dict, output_path: Path, request, measured,
+                                      duration_seconds: float, config, settings) -> None:
+        """Mide la rejilla de batería de Por pistas sobre la salida final."""
+        pattern = (request.patterns or {}).get("drums")
+        if pattern is None:
+            return
+        bpm = None
+        if isinstance(measured, dict):
+            bpm = measured.get("bpm_measured")
+        if not bpm:
+            bpm = request.bpm
+        beats_per_bar = settings.mixer.beats_per_bar
+        if not bpm:
+            job["pattern_check"] = {
+                "measured": False, "measurement_stage": "final_output",
+                "reason": "Sin tempo fiable no se pueden situar los golpes."}
+            return
+        try:
+            gap_ms = pattern_onset_gap_ms(float(bpm), beats_per_bar, config)
+            onsets = await asyncio.to_thread(kick_onset_times, output_path, min_gap_ms=gap_ms)
+        except (ValueError, OSError) as exc:
+            job["pattern_check"] = {
+                "measured": False, "measurement_stage": "final_output",
+                "reason": f"No se pudieron medir los golpes: {exc}"}
+            return
+        check = check_kick_pattern(pattern, [float(o) for o in onsets], float(bpm),
+                                   duration_seconds=float(duration_seconds),
+                                   beats_per_bar=beats_per_bar, config=config)
+        check["measurement_stage"] = "final_output"
+        job["pattern_check"] = check
+
     def _fail(self, job: dict, error: Exception) -> None:
         logger.error(f"Proyecto/separación {job['job_id']} falló: {error}")
         job.update(status="failed", phase="Cancelado" if job.get("cancelled") else "Error",
@@ -1924,8 +1979,14 @@ class RemixProjectRuntime:
                 elif request.scope != "groups" or targets:
                     task = "repaint" if request.scope == "region" else "cover"
                     self.event(job, f"Transformando el audio original con {task}")
-                    generation = await asyncio.to_thread(
-                        project_generation, request, engine_source, reference, self.settings)
+                    _group_pattern = (request.patterns or {}).get("drums") if request.scope == "groups" else None
+                    if _group_pattern is not None:
+                        _composed = sequence_step_caption(request.prompt or "", _group_pattern, self.settings)
+                        generation = await asyncio.to_thread(
+                            project_generation, request, engine_source, reference, self.settings, prompt=_composed)
+                    else:
+                        generation = await asyncio.to_thread(
+                            project_generation, request, engine_source, reference, self.settings)
                     job["effective_parameters"] = self.music.build_payload(generation)
                     if request.scope == "groups":
                         job["provenance"]["src_audio_path"] = "derived_material"
@@ -2270,6 +2331,13 @@ class RemixProjectRuntime:
                         # no sobre el intermedio de un paso (spec/02 [R20.F]).
                         await self._measure_final_patterns(job, staged_output, plan, config)
                         self.cancelled(job)
+                    elif (request.scope == "groups"
+                          and (request.patterns or {}).get("drums") is not None):
+                        # La rejilla de batería de Por pistas se mide sobre el
+                        # archivo final publicado, en toda la pista.
+                        await self._measure_groups_pattern(job, staged_output, request, measured, final_seconds,
+                                                          config, self.settings)
+                        self.cancelled(job)
                     variant = {"file_name": None, "intermediate_path": str(timeline),
                                "seed": track.seed if track else None,
                                "seed_origin": track.seed_origin if track else "not_applicable",
@@ -2278,6 +2346,7 @@ class RemixProjectRuntime:
                                "timeline": variant_plan, "tempo_measured": measured,
                                "groove_replacements": groove_replacements,
                                "kick_replacements": kick_replacements,
+                               "pattern_check": job.get("pattern_check"),
                                "replacement_parameters": replacement_parameters,
                                "tempo_before": tempo_before, "tempo_after_adjust": tempo_after_adjust,
                                "tempo_processing": tempo_processing, **mastering}

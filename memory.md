@@ -4133,3 +4133,11 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Revisión (APPROVE del reviewer, rol explícito)**: revisados los archivos completos tocados y sus contratos; los cuatro defectos tenían causa identificada y quedan cubiertos por regresiones. Sin stubs, sin éxito falso, sin cambiar el perfil SFT/50/9/lote2/thinking/use_format.
 - **Entrega**: versión **1.3.7** (`package.json` y las dos entradas del lock), `dist` reconstruido, `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.7, SHA-256 `EBB174A17C212BFC54AF680B2E020C703CAFD00821F7E3CA5A40A70C23BD2410`).
 - **Límites**: sigue sin generación GPU con foco Batería ni escucha; la calidad de la batería separada y la obediencia del patrón no están acreditadas. El preview no corta ni separa (declarado). La rejilla en «Por pistas» [R28] continúa solo en plan, sin aprobación ni código.
+
+## 2026-11-13 · R28 rejilla de batería en «Cambiar por pistas» (1.3.8)
+
+- Implementado según `spec/08` y `[R28]`: campo `patterns: {"drums": {...}}` en `RemixProjectRequest`, validación restringida a `drums` + `transform`, rechazo en otros ámbitos.
+- Backend: `groups_pattern` en capabilities; composición del caption de la pista de batería con `sequence_step_caption` (mismo constructor que Secuencia) en preview y ejecución; medición del bombo sobre la salida final en `_measure_groups_pattern`.
+- Frontend: `SequencePattern` reutilizado solo en la fila Batería en transformar, oculto y desactivado por defecto; envío de `patterns` solo si activo y con golpes.
+- Versión 1.3.8; `dist` y `Musicia.exe` recompilados (SHA-256 9BA59252F66348F0F3DEAD1C86BDD0EBC03CBCB0A0057771F8451DDCDFD0088D).
+- Verificado: backend 539 tests OK (skipped=3), frontend 113/113, lint y build exit 0.

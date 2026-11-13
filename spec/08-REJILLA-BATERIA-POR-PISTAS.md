@@ -1,6 +1,6 @@
 # 08 · Rejilla de batería en «Cambiar por pistas» — plan pendiente de aprobación
 
-> **Estado:** propuesta. No se ha escrito código de esta funcionalidad. El
+> **Estado:** implementado en 1.3.8 (2026-11-13). Código en backend y frontend. El
 > requisito está en `spec/02-REQUISITOS.md` como `[R28]`, con sus criterios sin
 > marcar. La aprobación del usuario es condición para empezar.
 

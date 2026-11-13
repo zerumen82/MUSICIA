@@ -8,7 +8,7 @@ import { applyTrackAction, effectiveTrackSelection, emptyStyleSelection, emptyTo
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
 import { defaultSequenceSteps, sequencePayloadSteps, sequencePreparationError, sequencePreviewState, sequenceStepsPending, sequenceValidation } from '../remix_sequence';
-import { patternPayload } from '../remix_pattern';
+import { patternPayload, patternSummary } from '../remix_pattern';
 import { MATERIAL_ENTRY_NOTE, materialOriginLabel } from '../remix_material';
 import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
@@ -17,6 +17,7 @@ import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import AudioComparator from './AudioComparator';
 import RemixSequence from './RemixSequence';
+import SequencePattern from './SequencePattern';
 import VoiceBackingPanel from './VoiceBackingPanel';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
@@ -76,6 +77,23 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   // Secuencia de pasos (spec/02 [R20.A]): el estado va con la fuente, así que
   // al cambiar de archivo los pasos vuelven a los que declara el servidor.
   const [sequenceState, setSequenceState] = useState({ sourceKey: null, steps: null });
+  const [groupPatternState, setGroupPatternState] = useState({ sourceKey: null, patterns: {}, enabled: {}, editor: null });
+  const groupPatternSource = groupPatternState.sourceKey === sourceKey;
+  const groupPatterns = groupPatternSource ? groupPatternState.patterns : {};
+  const groupPatternEnabled = groupPatternSource ? groupPatternState.enabled : {};
+  const groupPatternEditor = groupPatternSource ? groupPatternState.editor : null;
+  const setGroupPatterns = (next) => setGroupPatternState((current) => {
+    const base = current.sourceKey === sourceKey ? current : { sourceKey, patterns: {}, enabled: {}, editor: null };
+    return { ...base, sourceKey, patterns: typeof next === 'function' ? next(base.patterns) : next };
+  });
+  const setGroupPatternEnabled = (group, value) => setGroupPatternState((current) => {
+    const base = current.sourceKey === sourceKey ? current : { sourceKey, patterns: {}, enabled: {}, editor: null };
+    return { ...base, sourceKey, enabled: { ...base.enabled, [group]: value } };
+  });
+  const setGroupPatternEditor = (value) => setGroupPatternState((current) => {
+    const base = current.sourceKey === sourceKey ? current : { sourceKey, patterns: {}, enabled: {}, editor: null };
+    return { ...base, sourceKey, editor: value };
+  });
   const [sequencePreview, setSequencePreview] = useState(null);
   const [sequencePreviewError, setSequencePreviewError] = useState(null);
   const defaultStepsCount = Number(capabilities?.sequence?.default_steps) || 0;
@@ -505,6 +523,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     ...(scope === 'region' ? { region_start: Number(region.start), region_end: Number(region.end ?? duration), repaint_mode: controls.repaint_mode, ...(controls.repaint_mode === 'balanced' ? { repaint_strength: controls.repaint_strength } : {}) }
       : scope === 'sequence' ? {} : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
+    ...(scope === 'groups' && groupPatternEnabled.drums && patternPayload(groupPatterns.drums)
+      ? { patterns: { drums: patternPayload(groupPatterns.drums) } } : {}),
     // La secuencia manda orden e intención: el servidor reparte los tramos.
     ...(scope === 'sequence' ? { steps: sequencePayloadSteps(sequenceSteps.map((step) => ({ ...step, prompt: sequenceStepTexts[step.index] ?? '' }))) } : {}),
     // El BPM revisado a mano es el tempo con el que el servidor reparte los pasos.
@@ -654,6 +674,30 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
                 setTrackSelections((current) => ({ ...current, [group.id]: step.own }));
                 setTrackSelectionRoles((current) => ({ ...current, [group.id]: step.touched }));
               } }} disabled={busy} />
+          {group.id === 'drums' && <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-2" data-group-pattern="drums">
+            <button type="button" aria-expanded={groupPatternEditor === 'drums'}
+              disabled={busy} onClick={() => setGroupPatternEditor(groupPatternEditor === 'drums' ? null : 'drums')}
+              className="btn btn-ghost min-h-8 px-2 self-start" data-group-pattern-toggle="drums">
+              {groupPatternEnabled.drums ? 'EDITAR PATRÓN' : 'PATRÓN DE BATERÍA (OCULTO)'}
+            </button>
+            {!groupPatternEnabled.drums && <span className="mono text-[10px] text-[var(--faint)]" data-group-pattern-hint="drums">Oculto y desactivado: no se envía nada hasta abrirlo, marcarlo y activarlo.</span>}
+            {groupPatternEnabled.drums && <>
+              <span className="mono text-[10px] text-[var(--acc)]" data-group-pattern-active="drums">PATRÓN ACTIVO · {patternSummary(groupPatterns.drums ?? {})}</span>
+              <button type="button" disabled={busy} onClick={() => setGroupPatternEnabled('drums', false)}
+                className="btn btn-ghost min-h-8 px-2 self-start" data-group-pattern-deactivate="drums">DESACTIVAR PATRÓN</button>
+            </>}
+            {groupPatternEditor === 'drums' && <section id="group-pattern-editor-drums" tabIndex={-1}
+              className="flex flex-col gap-3 border border-[var(--line-strong)] rounded p-3 min-w-0" data-group-pattern-editor="drums">
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" aria-label="Usar patrón en esta pista" checked={Boolean(groupPatternEnabled.drums)} disabled={busy}
+                  onChange={(event) => setGroupPatternEnabled('drums', event.target.checked)} />
+                Usar patrón en esta pista
+              </label>
+              <SequencePattern key="drums" pattern={groupPatterns.drums ?? {}} capabilities={capabilities}
+                disabled={busy || !groupPatternEnabled.drums}
+                onChange={(pattern) => setGroupPatterns((current) => ({ ...current, drums: pattern }))} />
+            </section>}
+          </div>}
         </fieldset>}
         {solo === group.id && <audio controls autoPlay src={mediaUrl(group.url, group.file_name)} aria-label={`Escuchar ${group.label}`} className="player w-full" style={{ gridColumn: '1 / -1' }} />}
       </div>)}

@@ -14,7 +14,7 @@ const cellOn = 'bg-[var(--acc-line)] text-black border-[var(--acc-line)]';
 
 /** Wide optional editor. Its server-declared grid never invents a resolution. */
 export default function SequencePattern({ pattern, onChange, capabilities, disabled = false, check = null, checkLabel = null }) {
-  const declared = capabilities?.sequence?.pattern ?? {};
+  const declared = capabilities?.groups_pattern ?? capabilities?.sequence?.pattern ?? {};
   const canonical = Array.isArray(declared.instruments) ? declared.instruments : [];
   const legacy = (Array.isArray(declared.legacy_instruments) ? declared.legacy_instruments : [])
     .filter((instrument) => pattern?.[instrument]?.some(Boolean));
