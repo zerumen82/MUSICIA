@@ -131,6 +131,29 @@ class Catalogo(unittest.TestCase):
                 self.assertIn(genre.lower(), set(lower))
 
 
+class EndpointDeLaApi(unittest.TestCase):
+    """El endpoint que consume la UI responde: un NameError lo dejaba en 500.
+
+    Regresión del 2026-11-13: `music_genre_glossary` usaba `VOCAB_PATH` sin
+    importarlo y el glosario de la app decía que el motor no tenía datos.
+    """
+
+    @unittest.skipUnless(DISPONIBLE, "falta vendor/ACE-Step-1.5 (vocabulario del motor)")
+    def test_devuelve_origen_y_recuento_reales(self) -> None:
+        import main
+
+        res = main.music_genre_glossary("", 5)
+        self.assertTrue(res["available"])
+        self.assertTrue(str(res["source"]).endswith("genres_vocab.txt"))
+        # Se cuentan TODAS las líneas útiles, no las únicas: el archivo repite
+        # «IDM» y el recuento publicado es el real (178 572 en esta copia).
+        total_real = sum(
+            1 for line in genre_glossary.VOCAB_PATH.read_text(encoding="utf-8").splitlines() if line.strip()
+        )
+        self.assertEqual(res["entry_count"], total_real)
+        self.assertEqual(len(res["items"]), 5)
+
+
 class SinDatos(unittest.TestCase):
     """Sin el archivo del modelo el glosario se queda vacío: nunca inventa."""
 

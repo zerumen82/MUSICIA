@@ -4067,3 +4067,18 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Musicia.exe recompilado:** exit 0, **16384 bytes**, `FileVersion` **1.3.2**, SHA-256 `501F201102D8CCD0AB3E5C6B7F17A4DC2222B025B30370F7E447A5D022391267`.
 - **Límites declarados:** no se abrió Electron ni se recorrió la UI contra la API; verificación estática/compilada. La medición manual de tempo sigue viviendo dentro del menú ACCIONES (comportamiento previo, no se cambió). **La revisión visual y la escucha siguen siendo del usuario.** Deudas R20.B/R20.D/R20.E y R9/R10/B6/B7/Q2/R18 sin cambios.
 - **Commit:** cambios en `main` local, sin push.
+
+## 2026-11-13 — [R24] El glosario decía «sin datos del motor»: endpoint en 500 por un `NameError`
+
+- **Petición:** «VOY A GLOSARIO Y DICE SIN DATOS DEL MOTOR».
+- **Diagnóstico con la API real, no con la vista:** `/health` daba **200** pero `GET /music/genre_glossary` devolvía **500 Internal Server Error**. El traceback de `logs/musicia-api.err.log` era inequívoco: `File "backend/main.py", line 2453, in music_genre_glossary — NameError: name 'VOCAB_PATH' is not defined`. El archivo del motor **sí existe** (`vendor/ACE-Step-1.5/acestep/genres_vocab.txt`, 178 572 entradas útiles), así que la UI no mentía sobre el vocabulario: lo que faltaba era la respuesta.
+- **Causa raíz:** el endpoint usaba `VOCAB_PATH` sin importarlo desde `genre_glossary`. Los tests del glosario probaban el módulo, nunca el endpoint, por eso la suite estaba verde con el endpoint roto.
+- **Arreglo:** `main.py` importa `VOCAB_PATH` y `entry_count`; el recuento publicado ya no es la constante `178571` (NO HARDCODE) sino que se cuenta del archivo con la nueva función pública `genre_glossary.entry_count()`.
+- **Regresión nueva:** `test_genre_glossary.EndpointDeLaApi.test_devuelve_origen_y_recuento_reales` llama al endpoint real y exige `available`, `source` terminado en `genres_vocab.txt`, `entry_count` igual al número real de líneas (todas, no únicas: el archivo repite `IDM`) y `limit` respetado.
+- **Verificación ejecutada:** `backend/venv/Scripts/python.exe -m unittest test_genre_glossary -v` → **12/12 OK, exit 0**. API arrancada con `scripts/start_local.ps1 -SinMotor` (el SALIR del usuario había dejado `logs/stop.flag` y todo parado); `GET /music/genre_glossary?limit=3` → **200**, `available=true`, `entry_count=178572`, 29 estilos y 3 entradas; `GET /music/genre_glossary/combine?a=techno&b=hardcore&limit=3` → **200** con combinaciones reales (`hardcore techno`). Evidencia en `logs/glossary-endpoint-20261113/`.
+- **sd-tester (paso separado, misma sesión) — PASS:** suite focal 12/12 y los dos endpoints en vivo con 200 y datos reales.
+- **sd-reviewer (paso separado, misma sesión) — APPROVE:** revisados `main.py` (símbolo importado, sin constante mágica), `genre_glossary.py` (`entry_count` cuenta del archivo), el test nuevo y la spec [R24]. Cumple NO HARDCODE/NO STUB/NO FAKE y BITÁCORA.
+- **Versión 1.3.3:** `frontend/package.json` y `frontend/package-lock.json` suben de 1.3.2 a **1.3.3**; bundle recompilado con la versión visible.
+- **Musicia.exe recompilado:** exit 0, **16384 bytes**, `FileVersion` **1.3.3**, SHA-256 `5816B96EC13FD49DFBFBB2667CAE4D9E87F80035AF63942F116C5D75F6F200B2`.
+- **Límites declarados:** la verificación es por API real + suite, sin abrir Electron ni pulsar el panel; la comprobación visual del panel GLOSARIO sigue siendo del usuario. No se tocó la UI: el fallo era del servidor que la alimenta. Deudas R20.B/R20.D/R20.E y R9/R10/B6/B7/Q2/R18 sin cambios.
+- **Commit:** cambios en `main` local, sin push.

@@ -1149,6 +1149,18 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 5. En AUDIO PROPIO la instrucción de arrastrar/soltar se escribe **una sola vez**, en la zona de subida, que además declara formatos y límite; se retira la nota duplicada de la cabecera.
 6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
+### [R24] El glosario de la app responde con el vocabulario real del motor — 2026-11-13
+
+**Como** usuario, **quiero** que al abrir GLOSARIO vea los estilos y el vocabulario del motor, **para** poder elegir un género sin que la app diga que no hay datos cuando el archivo del modelo sí está.
+
+**Criterios de aceptación:**
+
+1. `GET /music/genre_glossary` responde **200** con el vocabulario real y sin errores de nombres: todo símbolo usado en el endpoint está importado en `main.py`.
+2. `entry_count` se **cuenta** del archivo del modelo; no se escribe ningún total a mano.
+3. Regresión backend: el endpoint devuelve `available`, `source` terminado en `genres_vocab.txt`, `entry_count` igual al número real de líneas y respeta `limit`.
+4. Verificación con la **API real reiniciada**: el endpoint responde 200 y devuelve entradas del vocabulario; la suite focal del glosario queda verde.
+5. Versión visible subida y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos tocados.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.

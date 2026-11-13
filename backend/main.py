@@ -68,7 +68,12 @@ from prompt_enhancer import (
 )
 from prompt_style import analyze_prompt, known_exclusion_spans, style_caption
 from style_translator import style_for_engine, translate_style_details
-from genre_glossary import search as glossary_search, combine as glossary_combine
+from genre_glossary import (
+    VOCAB_PATH,
+    combine as glossary_combine,
+    entry_count as glossary_entry_count,
+    search as glossary_search,
+)
 from music_service import (
     GenerationRequest,
     MusicEngineError,
@@ -2441,7 +2446,7 @@ def music_genre_glossary(q: str = "", limit: int = 50) -> dict[str, Any]:
 
     Metadatos añadidos:
     - source: archivo de vocabulario del modelo.
-    - entry_count: número total de entradas en el vocabulario (178 571).
+    - entry_count: número total de entradas contadas en el vocabulario.
     - purpose: propósito del vocabulario (whitelist de constrained logits para el
       campo `genres` en el metadata estructurado del modelo).
 
@@ -2451,7 +2456,7 @@ def music_genre_glossary(q: str = "", limit: int = 50) -> dict[str, Any]:
     """
     result = glossary_search(q, limit=limit)
     result["source"] = str(VOCAB_PATH)
-    result["entry_count"] = 178571
+    result["entry_count"] = glossary_entry_count()
     result["purpose"] = "Constrained logits whitelist for genres field metadata in ACE-Step"
     return result
 

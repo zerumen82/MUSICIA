@@ -56,6 +56,16 @@ def _vocab() -> tuple[list[str], list[str]]:
         return _CACHE["items"], _CACHE["lower"]
 
 
+def entry_count() -> int:
+    """Entradas reales del vocabulario (0 si el archivo falta).
+
+    Es el número que la API publica: se cuenta del archivo, nunca se escribe
+    a mano, para que no se quede viejo si el vocabulario cambia.
+    """
+    items, _lower = _vocab()
+    return len(items)
+
+
 def _norm(value: str) -> str:
     """Minúsculas y espacios colapsados: la comparación no distingue mayúsculas."""
     return " ".join((value or "").lower().split())
