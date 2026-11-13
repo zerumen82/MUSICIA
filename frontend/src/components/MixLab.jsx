@@ -163,6 +163,8 @@ export default function MixLab({ externalRefresh = 0 }) {
     const fromUp = uploads.map((i) => ({ id: trackId('upload', i.name), label: `${i.name} · sub`, title: `subida · ${i.name}` }));
     return [...fromLib, ...fromUp];
   };
+  // Una sola lista por render: la usan BASE, VOZ y FUNDIR.
+  const trackList = trackOptions();
 
   const toggleFadeTrack = (name) => {
     setFadeTracks((prev) => (prev.includes(name)
@@ -196,7 +198,6 @@ export default function MixLab({ externalRefresh = 0 }) {
       <div className="max-w-[1300px] mx-auto w-full px-6 py-8 xl:px-10 flex flex-col gap-5">
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">MEZCLA</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">si la base es más larga, la voz se corta en trozos y se reparte</span>
         </div>
 
         {error && (
@@ -207,9 +208,9 @@ export default function MixLab({ externalRefresh = 0 }) {
 
         {/* TODO EN UNA LÍNEA */}
         <div className="flex items-center gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
-          <SelectBox label="BASE" options={trackOptions()} value={base} disabled={busy}
+          <SelectBox label="BASE" options={trackList} value={base} disabled={busy}
             onChange={setBase} placeholder="elige la base" />
-          <SelectBox label="VOZ" options={trackOptions()} value={vocal} disabled={busy}
+          <SelectBox label="VOZ" options={trackList} value={vocal} disabled={busy}
             onChange={setVocal} placeholder="elige la voz cantada" />
           <input disabled={busy} value={mixName} onChange={(e) => setMixName(e.target.value)} placeholder="nombre del mp3" aria-label="Nombre de la mezcla"
             className="px-2 py-1.5 w-36 text-[12px] mono bg-transparent outline-none border border-[var(--line)] focus:border-[var(--acc-line)]" />
@@ -267,7 +268,7 @@ export default function MixLab({ externalRefresh = 0 }) {
         <div className="flex items-start gap-3 flex-wrap border border-[var(--line)] px-4 py-3">
           <span className="label shrink-0 pt-2">FUNDIR</span>
           <div className="flex flex-wrap gap-2 flex-1 min-w-0 max-h-28 overflow-y-auto">
-            {trackOptions().map((item) => (
+            {trackList.map((item) => (
               <button disabled={busy} key={item.id} onClick={() => toggleFadeTrack(item.id)}
                 className={`btn btn-ghost h-7 px-2 min-w-0 max-w-full ${fadeTracks.includes(item.id) ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
                 title={item.title}>

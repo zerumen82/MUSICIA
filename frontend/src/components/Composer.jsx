@@ -9,7 +9,6 @@ import SelectBox from './SelectBox';
 import PromptTools from './PromptTools';
 import useStylePrompt from '../useStylePrompt';
 import EffectivePreview from './EffectivePreview';
-import StyleEnglish from './StyleEnglish';
 import {
   VOCAL_GENDER, VOCAL_TIMBRE, VOCAL_STYLE, VOCAL_EMOTION, VOCAL_LANGUAGES,
   buildVocalTags, structureLyric, expandLyric, hasLyricStructure,
@@ -167,16 +166,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
     setVocal({ gender: '', timbre: '', style: '', emotion: '' });
     setVocalLang('es');
   };
-
-  /** Resumen legible de lo elegido (siempre visible, sin abrir desplegables).
-      El idioma no cuenta: siempre hay uno ('es'), y si contara nunca se vería AUTO. */
-  const vocalSummary = [
-    [VOCAL_GENDER, vocal.gender], [VOCAL_TIMBRE, vocal.timbre],
-    [VOCAL_STYLE, vocal.style], [VOCAL_EMOTION, vocal.emotion],
-  ]
-    .map(([list, id]) => list.find((o) => o.id === id)?.label)
-    .filter(Boolean)
-    .join(' · ');
 
   const autoWriteLyrics = async () => {
     if (!prepared.ready) { setError(prepared.error || 'Espera a que termine la preparación del prompt.'); return; }
@@ -452,17 +441,14 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
           <button onClick={() => setWizardOpen(true)} className="btn btn-ghost px-4 h-9">
             <Wand2 size={13} /> ASISTENTE
           </button>
-          {engine.checked && !engine.ok && (
-            <span className={`ml-auto label ${engine.idle || engine.starting || engine.stopping ? 'text-[var(--muted)]' : 'st-err'}`}>
+          {/* Los estados transitorios se avisan aquí; caído se explica una sola vez, abajo. */}
+          {engine.checked && !engine.ok && (engine.idle || engine.starting || engine.stopping) && (
+            <span className="ml-auto label text-[var(--muted)]">
               {engine.idle
                 ? 'MOTOR EN REPOSO · SE INICIARÁ AL GENERAR'
                 : engine.stopping
                   ? 'DETENIENDO EL MOTOR · ESPERA'
-                  : engine.starting
-                  ? 'CONECTANDO CON EL MODELO · ESPERA'
-                  : engine.error
-                    ? 'ERROR DEL MOTOR · GENERAR PARA REINTENTAR'
-                    : 'MOTOR APAGADO'}
+                  : 'CONECTANDO CON EL MODELO · ESPERA'}
             </span>
           )}
         </div>
@@ -496,7 +482,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
           <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />
-          {prepared.ready && <StyleEnglish text={finalPrompt} />}
           {prepared.ready && <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />}
           {mode === 'voice' && (
             <div className="flex flex-col gap-3 border border-[var(--line)] p-5">
@@ -517,14 +502,6 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
                   title="Quitar todas las elecciones de voz">
                   <RotateCcw size={12} />
                 </button>
-              </div>
-
-              {/* Resumen: siempre se ve qué has elegido (sin abrir nada). */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="label shrink-0">ELIGIDO</span>
-                <span className={`mono text-[11px] ${vocalSummary ? 'text-[var(--acc)]' : 'text-[var(--faint)]'}`}>
-                  {vocalSummary || 'AUTO'}
-                </span>
               </div>
 
               <div className="flex flex-col gap-2">

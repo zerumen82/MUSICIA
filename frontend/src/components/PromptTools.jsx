@@ -35,11 +35,11 @@ export default function PromptTools({ prompt, setPrompt, prepared, disabled = fa
       {chips.length > 0 ? <SelectBox label="AÑADIR" placeholder="DETALLE OPCIONAL" clearable={false} value="" options={chips.map((chip) => ({ id: chip.label, label: chip.label, title: `Se añade: «${chip.clause ?? chip.text}»` }))} onChange={add} />
         : <span className="label">AÑADIR · {options?.data ? 'SIN SUGERENCIAS' : 'SIN DATOS DEL MOTOR'}</span>}
     </div>
-    <div className="flex items-center gap-2 flex-wrap" data-style-selection>
-      <span className="label">PRINCIPAL: {selection.main_style || 'SIN ELEGIR'}</span>
-      {selection.main_style && <button type="button" aria-label="Quitar estilo principal" onClick={() => remove(selection.main_style)} className="btn btn-ghost h-7 px-2">×</button>}
+    {/* El principal ya se ve y se quita en el desplegable PRINCIPAL; aquí solo los matices. */}
+    {selection.influence_styles.length > 0 && <div className="flex items-center gap-2 flex-wrap" data-style-selection>
+      <span className="label">MATICES</span>
       {selection.influence_styles.map((term) => <button type="button" key={term} onClick={() => remove(term)} className="btn btn-ghost h-7 px-2">MATIZ: {term} ×</button>)}
-    </div>
+    </div>}
     <button type="button" onClick={() => prepared.setSelection((current) => ({ ...current, include_descriptions: !current.include_descriptions }))} className="btn btn-ghost h-7 px-2 self-start" data-description-toggle>
       {selection.include_descriptions ? 'QUITAR DESCRIPCIÓN' : 'AÑADIR DESCRIPCIÓN DEL CATÁLOGO'}
     </button>

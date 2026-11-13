@@ -1123,6 +1123,19 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 4. Los textos de ayuda encadenados se condensan sin perder los avisos de herencia por pista, el origen del material (bootleg) ni el coste por paso.
 5. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; sin cambios de backend. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
+### [R22] Simplificación de CREAR y MEZCLA — 2026-11-13
+
+**Como** usuario, **quiero** que CREAR y MEZCLA no repitan el mismo aviso ni el mismo dato en dos sitios, **para** trabajar con la misma claridad que en la mesa REMIX sin perder ninguna capacidad.
+
+**Criterios de aceptación:**
+
+1. Se conservan todas las acciones, controles y mensajes accionables; no se elimina ninguna capacidad ni cambia el contrato con el backend.
+2. En CREAR el motor caído se explica **una sola vez**, en el aviso accionable que indica el script de arranque; la etiqueta de la fila de modo queda solo para estados transitorios (reposo, iniciando, deteniendo) y no repite el estado caído.
+3. En CREAR el estilo principal se ve y se quita en su único desplegable PRINCIPAL; la fila de matices solo se pinta cuando hay matices que quitar. El resumen «ELIGIDO» desaparece porque repetía los cinco desplegables de voz ya visibles.
+4. En CREAR hay **un único** bloque de transparencia de lo que se envía: el plegable «VER LO QUE SE ENVÍA» con el prompt efectivo y los parámetros; se retira el párrafo duplicado del prompt efectivo.
+5. En MEZCLA la colocación de trozos se explica **una sola vez**, con el plan real (número de trozos, tiempos y decisión de cuadre); desaparece el subtítulo genérico que la anticipaba. La lista de pistas se calcula una vez por render y la comparten BASE, VOZ y FUNDIR.
+6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.
