@@ -583,6 +583,19 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const spoken = remixBusyLine(phase, action, ratio, !!job, pendingMessage);
   const busyLine = spoken || job?.error || 'La operación no se completó';
   const percent = movingPercent(phase, ratio);
+  // El BPM original se revisa igual en «por pistas» y en la secuencia: el
+  // control, la medición y la ficha de origen son los mismos; solo cambian la
+  // etiqueta accesible y la frase que dice qué hacer con el valor.
+  const sourceTempoControls = ({ label, uncertain }) => <>
+    <div className="flex items-center gap-3 flex-wrap">
+      <label className="label">BPM ORIGINAL <input aria-label={label} type="number" min={(bounds('source_bpm') ?? bounds('bpm'))?.min} max={(bounds('source_bpm') ?? bounds('bpm'))?.max} step="any" value={sourceBpm} disabled={busy} placeholder="Detección automática" onChange={(event) => setSourceTempo({ sourceKey, value: event.target.value, origin: 'manual' })} className={`${field} w-44`} /></label>
+      <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void measureSourceTempo()} className="btn btn-ghost h-8 px-3">{grooveBusy ? 'MIDIENDO…' : 'MEDIR BPM ORIGINAL'}</button>
+    </div>
+    {grooveBusy && <p role="status" className="text-[13px] text-[var(--muted)]">Midiendo el tempo del original con DSP local…</p>}
+    {groove && <p className="text-[13px] text-[var(--muted)]" data-source-tempo-measurement>{Number(groove.bpm) > 0 ? `Medido: ${Number(groove.bpm).toFixed(1)} BPM.` : 'No se pudo determinar el tempo.'} {Number.isFinite(Number(groove.confidence)) ? `Confianza: ${(Number(groove.confidence) * 100).toFixed(0)}%. ` : ''}{measuredRemixBpm(groove, capabilities) != null ? 'Puedes corregirlo en BPM ORIGINAL.' : uncertain}</p>}
+    {grooveError && <p role="alert" className="text-[13px] st-err">Medición del BPM original: {grooveError}</p>}
+    {sourceBpm !== '' && <p className="mono text-[10px] text-[var(--faint)]">{sourceBpmOrigin === 'manual' ? 'BPM original revisado manualmente.' : 'BPM original precargado de la medición automática.'}</p>}
+  </>;
   const comparisonTracks = useMemo(() => [{ id: 'original', label: 'ORIGINAL', url: originalUrl, duration },
     ...outputs.map((name, index) => ({ id: name, label: `VARIANTE ${String.fromCharCode(65 + index)} · ${name}`, url: api.audioUrl(name) }))], [originalUrl, duration, outputs]);
 
@@ -593,7 +606,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       <p className="text-[13px] text-[var(--muted)]">{fileName}{duration == null ? '' : ` · ${Number(duration).toFixed(1)} s`}</p>
       <label className="flex flex-col gap-1">
         <span className="text-[13px] text-[var(--text)]">Qué hacer</span>
-        <select aria-label="Qué hacer" className="desk-select" disabled={busy || grooveBusy} value={action} onChange={(event) => { setAction(event.target.value); setSolo(null); }}>
+        <select aria-label="Qué hacer" className="desk-select" disabled={busy || grooveBusy || !capabilities} value={action} onChange={(event) => { setAction(event.target.value); setSolo(null); }}>
           {ACTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </select>
       </label>
@@ -669,27 +682,13 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && scope !== 'sequence' && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
     {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">
       <p className="text-[13px] text-[var(--muted)]">El tempo lo mide el servidor sobre el original: los cortes caen en compases completos. Si la medición no es fiable, indica el BPM original revisado.</p>
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="label">BPM ORIGINAL <input aria-label="BPM original de la secuencia" type="number" min={(bounds('source_bpm') ?? bounds('bpm'))?.min} max={(bounds('source_bpm') ?? bounds('bpm'))?.max} step="any" value={sourceBpm} disabled={busy} placeholder="Detección automática" onChange={(event) => setSourceTempo({ sourceKey, value: event.target.value, origin: 'manual' })} className={`${field} w-44`} /></label>
-        <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void measureSourceTempo()} className="btn btn-ghost h-8 px-3">{grooveBusy ? 'MIDIENDO…' : 'MEDIR BPM ORIGINAL'}</button>
-      </div>
-      {grooveBusy && <p role="status" className="text-[13px] text-[var(--muted)]">Midiendo el tempo del original con DSP local…</p>}
-      {groove && <p className="text-[13px] text-[var(--muted)]" data-source-tempo-measurement>{Number(groove.bpm) > 0 ? `Medido: ${Number(groove.bpm).toFixed(1)} BPM.` : 'No se pudo determinar el tempo.'} {Number.isFinite(Number(groove.confidence)) ? `Confianza: ${(Number(groove.confidence) * 100).toFixed(0)}%. ` : ''}{measuredRemixBpm(groove, capabilities) != null ? 'Los cortes caen en compases completos.' : 'Medición incierta o fuera de límites: indica el BPM original para repartir los pasos.'}</p>}
-      {grooveError && <p role="alert" className="text-[13px] st-err">Medición del BPM original: {grooveError}</p>}
-      {sourceBpm !== '' && <p className="mono text-[10px] text-[var(--faint)]">{sourceBpmOrigin === 'manual' ? 'BPM original revisado manualmente.' : 'BPM original precargado de la medición automática.'}</p>}
+      {sourceTempoControls({ label: 'BPM original de la secuencia', uncertain: 'Medición incierta o fuera de límites: indica el BPM original para repartir los pasos.' })}
     </div>}
     {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
     {remixing && scope === 'region' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.region}</p>}
     {remixing && scope === 'groups' && bpm !== '' && <div className="flex flex-col gap-2">
       <p className="text-[13px] text-[var(--muted)]">Todas las pistas cambian de tempo juntas, sin cambiar el tono. Las grabaciones conservadas también se procesan.</p>
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="label">BPM ORIGINAL <input aria-label="BPM original de las pistas" type="number" min={(bounds('source_bpm') ?? bounds('bpm'))?.min} max={(bounds('source_bpm') ?? bounds('bpm'))?.max} step="any" value={sourceBpm} disabled={busy} placeholder="Detección automática" onChange={(event) => setSourceTempo({ sourceKey, value: event.target.value, origin: 'manual' })} className={`${field} w-44`} /></label>
-        <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void measureSourceTempo()} className="btn btn-ghost h-8 px-3">{grooveBusy ? 'MIDIENDO…' : 'MEDIR BPM ORIGINAL'}</button>
-      </div>
-      {grooveBusy && <p role="status" className="text-[13px] text-[var(--muted)]">Midiendo el tempo del original con DSP local…</p>}
-      {groove && <p className="text-[13px] text-[var(--muted)]" data-source-tempo-measurement>{Number(groove.bpm) > 0 ? `Medido: ${Number(groove.bpm).toFixed(1)} BPM.` : 'No se pudo determinar el tempo.'} {Number.isFinite(Number(groove.confidence)) ? `Confianza: ${(Number(groove.confidence) * 100).toFixed(0)}%. ` : ''}{measuredRemixBpm(groove, capabilities) != null ? 'Puedes corregirlo en BPM ORIGINAL.' : 'Medición incierta o fuera de límites: indica el BPM original para cambiar el tempo.'}</p>}
-      {grooveError && <p role="alert" className="text-[13px] st-err">Medición del BPM original: {grooveError}</p>}
-      {sourceBpm !== '' && <p className="mono text-[10px] text-[var(--faint)]">{sourceBpmOrigin === 'manual' ? 'BPM original revisado manualmente.' : 'BPM original precargado de la medición automática.'}</p>}
+      {sourceTempoControls({ label: 'BPM original de las pistas', uncertain: 'Medición incierta o fuera de límites: indica el BPM original para cambiar el tempo.' })}
     </div>}
     {remixing && scope !== 'region' && scope !== 'sequence' && <div className="flex flex-col gap-2" data-remix-duration>
       <div className="flex items-center gap-2 flex-wrap">
@@ -714,7 +713,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </Fold>}
     </div>}
     {remixing && requestError && <p role="alert" className="text-[13px] st-err">{requestError}</p>}
-    {remixing && analysisStatus && <p role="status" className="text-[13px]">{analysisStatus}</p>}
+    {remixing && analysisStatus && (scope !== 'groups' || groups.length > 0) && <p role="status" className="text-[13px]">{analysisStatus}</p>}
     {remixing && (scope !== 'groups' || groups.length > 0) && <div className="flex gap-3 items-end flex-wrap">
       <label className="flex flex-col gap-1 text-[13px] text-[var(--text)] min-w-[240px] flex-1">Nombre del remix
         <input aria-label="Nombre del remix" value={outputName} disabled={busy} onChange={(event) => setOutputName(event.target.value)}

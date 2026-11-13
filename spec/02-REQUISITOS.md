@@ -1161,6 +1161,19 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 4. Verificación con la **API real reiniciada**: el endpoint responde 200 y devuelve entradas del vocabulario; la suite focal del glosario queda verde.
 5. Versión visible subida y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos tocados.
 
+### [R25] REMIX sin controles ni avisos repetidos — 2026-11-13
+
+**Como** usuario, **quiero** que la mesa REMIX tenga un solo control de BPM original y un solo aviso de análisis, **para** no leer dos veces lo mismo ni tocar campos que parecen distintos y hacen lo mismo.
+
+**Criterios de aceptación:**
+
+1. El bloque de **BPM ORIGINAL** (campo, botón de medición, estado de medición, error y ficha de origen) se escribe **una sola vez** y lo comparten «por pistas» y «secuencia»; solo cambian la etiqueta accesible y la frase de qué hacer con el valor.
+2. Las etiquetas accesibles se conservan (`BPM original de las pistas`, `BPM original de la secuencia`) para no romper las sondas de UI existentes.
+3. El estado del análisis se pinta **una sola vez**: en «por pistas» sin pistas separadas se muestra el aviso de espera, y no además el estado genérico.
+4. «Qué hacer» no admite elegir una acción mientras el servidor no ha declarado sus capacidades: el selector espera deshabilitado a que carguen.
+5. Sin cambios de capacidad, de contrato ni de payload: mismas acciones, mismos campos y mismo backend.
+6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.
