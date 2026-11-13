@@ -4141,3 +4141,9 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - Frontend: `SequencePattern` reutilizado solo en la fila Batería en transformar, oculto y desactivado por defecto; envío de `patterns` solo si activo y con golpes.
 - Versión 1.3.8; `dist` y `Musicia.exe` recompilados (SHA-256 9BA59252F66348F0F3DEAD1C86BDD0EBC03CBCB0A0057771F8451DDCDFD0088D).
 - Verificado: backend 539 tests OK (skipped=3), frontend 113/113, lint y build exit 0.
+
+## 2026-11-13 · Bump de version a 1.3.9
+
+- Version subida de 1.3.8 a 1.3.9 en frontend/package.json y las dos entradas de frontend/package-lock.json.
+- Musicia.exe recompilado con scripts/build_launcher.ps1: 16.384 bytes, FileVersion/ProductVersion 1.3.9, SHA-256 8AB881B27ED745B99F846032E65CC4084073943B1B9E05E4D7AE502949EA0581.
+- Sin cambios de codigo; solo release de version. Commit 5368d6f pusheado a origin/main.
