@@ -134,6 +134,36 @@ class RemixMasterLoudnessTest(unittest.TestCase):
             handle.setframerate(rate)
             handle.writeframes(stereo.tobytes())
 
+    def _float_sine(self, path: Path, peak: float, seconds: float = 4.0) -> None:
+        """WAV flotante sin recortar: el intermedio real del remix puede pasar de 1.0."""
+        rate = self.config.sample_rate
+        samples = array.array("f")
+        for frame in range(int(rate * seconds)):
+            value = peak * math.sin(2 * math.pi * 220 * frame / rate)
+            samples.extend((value, value))
+        MixerService._write_float_wav(path, samples, rate, 2)
+
+    def test_intermediate_above_full_scale_is_mastered_in_one_pass(self):
+        """Regresión 2026-11-13: measured_I > 0 hacía fallar toda la exportación.
+
+        La mezcla de grupos deja el PCM por encima del fondo de escala; el
+        rango del filtro es -99..0, así que se masteriza en una pasada.
+        """
+        source = self.work / "por-encima.wav"
+        self._float_sine(source, 1.6)
+        output = self.work / "por-encima.mp3"
+        result = MixerService.export_remix(source, output, self.config)
+        self.assertGreater(output.stat().st_size, 0)
+        self.assertAlmostEqual(result["loudness"]["input_i"], TARGET_LUFS, delta=1.0)
+        self.assertLessEqual(result["loudness"]["input_tp"], self.config.peak_limit_dbfs + 0.1)
+
+    def test_silent_intermediate_fails_with_a_measurement_error(self):
+        """El silencio no tiene pico medible: error real, no de opciones de ffmpeg."""
+        source = self.work / "silencio.wav"
+        self._float_sine(source, 0.0)
+        with self.assertRaisesRegex(RuntimeError, "pico|medidas"):
+            MixerService.export_remix(source, self.work / "silencio.mp3", self.config)
+
     def test_weak_and_loud_sources_reach_the_streaming_master(self):
         # Dos niveles muy distintos: el master no puede depender de cómo
         # llegue el intermedio (antes, el débil se entregaba 19 dB bajo).

@@ -26,6 +26,16 @@ TARGET_LUFS = -14.0
 MP3_BITRATE = "192k"
 # True peak máximo para que nada sature al exportar.
 TARGET_TP = -1.0
+# Rango que acepta `loudnorm` para reutilizar la primera medición
+# (`ffmpeg -h filter=loudnorm`). Un intermedio por encima del fondo de escala
+# mide input_i > 0 y el silencio mide -inf: el filtro rechaza esa opción con
+# «Result too large» y la exportación entera falla.
+LOUDNORM_MEASURED_RANGES = {
+    "input_i": (-99.0, 0.0),
+    "input_tp": (-99.0, 99.0),
+    "input_lra": (0.0, 99.0),
+    "input_thresh": (-99.0, 0.0),
+}
 # Desfasos por debajo de esto son ruido de medición: no se tocan.
 MIN_PHASE_SHIFT_MS = 5.0
 # Confianza mínima del groove para fiarse y alinear. Por debajo, el tempo es
@@ -129,9 +139,26 @@ def plan_alignment(base_groove: dict, vocal_groove: dict) -> dict | None:
     }
 
 
+def _loudnorm_measurements_fit(measured: dict) -> bool:
+    """True si las medidas de la 1ª pasada caben en el rango de `loudnorm`."""
+    for key, (low, high) in LOUDNORM_MEASURED_RANGES.items():
+        try:
+            value = float(measured.get(key))
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(value) or not low <= value <= high:
+            return False
+    return True
+
+
 def _loudnorm_args(measured: dict, measured_flag: bool) -> str:
-    """Argumentos de loudnorm; con `measured` se usan los datos de la 1ª pasada."""
-    if measured_flag and measured.get("input_i") not in (None, "nan"):
+    """Argumentos de loudnorm; con `measured` se usan los datos de la 1ª pasada.
+
+    Si la medida no entra en el rango del filtro (intermedio por encima de
+    fondo de escala, silencio), se normaliza en una pasada y `loudnorm` mide
+    él: pasarle un número que rechaza rompía la exportación entera.
+    """
+    if measured_flag and _loudnorm_measurements_fit(measured):
         return (
             f"I={TARGET_LUFS:g}:TP={TARGET_TP:g}:LRA=11:"
             f"measured_I={measured['input_i']}:"
@@ -978,7 +1005,7 @@ class MixerService:
         """
         measured = measure_loudness(source)
         peak = measured.get("input_tp")
-        if peak is None or math.isnan(float(peak)):
+        if peak is None or not math.isfinite(float(peak)):
             raise RuntimeError("No se pudo medir el pico del intermedio de remix")
         master = f"loudnorm={_loudnorm_args(measured, True)}"
         run_ffmpeg(["-i", str(source), "-af", master,

@@ -17,7 +17,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from config import AppSettings  # noqa: E402
-from music_service import MusicService  # noqa: E402
+from music_service import MusicEngineError, MusicService  # noqa: E402
 
 
 def run(coro):
@@ -88,6 +88,47 @@ class EngineRecoveryTest(unittest.TestCase):
                 result = await self.service._request("POST", "/release_task", json={})
             self.assertEqual(result, {"ok": True})
             restart.assert_not_called()
+        run(scenario())
+
+    def test_read_error_on_poll_reconnects_and_retries_without_restart(self):
+        """Un keep-alive cerrado no es un motor caído: se reabre y se reintenta.
+
+        Regresión 2026-11-13: el sondeo del análisis recibió ReadError('') y
+        mató el job. Sin chequeo de vida no se reinicia el motor que trabaja.
+        """
+        async def scenario():
+            self.client.request = AsyncMock(side_effect=[
+                httpx.ReadError(""),
+                _Response({"code": 200, "data": []}),
+            ])
+            with patch.object(self.service, "_reconnect", new=AsyncMock()) as reconnect, \
+                    patch.object(MusicService, "_restart_engine", new=Mock()) as restart, \
+                    patch.object(self.service, "health", new=AsyncMock()) as health, \
+                    patch("music_service.asyncio.sleep", new=AsyncMock()):
+                result = await self.service._request(
+                    "POST", "/query_result", json={"task_id_list": ["t"]},
+                    check_alive=False,
+                )
+            self.assertEqual(result, [])
+            reconnect.assert_awaited_once()
+            restart.assert_not_called()
+            health.assert_not_called()
+            self.assertEqual(self.client.request.await_count, 2)
+        run(scenario())
+
+    def test_read_error_on_submit_is_not_retried(self):
+        """Repetir /release_task tras un ReadError podría crear la tarea dos veces."""
+        async def scenario():
+            self.client.request = AsyncMock(side_effect=httpx.ReadError(""))
+            salud = AsyncMock(return_value={"reachable": True, "busy": True})
+            with patch.object(self.service, "health", new=salud), \
+                    patch.object(MusicService, "_restart_engine", new=Mock()) as restart, \
+                    patch.object(self.service, "_reconnect", new=AsyncMock()) as reconnect:
+                with self.assertRaises(MusicEngineError):
+                    await self.service._request("POST", "/release_task", json={})
+            restart.assert_not_called()
+            reconnect.assert_not_awaited()
+            self.assertEqual(self.client.request.await_count, 1)
         run(scenario())
 
     def test_connect_error_restarts_engine_once_and_retries(self):

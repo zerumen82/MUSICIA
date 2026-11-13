@@ -1174,6 +1174,36 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 5. Sin cambios de capacidad, de contrato ni de payload: mismas acciones, mismos campos y mismo backend.
 6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
+### [R26] Un corte del motor no cierra el análisis de fuente — corrección 2026-11-13
+
+**Como** usuario, **quiero** que un análisis ya iniciado no se pierda porque un sondeo del motor falle un instante, **para** no repetir el análisis ni leer un traceback de transporte.
+
+**Contexto (fallo real):** job `2ad7bd2f698240d6965cbfbad24e1bfa` («Arroja la bomba»). El sondeo del análisis llamaba a `/query_result` con `check_alive=True` (el valor por defecto), así que hacía `/health` antes de cada sondeo. A las 15:07:41, mientras el motor cargaba el modelo, ese chequeo no respondió, `_request` lo tomó por caído y lanzó `ensure_local.ps1`: el motor que estaba analizando fue reemplazado y la tarea encolada se perdió. El siguiente sondeo recibió `ReadError('')` y el job murió con `MusicEngineError: El motor ACE-Step no responde (/query_result): ReadError: ReadError('')`. Es exactamente la regla que ya se fijó el 2026-10-18 para `status()` (`check_alive=False`) y que el análisis reintrodujo.
+
+**Criterios de aceptación:**
+
+1. [x] El sondeo del análisis usa `check_alive=False`: no ejecuta `/health` ni reinicia el motor por su cuenta.
+2. [x] Una conexión keep-alive cerrada (`ReadError`/`RemoteProtocolError`/`WriteError`) en un sondeo se reintenta una vez reabriendo el cliente; `/release_task` **no** se repite (podría crear la tarea dos veces).
+3. [x] Un corte de transporte durante el análisis no cierra el job: se reintenta hasta `source_analysis.timeout_seconds`; un fallo real del motor sigue fallando.
+4. [x] La espera de una generación conserva su contrato: comparte la clasificación de corte (`poll_interrupted`) sin cambios de comportamiento.
+5. [x] Regresión: `test_analysis_poll_skips_health_and_survives_a_broken_connection`, `test_analysis_still_fails_on_a_real_engine_error`, `test_read_error_on_poll_reconnects_and_retries_without_restart` y `test_read_error_on_submit_is_not_retried`; suite backend **529 tests, OK (3 omitidos), exit 0**.
+
+**Límites:** si el motor se reinicia de verdad (supervisor), su tarea encolada se pierde y el análisis puede esperar hasta el timeout. No se reenvía sola ni se inventa un resultado.
+
+### [R27] El master de remix no falla por medidas fuera del rango de `loudnorm` — corrección 2026-11-13
+
+**Como** usuario, **quiero** que una exportación de remix cuyo intermedio sube por encima del fondo de escala se masterice igual, **para** no perder el trabajo por un detalle de la herramienta de normalización.
+
+**Contexto (fallo real, suite roja en `HEAD`):** 10 pruebas de `test_remix_recovery.DownloadedRemixTest` fallaban con `Error applying option 'measured_I' to filter 'loudnorm': Result too large`. El intermedio medía `input_i = 11.15` LUFS (PCM flotante por encima de 1.0 al mezclar grupos) y el silencio mide `-inf`. El filtro solo acepta `measured_I` de **-99 a 0** (`ffmpeg -h filter=loudnorm`), así que la segunda pasada fallaba y con ella la exportación completa. Las 10 fallas se reprodujeron con el código de `HEAD` sin los cambios de R26 (`logs/fix-analysis-readerror-20261113/head-remix-recovery.log`): no las introdujo esta corrección.
+
+**Criterios de aceptación:**
+
+1. [x] Los datos de la primera pasada se reutilizan **solo** si son finitos y caben en el rango declarado por el filtro (`LOUDNORM_MEASURED_RANGES`, sin números mágicos sueltos).
+2. [x] Si no caben, se masteriza en **una pasada** y `loudnorm` mide él mismo; el audio real no se toca ni se recorta para que encaje.
+3. [x] Un pico no finito (silencio) falla con un mensaje real de medición («No se pudo medir el pico del intermedio de remix»), no con un error de opciones de ffmpeg.
+4. [x] Regresión: intermedio a 1.6 de amplitud exporta y queda en **-14 LUFS ±1** con pico dentro del límite; intermedio silencioso falla con medición. `test_pending_audio_contracts` + `test_remix_recovery` verdes (47 tests focalizados, exit 0).
+5. [x] `normalize_track` y `mix_tracks` conservan su contrato y usan la misma guarda.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.

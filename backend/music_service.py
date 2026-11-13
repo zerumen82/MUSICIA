@@ -239,12 +239,12 @@ class MusicService:
 
         Con ``check_alive`` (por defecto) comprueba antes ``/health``: si el
         motor no responde, lo reinicia en un hilo y espera. Un motor
-        ``busy`` es el estado normal mientras genera (``health`` lo pinta
-        así ante un timeout): no se reinicia, se continúa — matarlo a mitad
-        de tarea corta el trabajo. Los sondeos de ``status`` pasan con
-        ``check_alive=False``: ``_wait_loop`` ya tiene su propia
-        recuperación ante cortes de sondeo. Ante ConnectError, reintenta
-        una vez tras reiniciar.
+        ``busy`` es el estado normal mientras genera (``health`` lo pinta        así ante un timeout): no se reinicia, se continúa — matarlo a mitad de
+        tarea corta el trabajo. Los sondeos de ``status`` y del análisis de
+        fuente pasan con ``check_alive=False``: no ejecutan ``/health`` ni
+        reinician el motor por su cuenta. Ante ConnectError, reintenta una vez
+        tras reiniciar; ante un socket keep-alive cerrado, reabre el cliente y
+        reintenta solo si es un sondeo.
         """
         if self.engine_lifecycle is not None and path in {
             self.engine.submit_path, self.engine.format_input_path,
@@ -304,6 +304,22 @@ class MusicService:
                     continue
                 raise MusicEngineError(
                     f"El motor ACE-Step no responde ({path}): ConnectError tras reinicio"
+                ) from exc
+            except (httpx.ReadError, httpx.RemoteProtocolError, httpx.WriteError) as exc:
+                # Socket keep-alive cerrado por el motor (p. ej. al reiniciarse):
+                # no es un motor caído, la conexión está muerta. Solo se
+                # reintenta un sondeo: repetir /release_task duplicaría la tarea.
+                ultimo_error = exc
+                if not check_alive and intento == 0:
+                    logger.warning(
+                        f"Conexión caída en {path}; se reabre el cliente y se reintenta"
+                    )
+                    await self._reconnect()
+                    await asyncio.sleep(self.engine.poll_interval)
+                    continue
+                detalle = str(exc).strip() or repr(exc)
+                raise MusicEngineError(
+                    f"El motor ACE-Step no responde ({path}): {type(exc).__name__}: {detalle}"
                 ) from exc
             except httpx.HTTPError as exc:
                 detalle = str(exc).strip() or repr(exc)
@@ -675,6 +691,21 @@ class MusicService:
         )
 
     @staticmethod
+    def poll_interrupted(error: MusicEngineError) -> bool:
+        """True si el sondeo cayó por el transporte y el trabajo puede seguir.
+
+        Misma regla para la espera de una generación y para el sondeo del
+        análisis de fuente: un HTTP 408/429/5xx o un corte de transporte/JSON
+        no es un fallo del trabajo. Cualquier otro error del motor sí lo es.
+        """
+        cause = error.__cause__
+        if isinstance(cause, httpx.HTTPStatusError):
+            return cause.response is not None and cause.response.status_code in {
+                408, 429, 500, 502, 503, 504,
+            }
+        return isinstance(cause, (httpx.HTTPError, json.JSONDecodeError))
+
+    @staticmethod
     def _parse_tracks(raw_result: Any) -> list[dict[str, Any]]:
         """El motor devuelve 'result' como texto JSON con la lista de pistas."""
         if not raw_result:
@@ -758,12 +789,7 @@ class MusicService:
             try:
                 current = await self.status(task_id)
             except MusicEngineError as exc:
-                cause = exc.__cause__
-                if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code not in {
-                    408, 429, 500, 502, 503, 504,
-                }:
-                    raise
-                if not isinstance(cause, (httpx.HTTPError, json.JSONDecodeError)):
+                if not self.poll_interrupted(exc):
                     raise
                 misses += 1
                 logger.warning(f"Sondeo {task_id[:8]} falló ({misses}): {exc}")

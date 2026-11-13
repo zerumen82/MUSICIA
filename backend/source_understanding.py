@@ -123,8 +123,23 @@ async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSetti
             raise MusicEngineError(f"El análisis no devolvió task_id: {accepted}")
         deadline = time.monotonic() + settings.timeout_seconds
         while True:
-            raw = await music._request("POST", music.engine.result_path,
-                                       json={"task_id_list": [task_id]})
+            try:
+                # Sin chequeo de vida previo: el sondeo no reinicia el motor
+                # que está analizando (misma regla que `status()`).
+                raw = await music._request("POST", music.engine.result_path,
+                                           json={"task_id_list": [task_id]},
+                                           check_alive=False)
+            except MusicEngineError as exc:
+                # Un corte de transporte no cierra el análisis: se reintenta
+                # hasta el plazo, como en la espera de una generación.
+                if not music.poll_interrupted(exc):
+                    raise
+                logger.warning(f"Sondeo del análisis interrumpido: {exc}; se reintenta")
+                if time.monotonic() >= deadline:
+                    raise MusicEngineError(
+                        "Tiempo agotado en el análisis local del audio") from exc
+                await asyncio.sleep(settings.poll_interval)
+                continue
             item = raw[0] if isinstance(raw, list) and raw else raw
             if isinstance(item, dict):
                 state = int(item.get("status", 0))
