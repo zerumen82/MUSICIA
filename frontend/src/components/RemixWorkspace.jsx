@@ -61,7 +61,6 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [vocalMode, setVocalMode] = useState('source');
   const [outputName, setOutputName] = useState('');
   const [seed, setSeed] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [advancedGuidance, setAdvancedGuidance] = useState('');
   const [advancedSteps, setAdvancedSteps] = useState('');
   const [advancedUseFormat, setAdvancedUseFormat] = useState(false);
@@ -647,7 +646,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       </div>)}
       {remixing && needsStyle && promptsReady && !requestError && scope === 'groups' && <StyleEnglish request={payload}
         why="El modelo recibe un solo texto: el prompt general más una línea por cada pista en «transformar». Se muestra el texto efectivo del servidor. Las pistas no se tratan por separado." />}
-      <p className="text-[13px] text-[var(--muted)]">El acompañamiento restante puede juntar varios instrumentos. El estilo del prompt general se hereda en cada pista: si eliges otro en la pista, manda ese. El texto de una pista se suma. Una pista vacía no añade nada.</p>
+      <p className="text-[13px] text-[var(--muted)]">Cada pista hereda el estilo general; si eliges otro en la pista, manda ese. El texto de una pista se suma (vacía no añade nada). El acompañamiento puede juntar varios instrumentos.</p>
     </div>}
     {remixing && scope === 'sequence' && <p className="text-[13px] text-[var(--muted)]">El estilo de aquí se aplica a todos los pasos: viaja delante del texto de cada paso. El motor no lo recibe solo, sino dentro de cada paso.</p>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
@@ -667,37 +666,6 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && needsStyle && promptsReady && !requestError && scope !== 'groups' && scope !== 'sequence' && <StyleEnglish request={payload}
       why="Se muestra el texto efectivo del servidor, con la misma petición que se usa al generar. Los parámetros avanzados modifican cómo lo procesa el motor." />}
     {remixing && scope !== 'region' && scope !== 'sequence' && needsCover && range('cover_strength', 'FIDELIDAD AL ORIGINAL')}
-    {remixing && needsStyle && (
-      <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-3 mb-2">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setShowAdvanced((c) => !c)} className="btn btn-ghost h-8 px-2 text-[11px]">
-            {showAdvanced ? 'Ocultar avanzados' : 'Parámetros avanzados'}
-          </button>
-          <span className="text-[11px] text-[var(--faint)]">Guidance, pasos, lote, LM (vacío = valor de configuración)</span>
-        </div>
-        {showAdvanced && (
-          <div className="flex gap-3 flex-wrap">
-            <label className="flex flex-col gap-1">
-              <span className="label text-[11px]">Guidance scale</span>
-              <input aria-label="Guidance del remix" type="number" min={bounds('guidance_scale')?.min} max={bounds('guidance_scale')?.max} step={bounds('guidance_scale')?.step ?? 'any'} value={advancedGuidance} onChange={(e) => setAdvancedGuidance(e.target.value)} disabled={busy} className={`${field} w-24`} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="label text-[11px]">Pasos de difusión</span>
-              <input aria-label="Pasos del remix" type="number" min={bounds('inference_steps')?.min} max={bounds('inference_steps')?.max} step="1" value={advancedSteps} onChange={(e) => setAdvancedSteps(e.target.value)} disabled={busy} className={`${field} w-24`} />
-            </label>
-            <label className="flex items-end gap-2">
-              <input aria-label="Reescribir prompt con LM" type="checkbox" checked={advancedUseFormat} onChange={() => setAdvancedUseFormat((c) => !c)} disabled={busy} />
-              <span className="label text-[11px]">use_format (LM reescribe el prompt)</span>
-            </label>
-            {scope !== 'sequence' && <label className="flex flex-col gap-1">
-              <span className="label text-[11px]">Lote (batch)</span>
-              <input aria-label="Lote del remix" type="number" min={bounds('batch_size')?.min} max={bounds('batch_size')?.max} step="1" value={advancedBatch} onChange={(e) => setAdvancedBatch(e.target.value)} disabled={busy} className={`${field} w-24`} />
-            </label>}
-            {scope === 'sequence' && <p className="mono text-[10px] text-[var(--faint)]">Cada paso genera una variante: el lote es 1.</p>}
-          </div>
-        )}
-      </div>
-    )}
     {remixing && scope !== 'sequence' && <label className="flex gap-3 items-center flex-wrap"><span className="label">{scope === 'groups' ? 'BPM COMÚN' : 'BPM'}</span><input aria-label="BPM del remix" type="number" min={bounds('bpm')?.min} max={bounds('bpm')?.max} step="1" value={bpm} disabled={busy} placeholder="Mantener original" onChange={(event) => setBpm(event.target.value)} className={`${field} w-44`} /></label>}
     {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">
       <p className="text-[13px] text-[var(--muted)]">El tempo lo mide el servidor sobre el original: los cortes caen en compases completos. Si la medición no es fiable, indica el BPM original revisado.</p>
@@ -778,8 +746,30 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     </div>}
     {(error || (!spoken && job?.error)) && <p role="alert" className="mono text-[11px] st-err flex gap-2 items-center"><AlertTriangle size={13} />{error || job.error}</p>}
     {notice && <p role="status" className="mono text-[10px] text-[var(--muted)]">{notice}</p>}
-    {remixing && <Fold title={SECTIONS.advanced.title} why="Timbre, voz, semilla y lo detectado en el archivo." onToggle={(event) => setAdvanced(event.currentTarget.open)}>
+    {remixing && <Fold title={SECTIONS.advanced.title} why="Timbre, voz, semilla, parámetros del motor y lo detectado en el archivo." onToggle={(event) => setAdvanced(event.currentTarget.open)}>
       <div className="flex flex-col gap-3 border-l border-[var(--line)] pl-3 py-2">
+      {needsStyle && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0">
+        <legend className="label">PARÁMETROS DEL MOTOR · VACÍO = CONFIGURACIÓN</legend>
+        <div className="flex gap-3 flex-wrap">
+          <label className="flex flex-col gap-1">
+            <span className="label text-[11px]">Guidance scale</span>
+            <input aria-label="Guidance del remix" type="number" min={bounds('guidance_scale')?.min} max={bounds('guidance_scale')?.max} step={bounds('guidance_scale')?.step ?? 'any'} value={advancedGuidance} onChange={(e) => setAdvancedGuidance(e.target.value)} className={`${field} w-24`} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="label text-[11px]">Pasos de difusión</span>
+            <input aria-label="Pasos del remix" type="number" min={bounds('inference_steps')?.min} max={bounds('inference_steps')?.max} step="1" value={advancedSteps} onChange={(e) => setAdvancedSteps(e.target.value)} className={`${field} w-24`} />
+          </label>
+          <label className="flex items-end gap-2">
+            <input aria-label="Reescribir prompt con LM" type="checkbox" checked={advancedUseFormat} onChange={() => setAdvancedUseFormat((c) => !c)} />
+            <span className="label text-[11px]">use_format (LM reescribe el prompt)</span>
+          </label>
+          {scope !== 'sequence' && <label className="flex flex-col gap-1">
+            <span className="label text-[11px]">Lote (batch)</span>
+            <input aria-label="Lote del remix" type="number" min={bounds('batch_size')?.min} max={bounds('batch_size')?.max} step="1" value={advancedBatch} onChange={(e) => setAdvancedBatch(e.target.value)} className={`${field} w-24`} />
+          </label>}
+        </div>
+        {scope === 'sequence' && <p className="mono text-[10px] text-[var(--faint)]">Cada paso genera una variante: el lote es 1.</p>}
+      </fieldset>}
       <div className="flex items-center gap-3 flex-wrap">
         <label className="label">EL ARCHIVO SUENA A</label>
         <select aria-label="Clasificación del audio original" value={classification} className="desk-select" disabled={busy}

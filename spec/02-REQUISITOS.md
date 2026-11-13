@@ -1111,6 +1111,18 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 4. Aplica a todos los ámbitos que publican con `export_remix` (`full`, `region`, `groups`, `sequence`) sin cambiar duración, tempo ni contenido.
 5. Regresión con ffmpeg real: una fuente débil y una fuerte llegan a −14 LUFS (±1 LU) y con el pico dentro del límite. La escucha artística la hace el usuario.
 
+### [R21] Simplificación de la mesa REMIX — 2026-11-13
+
+**Como** usuario, **quiero** una mesa REMIX con menos bloques repetidos y menos controles muertos, **para** encontrar antes lo importante sin perder ninguna capacidad.
+
+**Criterios de aceptación:**
+
+1. Se conservan todas las acciones y controles actuales; la simplificación no elimina ninguna capacidad ni cambia el contrato con el backend.
+2. Los parámetros del motor (guidance, pasos, lote, `use_format`) viven en **un único** bloque plegable, «REFERENCIA Y AVANZADOS»; desaparece el segundo panel a mitad del formulario. Valores vacíos siguen significando «valor de configuración» y su validación y payload no cambian.
+3. La rejilla de secuencia no repite un selector de foco deshabilitado cuando el servidor declara un único foco ejecutable; los focos pendientes se siguen declarando en texto.
+4. Los textos de ayuda encadenados se condensan sin perder los avisos de herencia por pista, el origen del material (bootleg) ni el coste por paso.
+5. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; sin cambios de backend. PASS del tester y APPROVE del reviewer sobre los archivos completos.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.

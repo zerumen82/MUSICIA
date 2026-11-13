@@ -62,10 +62,10 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
             <span className="label">PASO {step.index + 1}</span>
           </div>
           <span className="mono text-[10px] text-[var(--faint)]" data-sequence-interval={step.index}>{interval ?? (previewPending ? 'calculando tramo…' : 'tramo sin calcular')}</span>
-          <select aria-label={'Foco del paso ' + (step.index + 1)} className="desk-select" value={step.focus} disabled={busy || focuses.length < 2}
+          {focuses.length > 1 && <select aria-label={'Foco del paso ' + (step.index + 1)} className="desk-select" value={step.focus} disabled={busy}
             onChange={(event) => update(step.index, { focus: event.target.value })} data-sequence-focus={step.index}>
             {focuses.map((focus) => <option key={focus} value={focus}>{FOCUS_LABEL[focus] ?? focus}</option>)}
-          </select>
+          </select>}
           <textarea aria-label={'Texto del paso ' + (step.index + 1)} value={step.prompt} rows={3} disabled={busy} placeholder={placeholder}
             onChange={(event) => update(step.index, { prompt: event.target.value })} className={field + ' w-full resize-y'} data-sequence-prompt={step.index} />
           <button type="button" aria-expanded={editingIndex === step.index}
