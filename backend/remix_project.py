@@ -18,13 +18,14 @@ from pydantic import BaseModel, Field
 from pydub import AudioSegment
 from loguru import logger
 
-from audio_analysis import detect_groove, kick_coverage
+from audio_analysis import detect_groove, kick_coverage, kick_onset_times
 from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_ffmpeg
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from prompt_style import style_caption
-from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, material_origin,
-                            sequence_timeline, step_seed, validate_steps)
+from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, check_kick_pattern,
+                            material_origin, pattern_onset_gap_ms, sequence_timeline, step_caption,
+                            step_seed, validate_steps)
 from style_translator import style_for_engine
 from separator_service import SeparatorService
 from source_understanding import category_catalog
@@ -941,6 +942,39 @@ def _visible_phase(status) -> str:
     return "Rehaciendo el audio"
 
 
+def sequence_step_caption(prompt: str, pattern, settings) -> str:
+    """El caption de un paso de la secuencia.
+
+    El patrón manda en el ritmo y **ya está en inglés**: no pasa por el
+    traductor, que convertiría «hihat» en «whistle» y el instrumento pedido en
+    otro (logs/state-review-20261112/reviewer.md, R9). El texto del usuario sí
+    se traduce. El patrón va delante (spec/02 [R20.F], criterio 2).
+    """
+    text = style_for_engine(prompt or "", settings)
+    return step_caption(text, pattern, config=settings.remix,
+                        beats_per_bar=settings.mixer.beats_per_bar)
+
+
+def sequence_step_generation(request, segment, source, reference, settings, position=0) -> GenerationRequest:
+    """El contrato del motor para un paso: el MISMO que ve el preview y la ejecución.
+
+    Un solo constructor de caption: lo que el usuario ve antes de enviar es
+    exactamente lo que viaja al motor (spec/02 [R20.F], criterios 2 y 4).
+    """
+    config = settings.remix
+    step_request = request.model_copy(update={
+        "scope": "region",
+        "region_start": segment["start"],
+        "region_end": segment["end"],
+        "prompt": segment.get("prompt") or "",
+        "batch_size": 1,
+        # El primer paso usa la semilla pedida; los siguientes, derivadas.
+        "seed": step_seed(request.seed, position, config.parameters["seed"]["max"]),
+    })
+    caption = sequence_step_caption(segment.get("prompt") or "", segment.get("pattern"), settings)
+    return project_generation(step_request, source, reference, settings, prompt=caption)
+
+
 def sequence_preview_request(request, timeline, source, reference, settings) -> GenerationRequest:
     """El primer paso encendido resume la secuencia en la vista previa.
 
@@ -952,19 +986,15 @@ def sequence_preview_request(request, timeline, source, reference, settings) -> 
     enabled = [segment for segment in steps if segment.get("enabled")]
     if not enabled:
         raise ValueError("Enciende al menos un paso de la secuencia")
-    first = enabled[0]
-    preview = request.model_copy(update={
-        "scope": "region",
-        "region_start": first["start"],
-        "region_end": first["end"],
-        "prompt": first["prompt"],
-        "batch_size": 1,
-    })
-    return project_generation(preview, source, reference, settings)
+    return sequence_step_generation(request, enabled[0], source, reference, settings)
 
 
-def project_generation(request, source, reference, settings) -> GenerationRequest:
-    """Contrato único para el preview y el envío tras preparar el material."""
+def project_generation(request, source, reference, settings, *, prompt=None) -> GenerationRequest:
+    """Contrato único para el preview y el envío tras preparar el material.
+
+    `prompt` entrega un caption ya compuesto (la secuencia compone patrón y
+    texto una sola vez); si no se entrega, se traduce el del request.
+    """
     config = settings.remix
     lyrics = request.lyrics
     instrumental = request.instrumental
@@ -979,7 +1009,7 @@ def project_generation(request, source, reference, settings) -> GenerationReques
             instrumental = True
             lyrics = None
     return GenerationRequest(
-        prompt=style_for_engine(request.prompt, settings),
+        prompt=(prompt if prompt is not None else style_for_engine(request.prompt, settings)),
         constraint_prompt=style_caption(request.prompt),
         lyrics=lyrics, instrumental=instrumental,
         task_type="repaint" if request.scope == "region" else "cover", source_path=str(source),
@@ -1079,6 +1109,8 @@ class RemixProjectRuntime:
                 # incremento posterior declarado en spec/03.
                 "focuses": list(IMPLEMENTED_FOCUSES),
                 "focuses_pending": [focus for focus in STEP_FOCUSES if focus not in IMPLEMENTED_FOCUSES],
+                "pattern": {"steps": remix.pattern_steps,
+                            "instruments": list(remix.pattern_instruments)},
                 "stoppable": True,
             },
             "intermediate_format": remix.intermediate_format,
@@ -1135,7 +1167,8 @@ class RemixProjectRuntime:
                 result["provenance"]["src_audio_path"] = "source"
                 result["provenance"]["batch_size"] = "one_variant_per_step"
                 result["sequence"] = {
-                    "steps": [dict(segment, effective_prompt=style_for_engine(segment["prompt"], self.settings))
+                    "steps": [dict(segment, effective_prompt=sequence_step_caption(
+                        segment["prompt"], segment.get("pattern"), self.settings))
                               for segment in steps],
                     "engine_calls": len(enabled),
                     "bar_aligned": bool(timeline.get("bar_aligned")),
@@ -1247,7 +1280,7 @@ class RemixProjectRuntime:
         chosen_name = (request.output_name or "").strip()
         if chosen_name:
             job["output_name"] = chosen_name
-        job["project"] = request.model_dump()
+        job["project"] = request.model_dump(mode="json")
         job["source_analysis"] = completed_analysis_for(source)
         job["duration_seconds"] = duration
         job.update(effective_parameters=prepared["effective_parameters"],
@@ -1551,16 +1584,10 @@ class RemixProjectRuntime:
             job["steps"] = steps_info
             self.event(job, f"Paso {segment['index'] + 1} de {len(enabled)}: rehaciendo "
                             f"{segment['start']:.1f}-{segment['end']:.1f} s")
-            step_request = request.model_copy(update={
-                "scope": "region",
-                "region_start": segment["start"],
-                "region_end": segment["end"],
-                "prompt": segment["prompt"],
-                "batch_size": 1,
-                # El primer paso usa la semilla pedida; los siguientes, derivadas.
-                "seed": step_seed(request.seed, position, config.parameters["seed"]["max"]),
-            })
-            generation = project_generation(step_request, current, reference, self.settings)
+            # El MISMO contrato que enseñó el preview: patrón delante, texto
+            # del usuario traducido y patrón sin pasar por el traductor.
+            generation = sequence_step_generation(
+                request, segment, current, reference, self.settings, position=position)
             job["effective_parameters"] = self.music.build_payload(generation)
             job["provenance"]["src_audio_path"] = "source" if position == 0 else "previous_step"
 
@@ -1597,6 +1624,9 @@ class RemixProjectRuntime:
             entry["duration_seconds"] = seconds
             job["steps"] = steps_info
             self.save()
+            # La rejilla NO se mide aquí: el intermedio de un paso todavía no es
+            # la canción final. La medición se hace sobre el archivo publicado
+            # (spec/02 [R20.F], criterio 4).
             if job.get("stop_requested"):
                 job["sequence_partial"] = True
                 job["sequence_stopped_at"] = segment["index"] + 1
@@ -1609,6 +1639,57 @@ class RemixProjectRuntime:
                 entry["warning"] = "Este paso no llegó a rehacerse: conserva el material original."
         job["steps"] = steps_info
         return current, produced, steps_info
+
+    async def _measure_final_patterns(self, job: dict, output_path: Path, plan: dict, config) -> None:
+        """La rejilla se mide sobre la SALIDA FINAL (spec/02 [R20.F], criterio 4).
+
+        Cada tramo se mide dentro del archivo publicado: todos sus compases, el
+        último incompleto incluido, y cada ataque solo puede satisfacer un
+        objetivo. Lo que no se rehizo conserva el material original y se
+        declara sin medir: no hay éxito falso.
+        """
+        steps = job.get("steps") or []
+        patterns = {segment["index"]: segment.get("pattern")
+                    for segment in (plan.get("steps") or [])}
+        targets = [entry for entry in steps if patterns.get(entry["index"]) is not None]
+        if not targets:
+            return
+        bpm = plan.get("source_bpm")
+        if not bpm or float(bpm) <= 0:
+            for entry in targets:
+                entry["pattern_check"] = {
+                    "measured": False, "measurement_stage": "final_output",
+                    "reason": "Sin tempo fiable no se pueden situar los golpes."}
+            job["steps"] = steps
+            return
+        beats_per_bar = self.settings.mixer.beats_per_bar
+        try:
+            gap_ms = pattern_onset_gap_ms(float(bpm), beats_per_bar, config)
+            onsets = await asyncio.to_thread(kick_onset_times, output_path, min_gap_ms=gap_ms)
+        except (ValueError, OSError) as exc:
+            for entry in targets:
+                entry["pattern_check"] = {
+                    "measured": False, "measurement_stage": "final_output",
+                    "reason": f"No se pudieron medir los golpes: {exc}"}
+            job["steps"] = steps
+            return
+        for entry in targets:
+            if entry.get("status") != "done":
+                entry["pattern_check"] = {
+                    "measured": False, "measurement_stage": "final_output",
+                    "reason": "Este paso no llegó a rehacerse: conserva el material original."}
+                continue
+            start = float(entry["start"])
+            end = float(entry["end"])
+            inside = [onset - start for onset in onsets if start <= onset <= end]
+            entry["pattern_check"] = {
+                **check_kick_pattern(patterns[entry["index"]], inside, bpm,
+                                     duration_seconds=end - start,
+                                     beats_per_bar=beats_per_bar, config=config),
+                "measurement_stage": "final_output",
+                "measured_range_seconds": [round(start, 3), round(end, 3)],
+            }
+        job["steps"] = steps
 
     def _fail(self, job: dict, error: Exception) -> None:
         logger.error(f"Proyecto/separación {job['job_id']} falló: {error}")
@@ -2041,6 +2122,11 @@ class RemixProjectRuntime:
                         warnings = job.setdefault("warnings", [])
                         if warning not in warnings:
                             warnings.append(warning)
+                    if request.scope == "sequence":
+                        # La rejilla se mide sobre el archivo final que se publica,
+                        # no sobre el intermedio de un paso (spec/02 [R20.F]).
+                        await self._measure_final_patterns(job, staged_output, plan, config)
+                        self.cancelled(job)
                     variant = {"file_name": None, "intermediate_path": str(timeline),
                                "seed": track.seed if track else None,
                                "seed_origin": track.seed_origin if track else "not_applicable",
@@ -2065,7 +2151,7 @@ class RemixProjectRuntime:
                                           "groove_replacements": groove_replacements,
                                           "kick_replacements": kick_replacements,
                                           "replacement_parameters": replacement_parameters}
-                    ficha = dict(prompt=request.prompt, project=request.model_dump(),
+                    ficha = dict(prompt=request.prompt, project=request.model_dump(mode="json"),
                                  effective_parameters=job.get("effective_parameters"),
                                  source_analysis=job.get("source_analysis"), source_digest=digest,
                                  mastering=mastering, duration_seconds=final_seconds, bpm=request.bpm,

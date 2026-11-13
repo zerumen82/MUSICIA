@@ -53,7 +53,7 @@ Pop-Location
 
 La instalación fijada incluye Triton y FlashAttention para Windows; el entorno `.venv` existente queda disponible como alternativa mediante `acestep.python_path` en `backend/config.json`. La instalación inicial descarga varios GB de dependencias y los pesos del motor y de Demucs necesitan red.
 
-El arranque usa directamente el modelo y LM configurados. Los ajustes `acestep.offload_to_cpu`, `offload_dit_to_cpu` y `lm_offload_to_cpu` están activos para compartir la GPU de 8 GB; no cambian SFT/50 pasos/guidance 9/lote 2. NumPy figura en los requisitos del backend para procesar audio sin duplicar grabaciones enteras. El supervisor preserva el motor presente aunque `/health` tarde; para recuperar uno realmente bloqueado se necesita rearme explícito.
+El arranque usa directamente el modelo y LM configurados. Los ajustes `acestep.offload_to_cpu` y `acestep.lm_offload_to_cpu` están activos para compartir la GPU de 8 GB; el DiT **no** se descarga a CPU (`offload_dit_to_cpu` está en `false` a propósito, porque en CPU la difusión es lentísima). Ninguno de esos ajustes cambia SFT/50 pasos/guidance 9/lote 2. NumPy figura en los requisitos del backend para procesar audio sin duplicar grabaciones enteras. El supervisor preserva el motor presente aunque `/health` tarde; para recuperar uno realmente bloqueado se necesita rearme explícito.
 
 ## Verificación
 

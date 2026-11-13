@@ -1,4 +1,5 @@
 """Secuencia de pasos del remix (spec/02 [R20.A]): reparto, contrato y API."""
+import json
 import sys
 import tempfile
 import time
@@ -19,9 +20,10 @@ from music_service import MusicService
 from music_service import EngineStatus, GeneratedTrack, STATUS_SUCCEEDED
 from remix_project import RemixProjectRequest, RemixProjectRuntime, timeline_plan
 from remix_recovery import file_digest
-from remix_sequence import (MATERIAL_ORIGIN_MIX, SequenceStep, active_steps,
-                            material_origin, plan_segments, sequence_timeline,
-                            step_seed, validate_steps)
+from remix_sequence import (MATERIAL_ORIGIN_MIX, SequencePattern, SequenceStep, active_steps,
+                            check_kick_pattern, compile_pattern_text, material_origin,
+                            plan_segments, sequence_timeline, step_caption, step_seed,
+                            validate_steps)
 from style_translator import style_for_engine
 
 
@@ -299,6 +301,83 @@ class SequenceExecutionTest(unittest.IsolatedAsyncioTestCase):
         _output, ficha = self.published[0]
         self.assertEqual([step["status"] for step in ficha["steps"]], ["done", "kept", "kept"])
         self.assertIn("no llegó a rehacerse", ficha["steps"][1]["warning"])
+
+
+class SequencePatternTest(unittest.TestCase):
+    """La rejilla de patrón (spec/02 [R20.F]): traducción y verificación."""
+
+    def setUp(self):
+        self.config = AppSettings().remix
+
+    def pattern(self, **rows):
+        base = {instrument: [False] * 16 for instrument in ("kick", "snare", "hihat", "clap")}
+        for instrument, steps in rows.items():
+            row = [False] * 16
+            for step in steps:
+                row[step - 1] = True
+            base[instrument] = row
+        return SequencePattern(**base)
+
+    def test_the_pattern_translates_to_english_for_the_motor(self):
+        text = compile_pattern_text(self.pattern(kick=[1, 5, 9], snare=[5, 13]))
+        # El caption declara unidad, repetición y prioridad, y después las filas.
+        self.assertTrue(text.startswith("Drums:"))
+        self.assertIn("16", text)
+        self.assertIn("4/4", text)
+        self.assertIn("kick on steps 1, 5, 9", text)
+        self.assertIn("snare on steps 5, 13", text)
+
+    def test_a_full_row_and_a_half_row_say_it_like_a_musician(self):
+        text = compile_pattern_text(self.pattern(hihat=list(range(1, 17)),
+                                                clap=list(range(1, 17, 2))))
+        self.assertIn("hihat on every step", text)
+        self.assertIn("clap on every other step", text)
+
+    def test_an_empty_pattern_adds_nothing(self):
+        self.assertEqual(compile_pattern_text(SequencePattern()), "")
+        self.assertEqual(compile_pattern_text(None), "")
+        self.assertEqual(step_caption("four on the floor", None), "four on the floor")
+
+    def test_the_pattern_goes_before_the_caption_of_the_step(self):
+        caption = step_caption("four on the floor", self.pattern(kick=[1, 5]))
+        # El patrón manda en el ritmo y va delante del texto (spec/02 [R20.F]).
+        self.assertTrue(caption.startswith("Drums:"))
+        self.assertIn("kick on steps 1, 5", caption)
+        self.assertIn("four on the floor", caption)
+        self.assertLess(caption.index("Drums:"), caption.index("four on the floor"))
+
+    def test_only_the_kick_row_is_measured_and_the_hits_are_counted(self):
+        pattern = self.pattern(kick=[1, 5, 9])
+        # A 120 BPM una corchea dura 0,125 s: el paso 5 está en 0,5 s.
+        # La duración es obligatoria: sin ella no se cuentan los compases.
+        result = check_kick_pattern(pattern, [0.01, 0.51], 120.0, duration_seconds=2.0)
+        self.assertTrue(result["measured"])
+        self.assertEqual(result["marked"], 3)
+        self.assertEqual(result["hit"], [1, 5])
+        self.assertEqual(result["missed"], [9])
+        self.assertEqual(result["coverage"], round(2 / 3, 3))
+
+    def test_a_pattern_without_kick_or_without_tempo_is_not_measured(self):
+        self.assertFalse(check_kick_pattern(self.pattern(snare=[5]), [0.0], 120.0)["measured"])
+        self.assertFalse(check_kick_pattern(self.pattern(kick=[1]), [0.0], None)["measured"])
+        self.assertFalse(check_kick_pattern(None, [0.0], 120.0)["measured"])
+
+    def test_the_pattern_must_match_the_configured_limits(self):
+        step = SequenceStep(index=0, prompt="a", pattern=self.pattern(kick=[1]))
+        validate_steps([step], self.config)
+        with self.assertRaisesRegex(ValueError, "16"):
+            validate_steps([SequenceStep(index=0, prompt="a",
+                                         pattern={"kick": [True] * 8})], self.config)
+
+    def test_a_sequence_with_a_pattern_can_be_saved_as_json(self):
+        # El patrón son objetos de pydantic: si el plan o el trabajo no se
+        # guardan en JSON, el historial revienta al empezar el remix.
+        request = RemixProjectRequest(
+            source_name="original.wav", scope="sequence",
+            steps=[SequenceStep(index=0, prompt="a", pattern=SequencePattern(kick=[True] * 16))])
+        json.dumps(request.model_dump(mode="json"))
+        plan = sequence_timeline(60.0, 120.0, request.steps, self.config, 4)
+        json.dumps(plan)
 
 
 if __name__ == "__main__":

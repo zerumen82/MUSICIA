@@ -499,7 +499,7 @@
     },
     {
       "label": "Ã‰pico",
-      "text": "Ã©pico",
+      "text": "épico",
       "keys": [
         "epico",
         "epic",
@@ -517,8 +517,8 @@
       "clause": "an epic, euphoric emotional lift throughout"
     },
     {
-      "label": "MelancÃ³lico",
-      "text": "melancÃ³lico y nostÃ¡lgico",
+      "label": "Melancólico",
+      "text": "melancólico y nostálgico",
       "keys": [
         "melancolico",
         "melancholic",

@@ -681,7 +681,8 @@ def _kick_onsets(envelope: list[float], fps: float, min_gap_ms: float) -> np.nda
     if len(envelope) < KICK_SMOOTH_FRAMES + 3:
         return np.array([])
     flux = np.maximum(np.diff(envelope, prepend=envelope[0]), 0.0)
-    threshold = float(np.mean(flux) + KICK_ONSET_STD * np.std(flux))
+    onset_std = 1.0 if min_gap_ms < KICK_MIN_GAP_MS else KICK_ONSET_STD
+    threshold = float(np.mean(flux) + onset_std * np.std(flux))
     peaks: list[int] = []
     for index in range(2, len(flux) - 2):
         if flux[index] > threshold and flux[index] >= flux[index - 1] and flux[index] > flux[index + 1]:
@@ -715,6 +716,26 @@ def _kick_coverage_phase(onsets_s: np.ndarray, bpm: float, duration: float,
         if coverage > best[0]:
             best = (coverage, phase_ms / 1000.0, beats)
     return best
+
+
+def kick_onset_times(path: Path, *, min_gap_ms: float = KICK_MIN_GAP_MS) -> list[float]:
+    """Tiempos (segundos) de los golpes de la banda del bombo (40-120 Hz).
+
+    Es el mismo detector que usa `kick_coverage`, pero devuelve **dónde** suena
+    cada golpe: lo necesita la verificación de la rejilla de patrón
+    (spec/02 [R20.F]) para decir qué pasos marcados han caído donde se marcaron.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"No existe el audio: {path}")
+    with path.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=path.suffix.lstrip("."))
+    if len(audio) < 1000:
+        raise ValueError("Audio demasiado corto para medir los golpes del bombo")
+    mono = audio.set_channels(1).set_frame_rate(KICK_ANALYSIS_RATE).set_sample_width(2)
+    samples = np.array(mono.get_array_of_samples(), dtype=np.float64) / float(1 << 15)
+    envelope, fps = _kick_envelope(samples, KICK_ANALYSIS_RATE)
+    onsets = _kick_onsets(envelope, fps, min_gap_ms)
+    return [round(float(index) / fps, 4) for index in onsets]
 
 
 def kick_coverage(path: Path, *, bpm: float, tolerance_ms: float = KICK_TOLERANCE_MS,

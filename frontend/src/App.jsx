@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut, Loader2 } from 'lucide-react';
 import Composer from './components/Composer';
 import Library from './components/Library';
@@ -47,6 +47,10 @@ function App() {
     document.addEventListener('play', coordinatePlayback, true);
     return () => document.removeEventListener('play', coordinatePlayback, true);
   }, []);
+
+  // El número de versión sale del package.json (no hay copia escrita a mano):
+  // se ve en la barra superior y en el título de la ventana.
+  useEffect(() => { document.title = `Musicia ${__APP_VERSION__}`; }, []);
 
   useEffect(() => {
     activeJobRef.current = activeJob;
@@ -168,7 +172,7 @@ function App() {
         {/* SALIR apaga motor y API y cierra el proceso. No hay diálogo. */}
         <button
           onClick={() => {
-            // Única salida: apaga UI + API + motor. La X de la ventana no hace nada.
+            // Ãšnica salida: apaga UI + API + motor. La X de la ventana no hace nada.
             if (window.musica?.exit) window.musica.exit('stop-all');
           }}
           className="nav-item mt-4 hover:!text-red-300 hover:!border-[rgba(255,92,92,0.4)]"
@@ -251,6 +255,8 @@ function App() {
           </div>
           <div className="flex items-center gap-5">
             <span className="mono text-[10.5px] text-[var(--faint)] tracking-[0.12em]">100% LOCAL · SIN NUBE</span>
+            <span className="mono text-[10.5px] tracking-[0.12em] px-2 py-0.5 border border-[var(--line)] text-[var(--muted)]"
+              data-app-version title={'Versión ' + __APP_VERSION__}>v{__APP_VERSION__}</span>
             {engine.checked && (
               <span className={`mono text-[10.5px] tracking-[0.12em] px-2.5 py-1 border ${
                 engine.ok
@@ -279,3 +285,4 @@ function App() {
 }
 
 export default App;
+

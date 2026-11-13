@@ -6,6 +6,7 @@
  * intervalos) y valida lo mismo que se valida aquí, pero en español y antes
  * de enviar.
  */
+import { patternPayload } from './remix_pattern.js';
 
 /** Foco que rehace el tramo entero. Es el único que el motor ejecuta hoy. */
 export const SEQUENCE_FOCUS_TODO = 'todo';
@@ -19,17 +20,23 @@ export function defaultSequenceSteps(count) {
     enabled: false,
     focus: SEQUENCE_FOCUS_TODO,
     prompt: '',
+    patternEnabled: false,
   }));
 }
 
 /** La lista que viaja al backend: solo lo que el contrato acepta. */
 export function sequencePayloadSteps(steps) {
-  return (steps ?? []).map((step, position) => ({
-    index: Number.isInteger(Number(step?.index)) ? Number(step.index) : position,
-    enabled: Boolean(step?.enabled),
-    focus: String(step?.focus || SEQUENCE_FOCUS_TODO),
-    prompt: String(step?.prompt ?? ''),
-  }));
+  return (steps ?? []).map((step, position) => {
+    const pattern = step?.enabled && step?.patternEnabled === true ? patternPayload(step.pattern) : null;
+    return {
+      index: Number.isInteger(Number(step?.index)) ? Number(step.index) : position,
+      enabled: Boolean(step?.enabled),
+      focus: String(step?.focus || SEQUENCE_FOCUS_TODO),
+      prompt: String(step?.prompt ?? ''),
+      // Ocultar el editor no activa nada: solo viaja un patrón optado y con golpes.
+      ...(pattern ? { pattern } : {}),
+    };
+  });
 }
 
 /** Cuántos pasos van a llamar al motor. */
@@ -73,12 +80,14 @@ const STEP_STATUS = {
 export function sequenceStepStatus(job, index) {
   const steps = Array.isArray(job?.steps) ? job.steps : [];
   const found = steps.find((step) => Number(step?.index) === Number(index));
-  if (!found) return { status: 'idle', text: 'SIN EMPEZAR', warning: null };
+  if (!found) return { status: 'idle', text: 'SIN EMPEZAR', warning: null, check: null };
   const status = String(found.status ?? 'pending');
   return {
     status,
     text: STEP_STATUS[status] ?? STEP_STATUS.pending,
     warning: found.warning ? String(found.warning) : null,
+    // La verificación de la rejilla: qué golpes han caído donde se marcaron.
+    check: found.pattern_check ?? null,
   };
 }
 
@@ -104,7 +113,7 @@ export function sequencePreviewStep(preview, index) {
 
 /** Si algún paso falló al prepararse: el mensaje del preparador. */
 export function sequencePreparationError(steps, prepared) {
-  for (const step of sequencePayloadSteps(steps)) {
+  for (const step of sequencePayloadSteps(steps).filter((item) => item.enabled)) {
     const status = prepared?.[step.index];
     if (status?.error) return `El paso ${step.index + 1}: ${status.error}`;
   }
@@ -113,9 +122,21 @@ export function sequencePreparationError(steps, prepared) {
 
 /** Si algún paso con texto todavía se está preparando. */
 export function sequenceStepsPending(steps, prepared) {
-  return sequencePayloadSteps(steps).some((step) => {
+  return sequencePayloadSteps(steps).filter((item) => item.enabled).some((step) => {
     if (!step.prompt.trim()) return false;
     const status = prepared?.[step.index];
     return !(status?.ready && status?.effectivePrompt);
   });
+}
+
+/** Una respuesta solo puede describir la petición completa que la originó. */
+export function sequencePreviewState(key, answer) {
+  const current = key && answer?.key === key ? answer : null;
+  const result = current?.result ?? null;
+  return {
+    result,
+    error: current?.error ?? null,
+    ready: Boolean(key && result),
+    pending: Boolean(key && !current),
+  };
 }

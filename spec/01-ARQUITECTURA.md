@@ -39,6 +39,14 @@ La UI conserva por separado detalles propios, `main_style`, `influence_styles` e
 
 El resultado derivado no sobrescribe el campo del usuario ni vuelve a usarse como fuente de selecciones. La preparación se identifica por todas sus entradas; una respuesta anterior no habilita el envío actual. Crear, Remix y campos de grupo consumen ese mismo contrato. El texto efectivo se traduce por el preparador existente de preview/generación, conservando su igualdad; los parámetros de tempo, tono y compás siguen separados. Las peticiones antiguas sin selección conservan su contrato. B9b tiene cierre técnico del 21/10; las correcciones de herencia por papel y exclusiones se verificaron el 22/10 y la selección/glosario/prompt efectivo de UI volvió a verificarse el 26/10 (`logs/fix-review-20261026/ui-run-02/result.json`). Audio A/B válido no equivale a aprobación artística ni al cierre integral R9/R10; la escucha y el caso musical de negaciones por pistas siguen pendientes.
 
+### Secuencia y patrón opcional R20 (correcciones autorizadas 2026-11-12)
+
+`scope=sequence` aplica repaints por secciones en orden; cada resultado es la fuente del paso siguiente. El servidor reparte intervalos según el compás y el BPM revisable, declara el coste y conserva la traza por paso. El foco por pista y la subida de stems propios continúan con el alcance pendiente de spec/02/03.
+
+El patrón de batería es una opción por sección, oculta y desactivada inicialmente. La edición local, su activación y la visibilidad del editor son estados distintos: desactivarlo evita enviarlo; cerrar la edición no puede ocultar su estado activo. La traducción de detalles debe terminar antes de incorporar las instrucciones instrumentales configuradas. Un constructor común debe producir el mismo caption para preview y ejecución; la UI identifica la respuesta por sus entradas completas y no presenta un preview anterior como envío actual.
+
+La rejilla expresa intención al motor mediante texto, sin garantizar que reproduzca cada golpe. La verificación se hace sobre la salida final, repitiendo objetivos por todos los compases de cada sección y asignando cada ataque a un único objetivo. Solo se mide bombo; los demás instrumentos se identifican como intención no medida. La configuración concentra resolución, compás y tolerancias. Las correcciones R1–R9 quedan aplicadas (caption único para preview y ejecución, patrón que no pasa por el traductor, respuesta identificada por sus entradas completas y medición sobre el archivo publicado con `measurement_stage=final_output`); falta la generación real con patrón y la escucha del usuario.
+
 ### Motor ACE-Step (vendor externo)
 
 - `POST /release_task` → tarea aceptada; respuesta envuelta en `{data, code, error}`.

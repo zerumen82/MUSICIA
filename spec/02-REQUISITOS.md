@@ -1027,7 +1027,7 @@ El usuario ha elegido explícitamente **un estilo principal y los demás como ma
 5. Regresiones pertinentes, lint/build, API/UI reales y generación local con archivo/duración/parámetros verificables; fidelidad artística pendiente del oído del usuario. PASS del tester y APPROVE del reviewer independientes, archivos completos y bitácora antes de cierre.
 6. Sin instalaciones, cambio de perfil SFT, separación/BPM/mezcla/continuación ni alteración del alcance T9–T12. Cobertura del resto de etiquetas sin ficha declarada en spec/03, sin promesa de 178.572 definiciones.
 
-## [R20] Secuencia visual de pasos, stems propios y origen del material declarado - propuesto 2026-11-12, pendiente de aprobación
+## [R20] Secuencia visual de pasos, stems propios y origen del material declarado — alcance aprobado; implementación parcial
 
 **Petición del usuario (2026-11-12):** «quiero que la secuencia sea visual, como con botones, y lo de remix ¿se ajusta a la definición?», con la definición industrial de remix (stems independientes, reestructurar, añadir ritmos, cambiar género, colaboraciones) y la de bootleg (grabación o remix sin autorización del artista o su editorial). Pregunta además por el encaje del bootleg en el producto.
 
@@ -1058,7 +1058,7 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 2. Los tramos se reparten en **compases completos** según el tempo (el medido, o el BPM original revisado a mano). Nunca cortan un golpe por la mitad. **Si no hay un tempo fiable la secuencia se rechaza con un aviso**: no se reparte a ciegas, porque un corte a mitad de golpe destroza el groove.
 3. Cada paso activo ejecuta **una llamada real al motor** (`repaint` sobre su intervalo, con el caption de ese paso), aplicada sobre el audio del paso anterior. El progreso se muestra por paso y se puede **parar tras el paso N conservando lo ya generado**; la ficha marca que quedó a medias.
 4. El foco por pista (`BATERÍA`, `BAJO`, `VOZ`, `ACOMPAÑAMIENTO`) regenera **solo esa pista de ese tramo**. **Pendiente: no está implementado.** Hoy cada paso rehace el tramo entero (`todo`) y el backend rechaza los demás focos con un error explícito. La entrega queda en [R20.D].
-5. El texto de cada paso pasa por el mismo preparador común (glosario B9c, exclusiones y matices) y el caption efectivo de cada paso es visible antes de enviar. El preview pide el reparto con el texto escrito (el reparto no depende del texto) y el envío manda el texto preparado.
+5. El texto de cada paso pasa por el mismo preparador común (glosario B9c, exclusiones y matices) y el caption efectivo de cada paso es visible antes de enviar: es **el del servidor**, y solo cuando la respuesta corresponde a las entradas actuales (texto preparado, patrón y estilo común). El preview y el envío mandan el **mismo** texto preparado, así que el caption que se ve es el que viaja al motor; el reparto en compases no depende del texto.
 6. La duración final coincide con la del original: la secuencia **conserva la duración** y **no cambia el tempo**. Los campos que no apliquen (`bpm`, `duration_seconds`, `repeat_start/end`, `transition_seconds`, `groups`, `batch_size` distinto de 1) se **rechazan con un error**, no se ignoran en silencio.
 7. Coste declarado en la UI: N pasos = N generaciones en GPU (medido: 2 pasos de una canción de 20 s, 72,41 s en total; el primer paso ~52 s y el segundo ~12 s). No se promete resultado rápido.
 8. Regresiones backend/frontend, lint/build, API/UI reales y al menos **una** generación real con audio de varios pasos verificable (archivo, duración, ffprobe, parámetros por paso en el recibo). Fidelidad musical y costuras: pendientes de la escucha del usuario. PASS del tester y APPROVE del reviewer sobre los archivos completos.
@@ -1073,6 +1073,25 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 2. El backend acepta los focos implementados y **rechaza los demás** con un error explícito (esto ya se cumple hoy).
 3. La UI solo ofrece los focos ejecutables y declara los pendientes (esto ya se cumple hoy).
 4. Verificación: audio real con la batería cambiada y el resto conservado, más la escucha del usuario.
+
+### [R20.F] Rejilla de patrón por sección (Roland), traducción al modelo y verificación del bombo
+
+**Como** usuario, **quiero** marcar la intención rítmica de la batería en una rejilla opcional de 16 pasos dentro de cada sección de mi secuencia y comprobar después si el modelo respetó lo que marqué. La rejilla se envía como texto; no constituye un condicionamiento temporal que garantice obediencia del motor.
+
+**Por qué**: un secuenciador de patrón y una secuencia de secciones son dos cosas distintas y se complementan. La **sección** expresa lo que debe pasar (intro, subida, drop); el **patrón** expresa los golpes pedidos en cada compás. El modelo recibe esa intención junto con el estilo y puede incumplirla; la medición debe declarar qué ocurrió, sin fabricar aciertos.
+
+**Correcciones autorizadas por el usuario, 2026-11-12:** «arregla lo que debas», secuenciador oculto y opcional, revisión de usabilidad real y bitácora antes de agotar contexto. Se corrigen los hallazgos R1–R9 de `logs/state-review-20261112/reviewer.md` dentro de R20.F, conservando los cambios anteriores. El patrón comienza oculto y desactivado; solo se envía cuando el usuario lo activa. Desactivarlo conserva la edición local para poder recuperarla, pero omite el patrón de la petición. La secuencia de secciones sigue limitada a la acción Secuencia. Cerrar únicamente el editor visual se distingue de desactivar un patrón y su estado activo debe quedar visible.
+
+**Criterios de aceptación:**
+
+1. Cada sección puede llevar un patrón opcional: **16 pasos × 4 instrumentos** (bombo, caja, charles, platillo). En 4/4 son 16 semicorcheas. Los nombres enviados mantienen la identidad de los instrumentos; los registros anteriores de `clap` significan palmas y no se reinterpretan como platillos. La intención se repite en cada compás de la sección; sin patrón no se añade texto rítmico derivado.
+2. La app **traduce el patrón a texto en inglés** y lo antepone al caption de esa sección: por ejemplo `Drums: kick on steps 1, 5, 9 and 13; snare on steps 5 and 13.` El texto exacto se ve **antes de enviar**. El patrón **no pasa por el traductor**: conserva la identidad de los instrumentos («hihat» no se convierte en «whistle»). El preview y la ejecución usan el **mismo** constructor de caption: lo que se ve es lo que viaja al motor.
+3. El patrón es la fuente de la intención rítmica de la rejilla: se identifica su unidad y repetición y se expresa su prioridad. Se conserva el texto propio; se informa de que instrucciones contradictorias pueden afectar al resultado. No se promete que el modelo obedezca posiciones por recibir prosa. Una rejilla vacía o desactivada no añade instrucciones rítmicas derivadas.
+4. Después de generar, se mide el bombo sobre la **salida final** (la que se publica, con `measurement_stage=final_output`; el intermedio de un paso no se presenta como prueba final) y se comprueban todos los compases del tramo, incluido el último incompleto. Cada ataque solo puede satisfacer un objetivo; la tolerancia no permite ventanas ambiguas y el detector admite la resolución de la rejilla. Duración, compás, rejilla y tolerancias proceden de configuración/metadatos. Cada sección muestra los aciertos frente al total de golpes esperados y conserva detalle por compás, errores y golpes extra; si no puede medirse se declara sin éxito falso. Un paso que no llegó a rehacerse se declara sin medir: conserva el material original.
+5. La verificación cubre **solo la fila del bombo**: es el único detector de percusión que hay y no se inventa uno para las demás filas. Las filas de caja, charles y platillo son **intención declarada, no medida**, y la UI lo dice.
+6. La rejilla **no suena** por sí sola: el `Sequencer.jsx` viejo (con samples de `tonejs.github.io`) sigue retirado; la audición es la del modelo (deuda T2 sin cambios).
+7. Sin instalaciones, sin cambiar el perfil SFT, sin red. Los límites (16 pasos, 4 instrumentos) salen de `config.py`.
+8. Verificación: pruebas unitarias del traductor y del comparador, regresiones backend/frontend, lint/build, y **una generación real con patrón** con el resultado de la verificación medido en la salida. Si el modelo no respeta la posición de los golpes, eso se dice: la rejilla documenta la intención y la mide, no promete obediencia.
 
 ### [R20.B] Trae tus stems — el material real
 

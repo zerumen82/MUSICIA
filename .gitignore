@@ -37,5 +37,9 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Backup local del catálogo (regenerable con regenerate_catalog.py)
+# Backup local del catï¿½logo (regenerable con regenerate_catalog.py)
 backend/style_catalog_backup.json
+
+# Atributos del lanzador: los genera scripts/build_launcher.ps1 con la versiÃ³n
+# del package.json (no se editan a mano).
+scripts/launcher/AssemblyInfo.cs

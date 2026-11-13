@@ -208,6 +208,30 @@ class RemixSettings:
     sequence_default_steps: int = 8
     sequence_max_steps: int = 16
     sequence_min_bars_per_step: int = 1
+    # Rejilla R20.F: subdivisiones iguales de un compás; en 4/4, 16 semicorcheas.
+    pattern_steps: int = 16
+    pattern_instruments: list[str] = field(default_factory=lambda: ["kick", "snare", "hihat", "cymbal"])
+    # Los registros anteriores de clap siguen significando palmas.
+    pattern_legacy_instruments: list[str] = field(default_factory=lambda: ["clap"])
+    pattern_labels: dict[str, str] = field(default_factory=lambda: {
+        "kick": "BOMBO", "snare": "CAJA", "hihat": "CHARLES", "cymbal": "PLATILLO", "clap": "PALMAS"})
+    pattern_caption_labels: dict[str, str] = field(default_factory=lambda: {
+        "kick": "kick", "snare": "snare", "hihat": "hihat", "cymbal": "cymbal", "clap": "clap"})
+    pattern_beat_unit: int = 4
+    pattern_header_template: str = ("Drums: {steps} equal subdivisions per {beats_per_bar}/{beat_unit} bar; "
+        "repeat this grid in every bar of this section. Prioritize this grid for drum timing; "
+        "conflicting rhythm instructions in the retained details may affect the result. {rows}.")
+    pattern_all_template: str = "{instrument} on every step"
+    pattern_alternate_template: str = "{instrument} on every other step"
+    pattern_positions_template: str = "{instrument} on steps {positions}"
+    pattern_row_separator: str = "; "
+    pattern_position_separator: str = ", "
+    pattern_detail_separator: str = "\n"
+    pattern_tolerance_ms: float = 80.0
+    # Ventanas disjuntas: ninguna puede alcanzar media subdivisión.
+    pattern_tolerance_step_fraction: float = 0.45
+    pattern_onset_gap_step_fraction: float = 0.5
+    pattern_min_measurement_seconds: float = 1.0
     cover_noise_strength: float = 0.0
     repaint_mode: str = "balanced"
     repaint_strength: float = 0.5

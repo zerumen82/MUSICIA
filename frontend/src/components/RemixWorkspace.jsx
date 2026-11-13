@@ -7,7 +7,8 @@ import useStylePrompt, { usePreparedStylePrompts } from '../useStylePrompt';
 import { applyTrackAction, effectiveTrackSelection, emptyStyleSelection, emptyTouchedRoles, stylePromptRequest } from '../style_prompt';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
 import { measuredRemixBpm, remixGroupsNeedStyle, remixMinimumDurationLabel, remixNaturalDuration, remixTimelineFields, repeatBoundsFromWave } from '../remix_timeline';
-import { defaultSequenceSteps, sequencePayloadSteps, sequencePreparationError, sequenceStepsPending, sequenceValidation } from '../remix_sequence';
+import { defaultSequenceSteps, sequencePayloadSteps, sequencePreparationError, sequencePreviewState, sequenceStepsPending, sequenceValidation } from '../remix_sequence';
+import { patternPayload } from '../remix_pattern';
 import { MATERIAL_ENTRY_NOTE, materialOriginLabel } from '../remix_material';
 import RemixPanel from './RemixPanel';
 import Waveform from './Waveform';
@@ -313,24 +314,39 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   }, [advanced, fileName, sourceKind]);
 
   // La secuencia pide al servidor la división de la canción: los tramos y si
-  // caen en compases completos los calcula él (spec/02 [R20.A]). Solo se
-  // vuelve a pedir cuando cambia la forma de la secuencia, no al escribir.
-  const sequencePreviewKey = useMemo(() => JSON.stringify({
+  // caen en compases completos los calcula él (spec/02 [R20.A]). La clave
+  // identifica la respuesta por TODAS las entradas efectivas: el reparto
+  // (pasos y BPM) y el caption (texto preparado, patrón y estilo común).
+  // Así una respuesta anterior no se enseña como si fuera la actual
+  // (logs/state-review-20261112/reviewer.md, R1).
+  const sequenceRepartitionKey = useMemo(() => JSON.stringify({
     steps: sequenceSteps.map((step) => ({
-      index: step.index, enabled: step.enabled, focus: step.focus, hasText: Boolean((step.prompt ?? '').trim()),
+      index: step.index, enabled: step.enabled, focus: step.focus,
     })),
     sourceBpm: sourceBpm || '',
   }), [sequenceSteps, sourceBpm]);
+  const sequenceCaptionKey = useMemo(() => JSON.stringify({
+    repartition: sequenceRepartitionKey,
+    style: prepared.effectivePrompt || '',
+    steps: sequenceSteps.map((step) => ({
+      index: step.index,
+      // El texto PREPARADO es el que se envía: mientras se prepara no hay
+      // caption que enseñar (vacío ≠ el texto que se está escribiendo).
+      text: sequenceSentTexts[step.index] ?? '',
+      pattern: step.enabled && step.patternEnabled === true ? patternPayload(step.pattern) : null,
+    })),
+  }), [sequenceRepartitionKey, prepared.effectivePrompt, sequenceSteps, sequenceSentTexts]);
   const sequencePreviewRequest = useMemo(() => ({
     source_name: fileName, source_kind: sourceKind, scope: 'sequence',
-    // El preview solo reparte la canción en tramos: para eso el texto da igual.
-    // Se manda el texto escrito, no el preparado, para que el reparto se pueda
-    // pedir mientras el usuario escribe y no dependa del traductor.
-    steps: sequencePayloadSteps(sequenceSteps.map((step) => ({ ...step, prompt: step.prompt ?? '' }))),
+    // Viaja el texto PREPARADO, el mismo que se envía: el caption que
+    // devuelve el servidor es entonces el que recibirá el motor.
+    steps: sequencePayloadSteps(sequenceSteps.map((step) => ({
+      ...step, prompt: sequenceSentTexts[step.index] ?? step.prompt ?? '',
+    }))),
     // Solo viaja el BPM **revisado a mano**: si el valor viene de la medición
     // automática lo mide el servidor, y así la ficha declara bien su origen.
     ...(sourceBpm !== '' && sourceBpmOrigin === 'manual' ? { source_bpm: Number(sourceBpm) } : {}),
-  }), [fileName, sourceKind, sequenceSteps, sourceBpm, sourceBpmOrigin]);
+  }), [fileName, sourceKind, sequenceSteps, sequenceSentTexts, sourceBpm, sourceBpmOrigin]);
   const latestSequenceRequest = useRef(null);
   useEffect(() => { latestSequenceRequest.current = sequencePreviewRequest; }, [sequencePreviewRequest]);
   useEffect(() => {
@@ -344,7 +360,10 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       while (active) {
         try {
           const result = await api.remixPreview(request);
-          if (active) { setSequencePreview(result); setSequencePreviewError(null); }
+          if (active) {
+            setSequencePreview({ key: sequenceCaptionKey, repartitionKey: sequenceRepartitionKey, result });
+            setSequencePreviewError(null);
+          }
           return;
         } catch (err) {
           if (!active) return;
@@ -354,7 +373,15 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       }
     }, PROMPT_PREVIEW_DEBOUNCE_MS);
     return () => { active = false; clearTimeout(timer); };
-  }, [scope, capabilities, sequencePreviewKey]);
+  }, [scope, capabilities, sequenceCaptionKey, sequenceRepartitionKey]);
+  // La respuesta solo describe la petición que la originó: si cambiaron el
+  // texto, el patrón o el estilo común, el caption anterior no se enseña.
+  const sequencePreviewAnswer = sequencePreviewState(sequenceCaptionKey, sequencePreview);
+  // Mientras el texto de un paso se prepara no hay caption que enseñar: el
+  // que se pintaría no sería el que se envía.
+  const sequenceCaptionReady = sequenceSteps
+    .filter((step) => step.enabled)
+    .every((step) => sequenceSentTexts[step.index] != null);
 
   const onRange = useCallback((selection) => setRegion({ start: selection.trim_start_s ?? 0, end: selection.trim_end_s }), []);
   const onRepeatRange = useCallback((selection) => {
@@ -629,7 +656,9 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />}
     {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">
       <RemixSequence steps={sequenceSteps} onSteps={setSequenceSteps} capabilities={capabilities}
-        preview={sequencePreview} prepared={preparedSequenceByIndex} sent={sequenceSentTexts} job={job} busy={busy} />
+        preview={sequencePreview?.repartitionKey === sequenceRepartitionKey ? sequencePreview.result : null}
+        previewReady={sequencePreviewAnswer.ready && sequenceCaptionReady} previewPending={sequencePreviewAnswer.pending}
+        prepared={preparedSequenceByIndex} sent={sequenceSentTexts} job={job} busy={busy} />
       {sequencePreviewError && <p role="alert" className="mono text-[11px] st-err">No se pudo calcular la división de la canción: {sequencePreviewError}</p>}
       {sequencePreparationNote && <p role="alert" className="mono text-[11px] st-err">{sequencePreparationNote}</p>}
       {sequencePending && <p role="status" className="mono text-[10px] text-[var(--muted)]">PREPARANDO LOS TEXTOS DE LOS PASOS…</p>}

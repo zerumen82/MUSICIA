@@ -8,10 +8,11 @@
  */
 
 export const MATERIAL_ORIGIN_MIX = 'separado_de_mezcla';
+/** Material propio del usuario: stems que subió (spec/02 [R20.B]). */
 export const MATERIAL_ORIGIN_STEMS = 'stems_del_usuario';
 
 /** La línea de la entrada de REMIX: qué pasa con el material, sin jerga. */
-export const MATERIAL_ENTRY_NOTE = 'El material sale de separar la mezcla que subes: es un bootleg. Con stems propios sería un remix con material real.';
+export const MATERIAL_ENTRY_NOTE = 'Sin stems propios el material sale de separar una canción terminada: eso es un bootleg, no un remix con material real. El patrón de batería marca la intención rítmica y el modelo crea a partir de ella.';
 
 /** La frase legible del origen que registró la ficha de la salida. */
 export function materialOriginLabel(origin) {

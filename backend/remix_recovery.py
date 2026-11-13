@@ -75,7 +75,7 @@ def require_unpublished(job: dict) -> None:
 
 
 def batch_context(job, source, reference, request, duration, settings) -> dict:
-    if request.model_dump() != job.get("project"):
+    if request.model_dump(mode="json") != job.get("project"):
         raise ValueError("La petición no coincide con el proyecto guardado")
     digest = file_digest(source)
     if digest != job.get("source_digest") or digest != job.get("operations", {}).get("source_digest"):
@@ -85,7 +85,7 @@ def batch_context(job, source, reference, request, duration, settings) -> dict:
         raise ValueError("Faltan la tarea o los parámetros reales del motor")
     return {
         "job_id": job["job_id"], "engine_task_id": job["engine_task_id"],
-        "project": request.model_dump(), "source_digest": digest,
+        "project": request.model_dump(mode="json"), "source_digest": digest,
         "reference_digest": file_digest(reference) if reference else None,
         "source_duration_seconds": duration,
         "timeline": job["operations"]["timeline"],
