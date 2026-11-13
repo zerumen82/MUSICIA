@@ -4,6 +4,7 @@ from __future__ import annotations
 import array
 import ast
 import asyncio
+import math
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -14,7 +15,7 @@ import wave
 from loguru import logger
 
 from config import AppSettings
-from mixer_service import MixerService
+from mixer_service import TARGET_LUFS, MixerService
 from remix_project import screen_continuation_chunk
 from test_kick_coverage import _write_signal
 
@@ -107,6 +108,47 @@ class PreservedLyricsContractTest(unittest.TestCase):
         for section in ("verso", "estribillo", "puente"):
             self.assertNotIn(section, result["warning"].lower())
         self.assertIn("conserv", result["warning"].lower())
+
+
+class RemixMasterLoudnessTest(unittest.TestCase):
+    """[R20.L] La exportación de remix lleva master real, no solo pico."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="musicia-remix-master-")
+        self.addCleanup(self.temporary.cleanup)
+        self.work = Path(self.temporary.name)
+        self.config = AppSettings().remix
+
+    def _sine(self, path: Path, dbfs: float, seconds: float = 8.0) -> None:
+        amplitude = round((10 ** (dbfs / 20)) * 32767)
+        rate = self.config.sample_rate
+        mono = array.array(
+            "h",
+            (round(amplitude * math.sin(2 * math.pi * 220 * index / rate))
+             for index in range(round(rate * seconds))),
+        )
+        stereo = array.array("h", (value for sample in mono for value in (sample, sample)))
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(stereo.tobytes())
+
+    def test_weak_and_loud_sources_reach_the_streaming_master(self):
+        # Dos niveles muy distintos: el master no puede depender de cómo
+        # llegue el intermedio (antes, el débil se entregaba 19 dB bajo).
+        for dbfs in (-30.0, -6.0):
+            with self.subTest(source_dbfs=dbfs):
+                source = self.work / f"fuente-{abs(int(dbfs))}.wav"
+                self._sine(source, dbfs)
+                output = self.work / f"salida-{abs(int(dbfs))}.mp3"
+                result = MixerService.export_remix(source, output, self.config)
+                self.assertGreater(output.stat().st_size, 0)
+                self.assertAlmostEqual(result["loudness"]["input_i"], TARGET_LUFS, delta=1.0)
+                self.assertLessEqual(
+                    result["loudness"]["input_tp"], self.config.peak_limit_dbfs + 0.1)
+                self.assertEqual(result["target_lufs"], TARGET_LUFS)
+                self.assertNotEqual(result["normalization"], "peak attenuation only")
 
 
 if __name__ == "__main__":

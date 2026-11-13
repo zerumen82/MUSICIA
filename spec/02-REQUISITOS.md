@@ -1097,6 +1097,20 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 7. Sin instalaciones, sin cambiar el perfil SFT, sin red. Los límites (16 pasos, 4 instrumentos) salen de `config.py`.
 8. Verificación: pruebas unitarias del traductor y del comparador, regresiones backend/frontend, lint/build, y **una generación real con patrón** con el resultado de la verificación medido en la salida. Si el modelo no respeta la posición de los golpes, eso se dice: la rejilla documenta la intención y la mide, no promete obediencia.
 
+### [R20.L] Master de −14 LUFS en toda exportación de remix — corrección autorizada 2026-11-13
+
+**Como** usuario, **quiero** que cualquier remix (completo, por región, por grupos o por secuencia) salga al mismo nivel de master que una mezcla, **para** no tener que subir el volumen a mano ni publicar una pista floja.
+
+**Contexto:** `MixerService.export_remix` solo atenuaba el pico (`normalization: "peak attenuation only"`); las salidas nuevas medidas dieron −20,73 / −18,60 / −19,49 LUFS. Es deuda heredada (R20.L), no una regresión de R20: afecta igual a `full`, `region`, `groups` y `sequence`.
+
+**Criterios de aceptación:**
+
+1. `export_remix` aplica `loudnorm` a −14 LUFS (`TARGET_LUFS`) en dos pasadas con las medidas reales del PCM intermedio, y exporta el MP3 con el bitrate y la frecuencia de la configuración de remix.
+2. El true peak final no supera `peak_limit_dbfs`. Si la codificación perceptual lo supera, se re-exporta desde el PCM con el master atenuado; nunca se recomprime el MP3.
+3. La ficha declara la normalización real (`normalization`, `target_lufs`, `target_true_peak_dbtp`) y deja de decir «peak attenuation only».
+4. Aplica a todos los ámbitos que publican con `export_remix` (`full`, `region`, `groups`, `sequence`) sin cambiar duración, tempo ni contenido.
+5. Regresión con ffmpeg real: una fuente débil y una fuerte llegan a −14 LUFS (±1 LU) y con el pico dentro del límite. La escucha artística la hace el usuario.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.

@@ -968,29 +968,41 @@ class MixerService:
 
     @staticmethod
     def export_remix(source: Path, output: Path, settings) -> dict:
-        """Una exportación MP3; atenuación global solo si excede el límite real."""
+        """Master de la exportación de remix a -14 LUFS, sin pasarse del pico.
+
+        Dos pasadas sobre el PCM intermedio: `loudnorm` necesita las medidas
+        reales de la fuente para aplicar ganancia lineal sin bombear el nivel.
+        La codificación perceptual puede subir el true peak; en ese caso se
+        vuelve a exportar desde el PCM con el master atenuado, nunca
+        recomprimiendo el MP3.
+        """
         measured = measure_loudness(source)
         peak = measured.get("input_tp")
         if peak is None or math.isnan(float(peak)):
             raise RuntimeError("No se pudo medir el pico del intermedio de remix")
-        gain = min(0.0, settings.peak_limit_dbfs - peak) if math.isfinite(peak) else 0.0
-        run_ffmpeg(["-i", str(source), "-af", f"volume={gain}dB",
+        master = f"loudnorm={_loudnorm_args(measured, True)}"
+        run_ffmpeg(["-i", str(source), "-af", master,
                     "-c:a", "libmp3lame", "-b:a", settings.export_bitrate,
                     "-ar", str(settings.sample_rate), "-f", "mp3", str(output)], output)
         final = measure_loudness(output)
         if not final or not math.isfinite(final.get("input_tp", float("nan"))):
             output.unlink(missing_ok=True)
             raise RuntimeError("La exportación está vacía o no tiene medidas válidas")
-        # La codificación perceptual puede introducir sobremuestreo; se vuelve
-        # a exportar siempre desde el PCM, nunca recomprimiendo el MP3.
+        gain = 0.0
         if final["input_tp"] > settings.peak_limit_dbfs:
-            gain -= final["input_tp"] - settings.peak_limit_dbfs
-            run_ffmpeg(["-i", str(source), "-af", f"volume={gain}dB",
+            gain = round(settings.peak_limit_dbfs - final["input_tp"], 4)
+            run_ffmpeg(["-i", str(source), "-af", f"{master},volume={gain}dB",
                         "-c:a", "libmp3lame", "-b:a", settings.export_bitrate,
                         "-ar", str(settings.sample_rate), "-f", "mp3", str(output)], output)
             final = measure_loudness(output)
-        return {"loudness": final, "global_gain_db": round(gain, 4),
-                "normalization": "peak attenuation only", "input_loudness": measured}
+            if not final or not math.isfinite(final.get("input_tp", float("nan"))):
+                output.unlink(missing_ok=True)
+                raise RuntimeError("La exportación atenuada está vacía o no tiene medidas válidas")
+        return {"loudness": final, "global_gain_db": gain,
+                "normalization": f"loudnorm {TARGET_LUFS:g} LUFS",
+                "target_lufs": TARGET_LUFS,
+                "target_true_peak_dbtp": TARGET_TP,
+                "input_loudness": measured}
 
     @staticmethod
     def mix_tracks(
