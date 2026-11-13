@@ -794,7 +794,10 @@ def screen_continuation_chunk(audio: Path, span: dict, bpm: float, config, work:
     frames = len(samples) // channels
     inicio = min(max(0, round(float(span["start"]) * rate)), frames)
     fin = min(frames, round(float(span["end"]) * rate))
-    if (fin - inicio) / channels / rate < config.continuation_min_seconds:
+    # Duración en frames / sample_rate, una sola vez: igual para mono y
+    # estéreo (fin e inicio ya son marcos por canal). Antes se dividía por
+    # channels también y una región estéreo de 6 s leía como 3 s.
+    if (fin - inicio) / rate < config.continuation_min_seconds:
         return "demasiado corto para medir su pulso"
     region = samples[inicio * channels:fin * channels]
     ruta = work / f"{stem}-pulso.wav"

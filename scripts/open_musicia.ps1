@@ -43,25 +43,27 @@ $electronExe = Join-Path $raiz 'frontend\node_modules\electron\dist\electron.exe
 if (-not (Test-Path $electronExe)) {
     throw "No existe electron.exe: $electronExe (ejecuta 'npm install' en frontend)"
 }
-Start-Process -FilePath $electronExe `
+$electronProc = Start-Process -FilePath $electronExe `
     -ArgumentList (Join-Path $raiz 'frontend') `
-    -WorkingDirectory (Join-Path $raiz 'frontend') | Out-Null
-Write-Host "Musicia abierta. Usa SALIR para apagar la ventana y sus servicios."
+    -WorkingDirectory (Join-Path $raiz 'frontend') -PassThru
+Write-Host "Musicia abierta (Electron PID $($electronProc.Id)). Usa SALIR para apagar la ventana y sus servicios."
 
-# 3. Esperar a que el usuario cierre Electron.
-#    Electron lanza varios procesos (main + renderer). Damos tiempo de arranque
-#    y luego monitoreamos cualquier proceso electron.exe. Cuando ya no quede
-#    ninguno, se entiende que el usuario cerro la ventana.
+# 3. Esperar a que el usuario cierre la ventana de Musicia.
+#    Se espera SOLO al proceso de Electron que lanzó este lanzador (y sus
+#    hijos directos): si queda otra aplicación Electron abierta (VS Code,
+#    Discord...), SALIR de Musicia sigue terminando y apagando los servicios.
+#    Fallos de consulta o identidad ambigua no autorizan parar nada ajeno.
 Start-Sleep -Seconds 5
 Write-Host "[app] esperando a que cierres la ventana de Musicia..."
 try {
     while ($true) {
-        $electronProcs = @(Get-CimInstance Win32_Process -Filter "Name = 'electron.exe'" -ErrorAction SilentlyContinue)
-        if ($electronProcs.Count -eq 0) { break }
+        $propio = Get-CimInstance Win32_Process -Filter "ProcessId = $($electronProc.Id)" -ErrorAction SilentlyContinue
+        $hijos = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($electronProc.Id)" -ErrorAction SilentlyContinue)
+        if (-not $propio -and $hijos.Count -eq 0) { break }
         Start-Sleep -Seconds 2
     }
 } catch {
-    # Interrumpido por el usuario o consola cerrada
+    # Interrumpido por el usuario o consola cerrada: no se toca ningún proceso ajeno.
 }
 
 # 4. Apagar motor y API al salir

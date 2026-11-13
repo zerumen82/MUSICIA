@@ -57,3 +57,12 @@ export function findGenre(idOrName) {
     (g) => g.id.toLowerCase() === needle || g.label.toLowerCase() === needle || g.genre.toLowerCase() === needle
   ) ?? null;
 }
+
+function isSimpleGenreEntry(genre) {
+  return typeof genre === 'string' && !genre.includes(',') && !genre.includes('–') && !genre.includes('-');
+}
+
+export const SIMPLE_CATALOG_GENRES = CATALOG_GENRES.filter(g => isSimpleGenreEntry(g.genre));
+
+export const COMPLEX_CATALOG_GENRES = CATALOG_GENRES.filter(g => !isSimpleGenreEntry(g.genre));
+

@@ -80,6 +80,24 @@ from remix_project import RemixProjectRuntime
 from source_understanding import active_analysis, register_source_understanding
 
 settings = get_settings()
+
+# Las rutas DSP de escritura (mezcla, tempo, crossfade, remix, proceso) hacen
+# ffmpeg/pydub sincrono: se ejecutan fuera del bucle de la API con
+# asyncio.to_thread para que el sondeo HTTP concurrente siga respondiendo.
+# El candado por stem de salida serializa solo las peticiones que comparten el
+# nombre: salidas y fichas distintas, sin pisar material existente y sin dejar
+# reservas definitivas tras errores (no se crea fichero hasta el DSP real).
+_dsp_write_locks: dict[str, asyncio.Lock] = {}
+_dsp_write_locks_guard = asyncio.Lock()
+
+
+async def _dsp_write_lock(stem: str) -> asyncio.Lock:
+    async with _dsp_write_locks_guard:
+        lock = _dsp_write_locks.get(stem)
+        if lock is None:
+            lock = asyncio.Lock()
+            _dsp_write_locks[stem] = lock
+        return lock
 music = MusicService(settings)
 
 
@@ -878,8 +896,7 @@ async def health() -> dict[str, Any]:
 
 @app.post("/audio/mix")
 async def mix_audio(request: MixRequest) -> dict[str, Any]:
-    stem = _safe_name(request.output_name, Path(settings.mixer.default_output_name).stem)
-    output_path = _unique_output_path(stem, ".mp3")
+    """Mezcla base + voz reales en outputs/ fuera del bucle de la API."""
     for label, gain in (
         ("base_volume", request.base_volume),
         ("vocal_volume", request.vocal_volume),
@@ -892,69 +909,81 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
                     f"{settings.mixer.max_gain_db} dB"
                 ),
             )
-    # Las pistas llegan por nombre; la UI dice de qué lista viene cada una.
-    def _resolve_track(name: str, kind: str | None) -> str:
-        return str(_find_audio(name, kind))
+    stem = _safe_name(request.output_name, Path(settings.mixer.default_output_name).stem)
+    async with await _dsp_write_lock(stem):
+        output_path = _unique_output_path(stem, ".mp3")
 
-    base_path = _resolve_track(request.base_track, request.base_kind)
-    vocal_path = _resolve_track(request.vocal_track, request.vocal_kind)
-    try:
-        arrangement = plan_vocal_arrangement(Path(base_path), Path(vocal_path), settings.mixer)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    try:
-        alignment = None
-        if arrangement:
-            info = MixerService.arrange_vocals(
-                base_path,
-                vocal_path,
-                str(output_path),
-                arrangement,
-                request.base_volume,
-                request.vocal_volume,
-                normalize_lufs=request.normalize_lufs,
-                fade_s=settings.mixer.vocal_slice_fade_s,
+        # Las pistas llegan por nombre; la UI dice de qué lista viene cada una.
+        def _resolve_track(name: str, kind: str | None) -> str:
+            return str(_find_audio(name, kind))
+
+        base_path = _resolve_track(request.base_track, request.base_kind)
+        vocal_path = _resolve_track(request.vocal_track, request.vocal_kind)
+        try:
+            arrangement = await asyncio.to_thread(
+                plan_vocal_arrangement, Path(base_path), Path(vocal_path), settings.mixer
             )
-        else:
-            if request.align:
-                alignment = _mix_alignment(
-                    request.base_track, request.vocal_track, request.base_kind, request.vocal_kind
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            alignment = None
+            if arrangement:
+                info = await asyncio.to_thread(
+                    MixerService.arrange_vocals,
+                    base_path,
+                    vocal_path,
+                    str(output_path),
+                    arrangement,
+                    request.base_volume,
+                    request.vocal_volume,
+                    normalize_lufs=request.normalize_lufs,
+                    fade_s=settings.mixer.vocal_slice_fade_s,
                 )
-            info = MixerService.mix_tracks(
-                base_path,
-                vocal_path,
-                str(output_path),
-                request.base_volume,
-                request.vocal_volume,
-                alignment=alignment,
-                normalize_lufs=request.normalize_lufs,
-            )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Mezcla falló: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    _carry_ficha(
-        Path(base_path),
-        output_path,
-        "mix",
-        source_name=f"{request.base_track} + {request.vocal_track}",
-    )
-    return {
-        "status": "success",
-        "file_path": str(output_path),
-        "file_name": output_path.name,
-        "alignment": info.get("applied", False),
-        "arranged": bool(arrangement),
-        "pieces": None if arrangement is None else arrangement["pieces"],
-        "loudness": info.get("loudness", {}),
-        "target_lufs": TARGET_LUFS,
-        "note": (
-            arrangement["explanation"] if arrangement else
-            None if alignment else
-            "No se aplicó cuadre: el tempo no era fiable o el ajuste era excesivo."
-        ),
-    }
+            else:
+                if request.align:
+                    alignment = await asyncio.to_thread(
+                        _mix_alignment,
+                        request.base_track,
+                        request.vocal_track,
+                        request.base_kind,
+                        request.vocal_kind,
+                    )
+                info = await asyncio.to_thread(
+                    MixerService.mix_tracks,
+                    base_path,
+                    vocal_path,
+                    str(output_path),
+                    request.base_volume,
+                    request.vocal_volume,
+                    alignment=alignment,
+                    normalize_lufs=request.normalize_lufs,
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Mezcla falló: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _carry_ficha(
+            Path(base_path),
+            output_path,
+            "mix",
+            source_name=f"{request.base_track} + {request.vocal_track}",
+        )
+        return {
+            "status": "success",
+            "file_path": str(output_path),
+            "file_name": output_path.name,
+            "alignment": info.get("applied", False),
+            "arranged": bool(arrangement),
+            "pieces": None if arrangement is None else arrangement["pieces"],
+            "loudness": info.get("loudness", {}),
+            "target_lufs": TARGET_LUFS,
+            "note": (
+                arrangement["explanation"] if arrangement else
+                None if alignment else
+                "No se aplicó cuadre: el tempo no era fiable o el ajuste era excesivo."
+            ),
+        }
 
 
 # El cover del motor oye el audio de origen: a fuerza alta la melodía se
@@ -1082,7 +1111,7 @@ async def audio_tempo(request: TempoRequest) -> dict[str, Any]:
     """Fuerza el tempo: a un BPM concreto, a medio tiempo o a doble tiempo."""
     source = _find_audio(request.file_name, request.source_kind)
     try:
-        current = detect_groove(source)
+        current = await asyncio.to_thread(detect_groove, source)
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1092,23 +1121,24 @@ async def audio_tempo(request: TempoRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     stem = request.output_name or _derive_stem(request.file_name, marker)
-    out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
-    try:
-        info = force_tempo(source, out, factor)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    _carry_ficha(source, out, "tempo")
+    async with await _dsp_write_lock(stem):
+        out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+        try:
+            info = await asyncio.to_thread(force_tempo, source, out, factor)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _carry_ficha(source, out, "tempo")
 
-    try:
-        after = detect_groove(out)
-    except ValueError:
-        after = None
-    return {
-        "status": "success",
-        "source_bpm": current["bpm"],
-        "result_bpm": after["bpm"] if after else None,
-        **info,
-    }
+        try:
+            after = await asyncio.to_thread(detect_groove, out)
+        except ValueError:
+            after = None
+        return {
+            "status": "success",
+            "source_bpm": current["bpm"],
+            "result_bpm": after["bpm"] if after else None,
+            **info,
+        }
 
 
 @app.post("/audio/loop")
@@ -1187,18 +1217,24 @@ async def audio_crossfade(request: CrossfadeRequest) -> dict[str, Any]:
         for i, name in enumerate(request.tracks)
     ]
     stem = request.output_name or f"crossfade-{len(sources)}"
-    out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
-    try:
-        info = crossfade(sources, out, request.fade_seconds)
-    except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    _carry_ficha(
-        sources[0],
-        out,
-        "crossfade",
-        source_name=" + ".join(path.name for path in sources),
-    )
-    return {"status": "success", "tracks_used": sources, "loudness": measure_loudness(out), **info}
+    async with await _dsp_write_lock(stem):
+        out = _unique_output_path(_safe_name(stem, DEFAULT_STEM), ".mp3")
+        try:
+            info = await asyncio.to_thread(crossfade, sources, out, request.fade_seconds)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _carry_ficha(
+            sources[0],
+            out,
+            "crossfade",
+            source_name=" + ".join(path.name for path in sources),
+        )
+        return {
+            "status": "success",
+            "tracks_used": sources,
+            "loudness": await asyncio.to_thread(measure_loudness, out),
+            **info,
+        }
 
 
 remix_jobs: dict[str, dict[str, Any]] = {}
@@ -2399,9 +2435,25 @@ def music_genre_glossary(q: str = "", limit: int = 50) -> dict[str, Any]:
 
     `genres_vocab.txt` es la whitelist con la que el motor restringe el campo
     genres: lo que no está ahí, el modelo no puede escribirlo. Es el glosario
-    de estilos y subestilos tal y como los entiende él, no una lista propia.
+    de estilos y subestilos tal y como los entiende él (vocabulario técnico
+    del modelo ACE-Step), no una lista propia ni curada de géneros 'entendidos'
+    según la documentación del modelo.
+
+    Metadatos añadidos:
+    - source: archivo de vocabulario del modelo.
+    - entry_count: número total de entradas en el vocabulario (178 571).
+    - purpose: propósito del vocabulario (whitelist de constrained logits para el
+      campo `genres` en el metadata estructurado del modelo).
+
+    Advertencia: el endpoint devuelve líneas literales del archivo del modelo;
+    no incluye géneros que el modelo 'entienda' según su guía de usuario, solo
+    lo que técnicamente puede emitir para el campo structured genres.
     """
-    return glossary_search(q, limit=limit)
+    result = glossary_search(q, limit=limit)
+    result["source"] = str(VOCAB_PATH)
+    result["entry_count"] = 178571
+    result["purpose"] = "Constrained logits whitelist for genres field metadata in ACE-Step"
+    return result
 
 
 @app.get("/music/genre_glossary/combine")
@@ -2531,11 +2583,57 @@ def audio_peaks(
     }
 
 
+def _render_remix_dsp(source: Path, output_path: Path, request: RemixRequest) -> float:
+    """Aplica recorte, reverse, pitch, tempo, fundidos y gain con pydub.
+
+    Devuelve la duración del MP3 resultante en segundos. Corre en un hilo
+    aparte para no bloquear el bucle de la API.
+    """
+    from pydub import AudioSegment
+
+    audio = AudioSegment.from_file(source)
+
+    start_ms = max(0, int(request.trim_start_s * 1000))
+    end_ms = len(audio) if request.trim_end_s is None else int(request.trim_end_s * 1000)
+    if start_ms >= len(audio) or end_ms <= start_ms:
+        raise ValueError("Recorte vacío: revisa inicio y fin")
+    audio = audio[max(0, start_ms):min(end_ms, len(audio))]
+
+    if request.reverse:
+        audio = audio.reverse()
+    if request.pitch_semitones != 0:
+        # Pitch por resample (efecto de velocidad de cinta; clásico en remix)
+        new_rate = int(audio.frame_rate * (2.0 ** (request.pitch_semitones / 12.0)))
+        audio = audio._spawn(
+            audio.raw_data,
+            overrides={"frame_rate": new_rate},
+        ).set_frame_rate(44100)
+    if request.tempo != 1.0:
+        # Tempo = cambiar velocidad de reproducción (compone con el pitch aquí)
+        new_rate = int(audio.frame_rate * request.tempo)
+        audio = audio._spawn(
+            audio.raw_data,
+            overrides={"frame_rate": new_rate},
+        ).set_frame_rate(44100)
+    if request.fade_in_ms > 0:
+        audio = audio.fade_in(int(request.fade_in_ms))
+    if request.fade_out_ms > 0:
+        audio = audio.fade_out(int(request.fade_out_ms))
+    if request.gain_db != 0.0:
+        audio = audio + request.gain_db
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    audio.export(output_path, format="mp3")
+    return round(len(audio) / 1000.0, 2)
+
+
 @app.post("/audio/remix")
 async def audio_remix(request: RemixRequest) -> dict[str, Any]:
     """Remix DSP real: tempo (speed), pitch (resample), reverse, gain, fades, recorte.
 
     Acepta audio de outputs/ (biblioteca) o de uploads/ (subidas), como mix y peaks.
+    El DSP corre fuera del bucle de la API y las escrituras del mismo stem
+    se serializan para que salidas y fichas no colisionen.
     """
     # Busca en la lista que dice la UI (source_kind); sin ella, outputs primero.
     source = _find_audio(request.file_name, request.source_kind)
@@ -2553,56 +2651,22 @@ async def audio_remix(request: RemixRequest) -> dict[str, Any]:
 
     output_name = request.output_name
     stem = _safe_name(output_name, DEFAULT_STEM) if output_name else _derive_stem(request.file_name, "remix")
-    output_path = _unique_output_path(stem, ".mp3")
-
-    try:
-        from pydub import AudioSegment
-
-        audio = AudioSegment.from_file(source)
-
-        start_ms = max(0, int(request.trim_start_s * 1000))
-        end_ms = len(audio) if request.trim_end_s is None else int(request.trim_end_s * 1000)
-        if start_ms >= len(audio) or end_ms <= start_ms:
-            raise ValueError("Recorte vacío: revisa inicio y fin")
-        audio = audio[max(0, start_ms):min(end_ms, len(audio))]
-
-        if request.reverse:
-            audio = audio.reverse()
-        if request.pitch_semitones != 0:
-            # Pitch por resample (efecto de velocidad de cinta; clásico en remix)
-            new_rate = int(audio.frame_rate * (2.0 ** (request.pitch_semitones / 12.0)))
-            audio = audio._spawn(
-                audio.raw_data,
-                overrides={"frame_rate": new_rate},
-            ).set_frame_rate(44100)
-        if request.tempo != 1.0:
-            # Tempo = cambiar velocidad de reproducción (compone con el pitch aquí)
-            new_rate = int(audio.frame_rate * request.tempo)
-            audio = audio._spawn(
-                audio.raw_data,
-                overrides={"frame_rate": new_rate},
-            ).set_frame_rate(44100)
-        if request.fade_in_ms > 0:
-            audio = audio.fade_in(int(request.fade_in_ms))
-        if request.fade_out_ms > 0:
-            audio = audio.fade_out(int(request.fade_out_ms))
-        if request.gain_db != 0.0:
-            audio = audio + request.gain_db
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        audio.export(output_path, format="mp3")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.error(f"Remix falló: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    async with await _dsp_write_lock(stem):
+        output_path = _unique_output_path(stem, ".mp3")
+        try:
+            duration_seconds = await asyncio.to_thread(_render_remix_dsp, source, output_path, request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Remix falló: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     _carry_ficha(source, output_path, "remix")
-    logger.info(f"Remix OK: {output_path.name} ({len(audio) / 1000:.1f}s)")
+    logger.info(f"Remix OK: {output_path.name} ({duration_seconds}s)")
     return {
         "status": "success",
         "file_name": output_path.name,
-        "duration_seconds": round(len(audio) / 1000.0, 2),
+        "duration_seconds": duration_seconds,
     }
 
 
@@ -2678,7 +2742,6 @@ async def audio_process(request: AudioProcessRequest) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Audio de origen no encontrado")
 
     stem = _safe_name(request.output_name, DEFAULT_STEM) if request.output_name else _derive_stem(request.file_name, "edit")
-    output_path = _unique_output_path(stem, ".mp3")
 
     if not PROC_MIN_GAIN_DB <= request.gain_db <= PROC_MAX_GAIN_DB:
         raise HTTPException(status_code=400, detail="gain_db fuera de rango (-24 a +24)")
@@ -2687,21 +2750,24 @@ async def audio_process(request: AudioProcessRequest) -> dict[str, Any]:
     if not 0 <= request.fade_out_ms <= PROC_MAX_FADE_MS:
         raise HTTPException(status_code=400, detail="fade_out_ms fuera de rango (0-10000)")
 
-    try:
-        duration_ms = process_audio(
-            source=source,
-            output=output_path,
-            gain_db=request.gain_db,
-            fade_in_ms=request.fade_in_ms,
-            fade_out_ms=request.fade_out_ms,
-            trim_start_s=request.trim_start_s,
-            trim_end_s=request.trim_end_s,
-        )
-    except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.error(f"Post-proceso falló: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    async with await _dsp_write_lock(stem):
+        output_path = _unique_output_path(stem, ".mp3")
+        try:
+            duration_ms = await asyncio.to_thread(
+                process_audio,
+                source=source,
+                output=output_path,
+                gain_db=request.gain_db,
+                fade_in_ms=request.fade_in_ms,
+                fade_out_ms=request.fade_out_ms,
+                trim_start_s=request.trim_start_s,
+                trim_end_s=request.trim_end_s,
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Post-proceso falló: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     _carry_ficha(source, output_path, "edit")
     logger.info(f"Post-proceso OK: {output_path.name} ({duration_ms / 1000:.1f}s)")
@@ -2732,8 +2798,8 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
             "time_signature": None,
             "vocal_language": request.language,
             "warning": (
-                "He construido la canción con tus frases "
-                "(verso, estribillo y puente)."
+                "Tus frases se conservan tal como las escribiste; "
+                "el motor no las reestructura ni añade partes de canción."
             ),
         }
 
@@ -2769,8 +2835,8 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
                 "time_signature": None,
                 "vocal_language": request.language,
                 "warning": (
-                    "El motor de letras todavía no estaba listo; he construido la "
-                    "canción con tus frases. Pulsa GENERAR cuando quieras."
+                    "El motor de letras todavía no estaba listo; tus frases se "
+                    "conservan tal como las escribiste. Pulsa GENERAR cuando quieras."
                 ),
             }
         raise HTTPException(
