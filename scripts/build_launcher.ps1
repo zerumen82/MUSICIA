@@ -2,7 +2,7 @@
 #
 # La versión sale de frontend/package.json: un solo sitio donde se cambia.
 # El EXE lleva esa versión en sus propiedades de archivo, así que Windows
-# muestra "1.2.0" en la pestaña de detalles.
+# la muestra en la pestaña de detalles.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\build_launcher.ps1
 #
@@ -40,7 +40,12 @@ using System.Reflection;
 if ($LASTEXITCODE -ne 0) { throw "csc terminó con $LASTEXITCODE" }
 
 $info = (Get-Item $exe).VersionInfo
-$hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+# Get-FileHash no existe en todos los PowerShell soportados (en este equipo
+# devuelve "no se reconoce"): el hash se calcula con .NET, sin módulos.
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$stream = [System.IO.File]::OpenRead($exe)
+try { $hash = ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
+finally { $stream.Dispose(); $sha.Dispose() }
 Write-Host "EXE           : $exe"
 Write-Host "Tamaño        : $((Get-Item $exe).Length) bytes"
 Write-Host "FileVersion   : $($info.FileVersion)"

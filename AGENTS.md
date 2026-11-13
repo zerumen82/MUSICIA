@@ -55,5 +55,6 @@ Proyecto Musicia: creación musical con IA en local (FastAPI + React/Vite + Elec
   - LOCAL-FIRST: generación en la máquina del usuario; dependencias de red se declaran en memory.md
   - BITÁCORA: cada decisión/prueba se anota en memory.md con fecha
 - Formato/linting: ESLint 9 flat config (`frontend/eslint.config.js`); Tailwind utility-first con tokens en `frontend/src/index.css`
+- Versión y entrega (regla del usuario, 2026-11-13): cada cambio de producto se anota en `memory.md`, sube `version` en `frontend/package.json` (fuente única; la UI la muestra con `__APP_VERSION__` y en el título), se reconstruye `frontend/dist` (`npm run build`) y se recompila `Musicia.exe` (`scripts/build_launcher.ps1`); nunca se entrega un EXE con la versión anterior
 - Patterns to follow: especificaciones de canción como datos (JSON), servicios de backend como clases estáticas con loguru
 - Things to avoid: endpoints mock, datos inventados, constantes mágicas, servicios en la nube sin declarar en la bitácora
