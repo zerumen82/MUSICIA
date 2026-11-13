@@ -1136,6 +1136,19 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 5. En MEZCLA la colocación de trozos se explica **una sola vez**, con el plan real (número de trozos, tiempos y decisión de cuadre); desaparece el subtítulo genérico que la anticipaba. La lista de pistas se calcula una vez por render y la comparten BASE, VOZ y FUNDIR.
 6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
+### [R23] Simplificación de BIBLIOTECA y AUDIO PROPIO — 2026-11-13
+
+**Como** usuario, **quiero** que BIBLIOTECA y AUDIO PROPIO no repitan el mismo dato ni la misma instrucción, **para** leer la lista sin ruido y con la misma claridad que las demás pestañas.
+
+**Criterios de aceptación:**
+
+1. Se conservan todas las acciones, contadores y mensajes; no se elimina ninguna capacidad ni cambia el contrato con el backend.
+2. El número de piezas (base/voz aparte) se declara **una sola vez**, en el botón que las muestra; la cabecera solo cuenta versiones finales.
+3. El juicio «PEDÍA · SALIÓ/SALE» no se pinta dos veces para la misma pista: si la ficha ya lo muestra, la medición manual solo añade el valor medido y su seguridad.
+4. La comparación de tempo de la ficha se calcula **una vez** por fila y se reutiliza; sin cálculos repetidos en el render.
+5. En AUDIO PROPIO la instrucción de arrastrar/soltar se escribe **una sola vez**, en la zona de subida, que además declara formatos y límite; se retira la nota duplicada de la cabecera.
+6. Regresión: `npm run lint`, pruebas Node del frontend y `npm run build` verdes; versión subida en `frontend/package.json` y `Musicia.exe` recompilado. PASS del tester y APPROVE del reviewer sobre los archivos completos.
+
 ### [R20.B] Trae tus stems — el material real
 
 **Como** usuario, **quiero** subir mis stems (voz, batería, bajo, acompañamiento) en vez de una canción terminada, **para** hacer un remix de verdad con material original y sin pérdida de separación.

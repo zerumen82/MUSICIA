@@ -263,9 +263,8 @@ export default function Library({ externalRefresh = 0 }) {
         {/* Cabecera */}
         <div className="flex items-center gap-4 flex-wrap">
           <h2 className="h-title text-[20px]">BIBLIOTECA</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">
-            {finals.length} versiones finales{parts.length > 0 ? ` · ${parts.length} base/voz aparte` : ''}
-          </span>
+          {/* El contador de piezas vive en su botón, abajo: aquí solo las finales. */}
+          <span className="mono text-[12px] text-[var(--faint)]">{finals.length} versiones finales</span>
           {selectMode ? (
             <div className="flex items-center gap-2 ml-auto flex-wrap">
               <span className="mono text-[11px] text-[var(--acc)]">{selected.size} SELECCIONADAS</span>
@@ -315,7 +314,9 @@ export default function Library({ externalRefresh = 0 }) {
         {/* Lista: primero las versiones finales; las piezas (voz/base) se
             añaden al final SOLO si el usuario las pide abajo. */}
         <div className="flex flex-col">
-          {visible.map((item) => (
+          {visible.map((item) => {
+            const diff = tempoDiff(item);
+            return (
             <div key={item.name} className={`border-b border-[var(--line)] ${isPart(item) ? 'opacity-60' : ''}`}>
               <div className={`flex flex-col gap-2 py-3 px-2 ${playing === item.name ? 'bg-[var(--acc-dim)]' : ''}`}>
                 <div
@@ -362,9 +363,9 @@ export default function Library({ externalRefresh = 0 }) {
                       {/* [M3] «PEDÍA 180 · SALIÓ 170» automático de la ficha.
                           Solo con diferencia ≥ tolerancia de config; sin
                           medición, la línea no existe. */}
-                      {tempoDiff(item) && (
+                      {diff && (
                         <span className="mono text-[10px] text-[var(--warn)] block">
-                          PEDÍA {Math.round(tempoDiff(item).asked)} · SALIÓ {Math.round(tempoDiff(item).got)} BPM
+                          PEDÍA {Math.round(diff.asked)} · SALIÓ {Math.round(diff.got)} BPM
                         </span>
                       )}
                     </span>
@@ -421,7 +422,8 @@ export default function Library({ externalRefresh = 0 }) {
                       {measured[item.name].confidence != null
                         ? ` · SEGURIDAD ${Math.round(measured[item.name].confidence * 100)}%` : ''}
                     </span>
-                    {item.bpm && measured[item.name] && bpmTolerance != null
+                    {/* La ficha ya puede estar enseñando PEDÍA/SALIÓ: no se repite el juicio. */}
+                    {!diff && item.bpm && measured[item.name] && bpmTolerance != null
                       && Math.abs(item.bpm - measured[item.name].bpm) >= bpmTolerance && (
                       <span className="mono text-[10.5px] text-[var(--warn)]">
                         PEDÍA {Math.round(item.bpm)} · SALE {Math.round(measured[item.name].bpm)}
@@ -498,7 +500,8 @@ export default function Library({ externalRefresh = 0 }) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Piezas aparte (spec/02 [L3]): existen, pero no marean. */}

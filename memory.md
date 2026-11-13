@@ -4053,3 +4053,17 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Musicia.exe recompilado:** exit 0, **16384 bytes**, `FileVersion` **1.3.1**, SHA-256 `45AFBA02BCE3361A5BE1DF39BA7C71479D8F3541D9AEF77206DCA67521175DB9`. Evidencia `logs/simplify-create-mix-20261113/exe-build.log`. No se arrancó el EXE.
 - **Límites declarados:** no se abrió Electron ni se recorrió la UI contra la API; verificación estática/compilada. El texto efectivo en CREAR ya no está siempre visible: vive en el plegable «VER LO QUE SE ENVÍA» (un clic), que es el único bloque de transparencia. **La revisión visual y la escucha siguen siendo del usuario.** Deudas R20.B/R20.D/R20.E y R9/R10/B6/B7/Q2/R18 sin cambios.
 - **Commit:** cambios en `main` local, sin push.
+
+## 2026-11-13 — [R23] Simplificación de BIBLIOTECA y AUDIO PROPIO, versión 1.3.2 y EXE recompilado
+
+- **Petición:** «SIGUE», continuando la serie de simplificación de pestañas tras REMIX, CREAR y MEZCLA.
+- **Diagnóstico (código real):** en BIBLIOTECA, (1) el número de piezas base/voz se declaraba **dos veces**: «N versiones finales · M base/voz aparte» en la cabecera y «VER BASE Y VOZ SEPARADAS · M» en el botón; (2) el juicio «PEDÍA · SALIÓ» de la ficha y el «PEDÍA · SALE» de la medición manual podían aparecer **a la vez** para la misma pista, afirmando lo mismo con dos fuentes; (3) `tempoDiff(item)` se evaluaba **tres veces por fila** (condición y dos valores). En AUDIO PROPIO, (4) la instrucción «arrastra una canción aquí, o haz clic» estaba escrita en la cabecera y otra vez en la zona de subida, que además declara formatos y límite de 50 MB.
+- **Qué se cambió:** la cabecera cuenta solo versiones finales y el contador de piezas vive en su botón; la medición manual solo añade «MEDIDO ≈X BPM · SEGURIDAD Y%» cuando la ficha **no** está mostrando ya el juicio; la comparación se calcula una vez (`diff`) y se reutiliza; se retiró la nota duplicada de la cabecera de AUDIO PROPIO. **Sin cambios de capacidad ni de contrato.**
+- **SDD previo:** criterios [R23] escritos en `spec/02-REQUISITOS.md` antes de editar el producto.
+- **Verificación ejecutada:** `npm run lint` → **exit 0**; `node --test src/*.test.js` → **111 tests, 111 PASS, 0 FAIL, exit 0**; `npm run build` → **exit 0** (bundle con `1.3.2`). Evidencia en `logs/simplify-library-20261113/`.
+- **sd-tester (paso separado, misma sesión) — PASS:** lint, 111/111 Node y build verdes; bundle con la versión nueva.
+- **sd-reviewer (paso separado, misma sesión) — APPROVE:** revisados `Library.jsx` (map con cuerpo de bloque correctamente cerrado, sin `tempoDiff` repetido, contador único y juicio sin duplicar), `Uploads.jsx` (instrucción única) y la spec. Cumple NO HARDCODE/NO STUB/NO FAKE y BITÁCORA.
+- **Versión 1.3.2:** `frontend/package.json` y `frontend/package-lock.json` suben de 1.3.1 a **1.3.2**; visible en `data-app-version` y en el título.
+- **Musicia.exe recompilado:** exit 0, **16384 bytes**, `FileVersion` **1.3.2**, SHA-256 `501F201102D8CCD0AB3E5C6B7F17A4DC2222B025B30370F7E447A5D022391267`.
+- **Límites declarados:** no se abrió Electron ni se recorrió la UI contra la API; verificación estática/compilada. La medición manual de tempo sigue viviendo dentro del menú ACCIONES (comportamiento previo, no se cambió). **La revisión visual y la escucha siguen siendo del usuario.** Deudas R20.B/R20.D/R20.E y R9/R10/B6/B7/Q2/R18 sin cambios.
+- **Commit:** cambios en `main` local, sin push.

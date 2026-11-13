@@ -201,7 +201,6 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
         {/* Cabecera + zona de subida */}
         <div className="flex items-center gap-4">
           <h2 className="h-title text-[20px]">AUDIO PROPIO</h2>
-          <span className="mono text-[12px] text-[var(--faint)]">remix: arrastra una canción aquí, o haz clic</span>
           <button onClick={refresh} className="btn btn-ghost h-8 px-3 ml-auto"><RefreshCw size={12} /> ACTUALIZAR</button>
         </div>
 
