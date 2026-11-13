@@ -12,7 +12,8 @@ require.extensions['.jsx'] = (module, filename) => module._compile(esbuild.trans
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const RemixSequence = require(path.join(import.meta.dirname, 'components/RemixSequence.jsx')).default;
-const capabilities = { sequence: { focuses: ['todo'], max_steps: 16, default_steps: 8,
+const capabilities = { sequence: { focuses: ['todo', 'drums'], focuses_pending: ['vocals', 'bass', 'other'],
+  max_steps: 16, default_steps: 8,
   pattern: { steps: 16, instruments: ['kick', 'snare', 'hihat', 'cymbal'] } } };
 const base = { steps: [{ index: 0, enabled: true, focus: 'todo', prompt: 'techno', patternEnabled: false }],
   onSteps: () => { throw new Error('Static rendering must not edit a step'); }, capabilities,
@@ -23,6 +24,18 @@ test('el editor opcional de batería comienza oculto', () => {
   const html = render({});
   assert.ok(!html.includes('data-pattern-cell='));
   assert.ok(!html.includes('data-sequence-pattern-editor='));
+});
+
+test('el patrón se anuncia oculto hasta abrirlo y activarlo', () => {
+  const html = render({});
+  assert.match(html, /PATRÓN DE BATERÍA \(OCULTO\)/);
+  assert.match(html, /no se envía nada hasta abrirlo/);
+});
+
+test('el selector de foco nombra la batería y declara los pendientes', () => {
+  const html = render({});
+  assert.match(html, /Batería/);
+  assert.match(html, /todavía no está implementado/);
 });
 
 test('un patrón activo se declara aunque su editor esté cerrado', () => {

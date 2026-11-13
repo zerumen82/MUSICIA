@@ -562,6 +562,75 @@ class MixerService:
             samples.tofile(stream)
 
     @staticmethod
+    def _aligned_full_pcm(source: Path, rate: int, channels: int) -> array:
+        """PCM completo alineado a la frecuencia y canales pedidos, sin recortar audio."""
+        info = MixerService.inspect_pcm(source)
+        frames = int(round(info["duration_seconds"] * rate))
+        if frames <= 0:
+            raise ValueError(f"Audio sin duración utilizable: {source.name}")
+        return MixerService._matched_pcm(source, rate, channels, frames)
+
+    @staticmethod
+    def _segment_bounds(total: int, start: float, end: float, rate: int,
+                        tolerance_seconds: float) -> tuple[int, int]:
+        """Segundos a muestras, admitiendo el redondeo a milisegundos del plan.
+
+        El plan redondea los cortes a 0,001 s; si la duración real acaba unas
+        muestras antes (por ejemplo 59,9995 s → 60,000 s), el último corte cae
+        hasta 0,5 ms fuera del audio. Solo se recorta ese margen, nunca más que
+        la tolerancia declarada: un tramo de verdad fuera del audio falla.
+        """
+        if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end):
+            raise ValueError("El tramo necesita inicio y fin válidos")
+        first, last = int(round(start * rate)), int(round(end * rate))
+        if last > total and (last - total) / rate <= tolerance_seconds:
+            last = total
+        if first < 0 or first >= total or last > total or last <= first:
+            raise ValueError("El tramo se sale de la duración real del audio")
+        return first, last
+
+    @staticmethod
+    def extract_segment(source: Path, output: Path, start: float, end: float,
+                        settings) -> dict:
+        """Corta un tramo por número de muestra, sin depender del redondeo de segundos."""
+        rate, channels = settings.sample_rate, 2
+        whole = MixerService._aligned_full_pcm(source, rate, channels)
+        total = len(whole) // channels
+        first, last = MixerService._segment_bounds(
+            total, start, end, rate, settings.duration_tolerance_seconds)
+        part = array("f", whole[first * channels:last * channels])
+        MixerService._write_float_wav(output, part, rate, channels)
+        return {"start_sample": first, "end_sample": last,
+                "duration_seconds": round((last - first) / rate, 6)}
+
+    @staticmethod
+    def splice_segment(current: Path, replacement: Path, start: float, end: float,
+                       output: Path, settings) -> dict:
+        """Sustituye un tramo por otro y conserva el número de muestras del audio.
+
+        El tramo rehecho tiene que durar lo mismo que el original, dentro de la
+        tolerancia ya configurada. Si no, se falla: empalmar timelines distintas
+        desincroniza el resto de la canción.
+        """
+        rate, channels = settings.sample_rate, 2
+        whole = MixerService._aligned_full_pcm(current, rate, channels)
+        total = len(whole) // channels
+        first, last = MixerService._segment_bounds(
+            total, start, end, rate, settings.duration_tolerance_seconds)
+        wanted = last - first
+        replacement_info = MixerService.inspect_pcm(replacement)
+        if abs(replacement_info["duration_seconds"] - wanted / rate) > settings.duration_tolerance_seconds:
+            raise ValueError("El tramo rehecho no conserva la duración del tramo original")
+        part = MixerService._matched_pcm(replacement, rate, channels, wanted)
+        result = array("f", whole[:first * channels])
+        result.extend(part)
+        result.extend(whole[last * channels:])
+        MixerService._write_float_wav(output, result, rate, channels)
+        return {"start_sample": first, "end_sample": last,
+                "replaced_seconds": wanted / rate,
+                "duration_seconds": len(result) / channels / rate}
+
+    @staticmethod
     def tempo_audio(source: Path, output: Path, ratio: float, duration: float, settings) -> dict:
         """Atempo de una variante completa, con tono y duración verificables."""
         if not math.isfinite(ratio) or ratio <= 0 or not math.isfinite(duration) or duration <= 0:
@@ -894,6 +963,7 @@ class MixerService:
     def render_single_transform(
         engine: Path, stems: dict[str, Path], actions: dict[str, str], replaced: Path,
         output: Path, settings, vocal_id: str = "vocals",
+        min_remaining_ratio: float | None = None,
     ) -> dict:
         """Audio de la única pista en transformar.
 
@@ -918,7 +988,14 @@ class MixerService:
             raise ValueError("La resta de la pista transformada dejó muestras no finitas")
         engine_rms = _rms(engine_pcm["samples"])
         remaining = _rms(mixed)
-        used_full = engine_rms <= 0 or remaining / engine_rms < settings.single_transform_min_remaining_ratio
+        # El umbral por defecto mira una pista transformada (voz, bajo). La
+        # batería es una parte más pequeña de la mezcla y tiene el suyo: el
+        # llamante puede pasar un mínimo distinto (foco Batería, [R20.D]).
+        threshold = (settings.single_transform_min_remaining_ratio
+                     if min_remaining_ratio is None else float(min_remaining_ratio))
+        if not math.isfinite(threshold) or not 0 <= threshold < 1:
+            raise ValueError("El mínimo de audio restante debe estar entre 0 y 1")
+        used_full = engine_rms <= 0 or remaining / engine_rms < threshold
         if used_full:
             mixed = array("f", engine_pcm["samples"])
         replaced_pcm = MixerService._matched_pcm(replaced, rate, channels, frames)

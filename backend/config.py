@@ -249,6 +249,10 @@ class RemixSettings:
     # Si al quitar la voz generada y los grupos quitados queda menos que esta
     # fracción del audio nuevo, la pista transformada usa la generación entera.
     single_transform_min_remaining_ratio: float = 0.25
+    # La batería ocupa una parte menor de la mezcla que una voz: aplicar el
+    # umbral de 0,25 rechazaría separaciones válidas. Este mínimo solo evita
+    # montar un resto casi vacío como si fuera batería ([R20.D]).
+    drum_focus_min_remaining_ratio: float = 0.05
     timeline_min_duration_seconds: float = 1.0
     timeline_min_repeat_seconds: float = 1.0
     timeline_transition_seconds: float = 0.1

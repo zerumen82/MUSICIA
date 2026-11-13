@@ -1067,16 +1067,18 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 7. Coste declarado en la UI: N pasos = N generaciones en GPU (medido: 2 pasos de una canción de 20 s, 72,41 s en total; el primer paso ~52 s y el segundo ~12 s). No se promete resultado rápido.
 8. Regresiones backend/frontend, lint/build, API/UI reales y al menos **una** generación real con audio de varios pasos verificable (archivo, duración, ffprobe, parámetros por paso en el recibo). Fidelidad musical y costuras: pendientes de la escucha del usuario. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
-### [R20.D] Foco por pista en cada paso - pendiente, no implementado
+### [R20.D] Foco por pista en cada paso — Batería implementada 2026-11-13; resto pendiente
 
 **Por qué queda fuera de R20.A:** separar la pista concreta de cada tramo y remezclarla exige una separación por paso (Demucs) además de la llamada al motor: el coste y la calidad de esa separación no están medidos, y ofrecer el selector sin ejecutarlo sería un autoengaño.
 
-**Criterios de aceptación (a cumplir cuando se implemente):**
+**Implementación 2026-11-13:** el foco `BATERÍA` ya se ejecuta. Cada paso con ese foco corta su tramo, separa los cuatro grupos con Demucs, manda el stem de batería al motor como cover, separa la generación, monta la batería nueva y recombina el tramo con la voz, el bajo y el acompañamiento originales; después lo empalma en la timeline con la duración intacta. El selector de la UI ya ofrece Batería y sigue declarando Voz, Bajo y Acompañamiento como pendientes. La vista previa no separa: declara el material como pendiente y avisa de que la separación ocurre al ejecutar.
 
-1. El foco `BATERÍA` regenera **solo la batería de ese tramo** (separar ese tramo → motor → remezclar con el resto original conservado), para cambiar el ritmo sobre el groove original.
-2. El backend acepta los focos implementados y **rechaza los demás** con un error explícito (esto ya se cumple hoy).
-3. La UI solo ofrece los focos ejecutables y declara los pendientes (esto ya se cumple hoy).
-4. Verificación: audio real con la batería cambiada y el resto conservado, más la escucha del usuario.
+**Criterios de aceptación:**
+
+1. [x] El foco `BATERÍA` regenera **solo la batería de ese tramo** (separar ese tramo → motor → remezclar con el resto original conservado), para cambiar el ritmo sobre el groove original.
+2. [x] El backend acepta los focos implementados y **rechaza los demás** con un error explícito.
+3. [x] La UI solo ofrece los focos ejecutables y declara los pendientes.
+4. [ ] Verificación: audio real con la batería cambiada y el resto conservado, más la escucha del usuario. **Pendiente:** no se ejecutó una generación GPU con este foco; las regresiones cubren corte, empalme, duración y contrato, no la fidelidad musical.
 
 ### [R20.F] Rejilla de patrón por sección (Roland), traducción al modelo y verificación del bombo
 
@@ -1203,6 +1205,21 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 3. [x] Un pico no finito (silencio) falla con un mensaje real de medición («No se pudo medir el pico del intermedio de remix»), no con un error de opciones de ffmpeg.
 4. [x] Regresión: intermedio a 1.6 de amplitud exporta y queda en **-14 LUFS ±1** con pico dentro del límite; intermedio silencioso falla con medición. `test_pending_audio_contracts` + `test_remix_recovery` verdes (47 tests focalizados, exit 0).
 5. [x] `normalize_track` y `mix_tracks` conservan su contrato y usan la misma guarda.
+
+### [R28] Rejilla de batería en «Cambiar por pistas» — plan pendiente, no implementado
+
+**Como** usuario, **quiero** marcar la rejilla opcional de batería cuando la fila BATERÍA está en transformar dentro de «Cambiar por pistas», **para** pedir el ritmo con los mismos 16 pasos que ya uso en Secuencia, sin cambiar de acción.
+
+**Por qué:** hoy la rejilla solo existe en Secuencia. La acción Por pistas sí transforma la batería, pero solo acepta texto libre. El plan completo está en `spec/08-REJILLA-BATERIA-POR-PISTAS.md` y requiere aprobación antes de codificar.
+
+**Criterios de aceptación (ninguno implementado todavía):**
+
+1. [ ] La rejilla se ofrece únicamente en la fila `drums` y solo con la acción `transform`; en conservar, quitar o en cualquier otra fila no se muestra ni se acepta. Los grupos, pasos, instrumentos y etiquetas proceden de configuración/capacidades, no de listas en React.
+2. [ ] Contrato propuesto: `patterns: {"drums": {...}}` con la misma forma y validación que `SequencePattern`. Un grupo desconocido, un patrón mal formado o un patrón para un grupo no transformado se **rechazan con error explícito**, no se ignoran.
+3. [ ] El patrón se traduce al inglés con el constructor de `[R20.F]` y se antepone al caption de la pista de batería; no pasa por el traductor de estilo. Preview y ejecución usan el mismo constructor y el texto exacto se ve antes de enviar. Sin patrón o vacío no se añade texto.
+4. [ ] El bombo se mide sobre la **salida final publicada** (`measurement_stage=final_output`), en toda la pista; caja, charles y platillo son intención declarada. Si no se puede medir, se declara sin medir. No se promete obediencia del modelo ni condicionamiento temporal.
+5. [ ] Reutiliza la separación de grupos existente y su firma; el patrón entra en la firma para no reutilizar material como si no hubiera patrón.
+6. [ ] Sin instalaciones, sin cambiar el perfil SFT/50/9/lote2/thinking/use_format ni el master −14 LUFS. Verificación: unitarias de contrato/caption/medición, lint/build, y una generación GPU real con patrón verificada por ffprobe y ficha; escucha artística del usuario. PASS del tester + APPROVE del reviewer antes de cerrar.
 
 ### [R20.B] Trae tus stems — el material real
 

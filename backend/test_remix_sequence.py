@@ -55,7 +55,11 @@ class SequenceStepsTest(unittest.TestCase):
 
     def test_validate_rejects_a_focus_that_is_not_implemented_yet(self):
         with self.assertRaisesRegex(ValueError, "todavía no está implementado"):
-            validate_steps([SequenceStep(index=0, prompt="a", focus="drums")], self.config)
+            validate_steps([SequenceStep(index=0, prompt="a", focus="vocals")], self.config)
+
+    def test_validate_accepts_the_drums_focus(self):
+        active = validate_steps([SequenceStep(index=0, prompt="a", focus="drums")], self.config)
+        self.assertEqual([step.focus for step in active], ["drums"])
 
     def test_validate_respects_the_configured_maximum(self):
         allowed = [SequenceStep(index=index, prompt="a") for index in range(self.config.sequence_max_steps)]
@@ -143,9 +147,33 @@ class SequenceApiTest(unittest.TestCase):
         capabilities = self.client.get("/music/remix/capabilities").json()
         self.assertEqual(capabilities["sequence"]["default_steps"], 8)
         self.assertEqual(capabilities["sequence"]["max_steps"], 16)
-        self.assertEqual(capabilities["sequence"]["focuses"], ["todo"])
-        self.assertIn("drums", capabilities["sequence"]["focuses_pending"])
+        self.assertEqual(capabilities["sequence"]["focuses"], ["todo", "drums"])
+        self.assertNotIn("drums", capabilities["sequence"]["focuses_pending"])
+        self.assertIn("vocals", capabilities["sequence"]["focuses_pending"])
         self.assertIn("sequence", [scope["id"] for scope in capabilities["scopes"]])
+
+    def test_preview_declares_the_drum_separation_as_pending(self):
+        steps = [{"index": index, "enabled": True, "focus": "drums" if index == 0 else "todo",
+                  "prompt": "breakbeat drums"} for index in range(2)]
+        response = self.client.post("/music/remix/preview", json=self.body(steps=steps))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["sequence"]["focus_material"], "separated_drums")
+        self.assertIsNone(result["effective_parameters"]["src_audio_path"])
+        self.assertEqual(result["provenance"]["src_audio_path"], "pending_derived_material")
+        self.assertTrue(any(item["groups"] == ["drums"] for item in result["pending_material"]))
+        self.assertTrue(any("foco Batería" in warning for warning in result["warnings"]))
+
+    def test_preview_keeps_the_real_source_when_the_first_step_is_not_drums(self):
+        steps = [{"index": 0, "enabled": True, "focus": "todo", "prompt": "intro"},
+                 {"index": 1, "enabled": True, "focus": "drums", "prompt": "breakbeat"}]
+        response = self.client.post("/music/remix/preview", json=self.body(steps=steps))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["sequence"]["focus_material"], "separated_drums")
+        self.assertIsNotNone(result["effective_parameters"]["src_audio_path"])
+        self.assertEqual(result["provenance"]["src_audio_path"], "source")
+        self.assertTrue(any("foco Batería" in warning for warning in result["warnings"]))
 
     def test_preview_returns_the_plan_of_every_step(self):
         before = dict(main.remix_jobs)

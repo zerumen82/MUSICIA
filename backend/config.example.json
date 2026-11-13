@@ -151,6 +151,7 @@
     "peak_limit_dbfs": -1.0,
     "duration_tolerance_seconds": 0.25,
     "single_transform_min_remaining_ratio": 0.25,
+    "drum_focus_min_remaining_ratio": 0.05,
     "timeline_min_duration_seconds": 1.0,
     "timeline_min_repeat_seconds": 1.0,
     "timeline_transition_seconds": 0.1,

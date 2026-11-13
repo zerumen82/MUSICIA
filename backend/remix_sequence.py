@@ -18,8 +18,9 @@ from config import get_settings
 STEP_FOCUSES = ("todo", "vocals", "drums", "bass", "other")
 
 # Focos que el backend ejecuta hoy. Los demás se rechazan: un selector que no
-# hace nada sería un autoengaño.
-IMPLEMENTED_FOCUSES = ("todo",)
+# hace nada sería un autoengaño. `drums` separa el tramo, rehace solo la
+# batería y lo remezcla con el resto original (spec/02 [R20.D]).
+IMPLEMENTED_FOCUSES = ("todo", "drums")
 
 class SequencePattern(BaseModel):
     """Un patrón de ritmo de una sección: qué instrumento suena en cada paso.
@@ -276,7 +277,7 @@ def validate_steps(steps: list[SequenceStep] | None, config) -> list[SequenceSte
         if step.focus not in IMPLEMENTED_FOCUSES:
             raise ValueError(
                 f"El foco «{step.focus}» del paso {step.index + 1} todavía no está implementado: "
-                "ahora cada paso rehace el tramo entero.")
+                "hoy cada paso rehace el tramo entero o solo la batería.")
         if step.pattern is not None:
             validate_pattern(step.pattern, step.index + 1, config)
     return active

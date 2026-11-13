@@ -4,10 +4,11 @@ import { patternCheckLabel, patternSummary } from '../remix_pattern';
 import SequencePattern from './SequencePattern';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
-const FOCUS_LABEL = { todo: 'Todo el tramo' };
+const FOCUS_LABEL = { todo: 'Todo el tramo', drums: 'Batería', vocals: 'Voz', bass: 'Bajo', other: 'Acompañamiento' };
 const TEXT = {
-  pattern: 'PATRÓN (OPCIONAL)', edit: 'EDITAR PATRÓN', active: 'PATRÓN ACTIVO',
+  pattern: 'PATRÓN DE BATERÍA (OCULTO)', edit: 'EDITAR PATRÓN', active: 'PATRÓN ACTIVO',
   prepared: 'PATRÓN PREPARADO · PASO APAGADO', deactivate: 'DESACTIVAR PATRÓN',
+  hint: 'Oculto y desactivado: no se envía nada hasta abrirlo, marcarlo y activarlo.',
   preparing: 'PREPARANDO VISTA…', noCaption: 'SIN TEXTO',
 };
 const groupLabel = (capabilities, focus) => capabilities?.groups?.find((item) => item.id === focus)?.label ?? focus;
@@ -75,6 +76,7 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
             className="btn btn-ghost min-h-8 px-2 self-start" data-sequence-pattern-toggle={step.index}>
             {step.patternEnabled ? TEXT.edit : TEXT.pattern}
           </button>
+          {!step.patternEnabled && <span className="mono text-[10px] text-[var(--faint)]" data-sequence-pattern-hint={step.index}>{TEXT.hint}</span>}
           {step.patternEnabled && <>
             <span className="mono text-[10px] text-[var(--acc)]" data-sequence-pattern-active={step.index}>{step.enabled ? TEXT.active : TEXT.prepared} · {patternSummary(step.pattern)}</span>
             <button type="button" aria-label={'Desactivar patrón del paso ' + (step.index + 1)} disabled={busy}
@@ -98,7 +100,7 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
           onChange={(event) => update(editing.index, { patternEnabled: event.target.checked })} />
         Usar patrón en este paso
       </label>
-      <p className="text-[12px] text-[var(--muted)]">Desactivado no envía ninguna marca y conserva tu edición. Cerrar este editor no desactiva un patrón que hayas activado.</p>
+      <p className="text-[12px] text-[var(--muted)]">Cerrado o desactivado no viaja: no se envía ninguna marca. Al desactivarlo se conserva tu edición. Cerrar este editor no desactiva un patrón que hayas activado.</p>
       {!editing.enabled && <p className="text-[12px] text-[var(--muted)]">El paso está apagado: su patrón no se ejecutará.</p>}
       {editing.patternEnabled && <p className="text-[12px] text-[var(--muted)]">Un patrón vacío no añade instrucciones de batería.</p>}
       <SequencePattern key={editing.index} pattern={editing.pattern} capabilities={capabilities}
@@ -111,7 +113,7 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
       <span className="mono text-[10px] text-[var(--faint)]">{steps.length} de {maxSteps || '—'} pasos</span>
     </div>
     {focuses.length === 0 && <p className="text-[13px] text-[var(--muted)]">El servidor no declara los focos de la secuencia: no se puede montar la rejilla.</p>}
-    {Array.isArray(sequence.focuses_pending) && sequence.focuses_pending.length > 0 && <p className="text-[13px] text-[var(--muted)]">El foco por pista ({sequence.focuses_pending.map((focus) => groupLabel(capabilities, focus)).join(', ')}) todavía no está implementado: ahora cada paso rehace el tramo entero.</p>}
+    {Array.isArray(sequence.focuses_pending) && sequence.focuses_pending.length > 0 && <p className="text-[13px] text-[var(--muted)]">El foco por pista ({sequence.focuses_pending.map((focus) => groupLabel(capabilities, focus)).join(', ')}) todavía no está implementado; esas pistas no se pueden rehacer por separado.</p>}
     <p className="text-[13px] text-[var(--muted)]" data-sequence-cost>{sequenceCostText(enabled)}</p>
     <p className="text-[13px] text-[var(--muted)]">Un paso apagado conserva el material original de ese tramo. El orden lo pone la línea de tiempo, no el texto.</p>
     <details className="border border-[var(--line)] rounded p-2">
