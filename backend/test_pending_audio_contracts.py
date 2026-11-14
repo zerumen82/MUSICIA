@@ -109,6 +109,15 @@ class PreservedLyricsContractTest(unittest.TestCase):
             self.assertNotIn(section, result["warning"].lower())
         self.assertIn("conserv", result["warning"].lower())
 
+    def test_the_lyrics_endpoint_never_promises_verse_chorus_or_bridge(self):
+        source = Path(__file__).with_name("main.py").read_text(encoding="utf-8-sig")
+        definition = next(node for node in ast.parse(source).body
+                          if isinstance(node, ast.AsyncFunctionDef)
+                          and node.name == "music_write_lyrics")
+        text = ast.get_source_segment(source, definition).lower()
+        for forbidden in ("verso", "estribillo", "puente", "construido"):
+            self.assertNotIn(forbidden, text)
+
 
 class RemixMasterLoudnessTest(unittest.TestCase):
     """[R20.L] La exportación de remix lleva master real, no solo pico."""

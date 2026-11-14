@@ -2886,19 +2886,10 @@ async def music_write_lyrics(request: WriteLyricsRequest) -> dict[str, Any]:
     warning = None
     source = "modelo"
     if useless:
-        if request.lyrics.strip():
-            # El usuario puso sus frases: se usan esas, no se le devuelve nada.
-            lyrics_text = request.lyrics.strip()
-            source = "tus_frases"
-            warning = (
-                "El motor no ha ampliado tu letra; he construido la canción "
-                "con tus frases (verso, estribillo y puente)."
-            )
-        else:
-            warning = (
-                "El LM local no ha compuesto letra. Escribe dos frases y pulsa "
-                "otra vez ESCRIBIRLA POR MÍ: la canción se construye con ellas."
-            )
+        warning = (
+            "El LM local no ha compuesto letra. Escribe dos frases y pulsa "
+            "otra vez ESCRIBIRLA POR MÍ: la canción se construye con ellas."
+        )
 
     bpm = result.get("bpm")
     if not isinstance(bpm, (int, float)) or not 40 <= bpm <= 220:
