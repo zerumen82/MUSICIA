@@ -9,10 +9,13 @@ import math
 import tempfile
 import unittest
 from array import array
+from dataclasses import replace
 from pathlib import Path
 
 from config import get_settings
 from mixer_service import MixerService
+from remix_project import (focus_group_label, focus_min_remaining_ratio,
+                           focus_transform_actions)
 
 
 class SegmentCutAndSpliceTest(unittest.TestCase):
@@ -103,10 +106,10 @@ class SegmentCutAndSpliceTest(unittest.TestCase):
         self.assertTrue(default["used_full_generation"])
         drums_only = MixerService.render_single_transform(
             generated, stems, actions, drums, self.folder / "bateria-sola.wav", self.settings,
-            min_remaining_ratio=self.settings.drum_focus_min_remaining_ratio)
+            min_remaining_ratio=self.settings.focus_min_remaining_ratio["drums"])
         self.assertFalse(drums_only["used_full_generation"])
         self.assertGreater(drums_only["remaining_ratio"],
-                           self.settings.drum_focus_min_remaining_ratio)
+                           self.settings.focus_min_remaining_ratio["drums"])
         self.assertLess(drums_only["remaining_ratio"],
                         self.settings.single_transform_min_remaining_ratio)
         self.assertAlmostEqual(
@@ -118,6 +121,41 @@ class SegmentCutAndSpliceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duración"):
             MixerService.splice_segment(
                 self.original, shorter, 0.25, 0.75, self.folder / "mala.wav", self.settings)
+
+
+class FocusPolicyTest(unittest.TestCase):
+    """[R20.D] Cada pista tiene su umbral y su montaje, declarados en configuración."""
+
+    def setUp(self):
+        self.config = get_settings().remix
+
+    def test_every_group_focus_has_a_configured_threshold(self):
+        for focus in ("vocals", "drums", "bass", "other"):
+            with self.subTest(focus=focus):
+                value = focus_min_remaining_ratio(self.config, focus)
+                self.assertGreaterEqual(value, 0)
+                self.assertLess(value, 1)
+
+    def test_a_missing_threshold_is_an_explicit_error(self):
+        empty = replace(self.config, focus_min_remaining_ratio={})
+        with self.assertRaisesRegex(ValueError, "Falta el mínimo"):
+            focus_min_remaining_ratio(empty, "bass")
+
+    def test_the_mount_transforms_only_the_chosen_group(self):
+        for focus in ("vocals", "drums", "bass", "other"):
+            with self.subTest(focus=focus):
+                actions = focus_transform_actions(focus)
+                self.assertEqual(actions[focus], "transform")
+                removed = sorted(key for key, action in actions.items() if action == "remove")
+                self.assertEqual(removed, sorted(key for key in ("vocals", "drums", "bass", "other")
+                                                 if key != focus))
+
+    def test_the_label_comes_from_the_configuration(self):
+        self.assertEqual(focus_group_label(self.config, "bass"), "Bajo")
+
+    def test_the_whole_track_is_not_a_group_focus(self):
+        with self.assertRaisesRegex(ValueError, "pista"):
+            focus_transform_actions("todo")
 
 
 if __name__ == "__main__":

@@ -13,14 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from config import get_settings
 
-# Focos posibles de un paso. `todo` rehace el tramo entero; el resto son para
-# la fase siguiente (separar la pista concreta del tramo antes de rehacerla).
-STEP_FOCUSES = ("todo", "vocals", "drums", "bass", "other")
+# Focos posibles de un paso. `todo` rehace el tramo entero; los demás rehacen
+# solo esa pista del tramo tras separarlo (spec/02 [R20.D]).
+GROUP_FOCUSES = ("vocals", "drums", "bass", "other")
+STEP_FOCUSES = ("todo", *GROUP_FOCUSES)
 
-# Focos que el backend ejecuta hoy. Los demás se rechazan: un selector que no
-# hace nada sería un autoengaño. `drums` separa el tramo, rehace solo la
-# batería y lo remezcla con el resto original (spec/02 [R20.D]).
-IMPLEMENTED_FOCUSES = ("todo", "drums")
+# Focos que el backend ejecuta hoy. Los cinco declarados se ejecutan: `todo`
+# repinta el tramo y cada pista separa el tramo, rehace su stem y lo remezcla
+# con el resto original. Un selector que no hiciera nada sería un autoengaño.
+IMPLEMENTED_FOCUSES = STEP_FOCUSES
 
 class SequencePattern(BaseModel):
     """Un patrón de ritmo de una sección: qué instrumento suena en cada paso.
@@ -277,7 +278,7 @@ def validate_steps(steps: list[SequenceStep] | None, config) -> list[SequenceSte
         if step.focus not in IMPLEMENTED_FOCUSES:
             raise ValueError(
                 f"El foco «{step.focus}» del paso {step.index + 1} todavía no está implementado: "
-                "hoy cada paso rehace el tramo entero o solo la batería.")
+                "hoy cada paso rehace el tramo entero o una de sus pistas.")
         if step.pattern is not None:
             validate_pattern(step.pattern, step.index + 1, config)
     return active

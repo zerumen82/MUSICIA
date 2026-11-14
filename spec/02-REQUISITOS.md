@@ -1061,24 +1061,24 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 1. Rejilla de botones: un botón ON/OFF por paso, un selector de foco y un texto de instrucción por paso. Un paso apagado conserva el material original de ese tramo. El selector de foco **solo ofrece los focos que el backend ejecuta**; los pendientes se declaran como tales, nunca como un control que no hace nada.
 2. Los tramos se reparten en **compases completos** según el tempo (el medido, o el BPM original revisado a mano). Nunca cortan un golpe por la mitad. **Si no hay un tempo fiable la secuencia se rechaza con un aviso**: no se reparte a ciegas, porque un corte a mitad de golpe destroza el groove.
 3. Cada paso activo ejecuta **una llamada real al motor** (`repaint` sobre su intervalo, con el caption de ese paso), aplicada sobre el audio del paso anterior. El progreso se muestra por paso y se puede **parar tras el paso N conservando lo ya generado**; la ficha marca que quedó a medias.
-4. El foco por pista (`BATERÍA`, `BAJO`, `VOZ`, `ACOMPAÑAMIENTO`) regenera **solo esa pista de ese tramo**. **Pendiente: no está implementado.** Hoy cada paso rehace el tramo entero (`todo`) y el backend rechaza los demás focos con un error explícito. La entrega queda en [R20.D].
+4. El foco por pista (`VOZ`, `BATERÍA`, `BAJO`, `ACOMPAÑAMIENTO`) regenera **solo esa pista de ese tramo**. **Implementado el 2026-11-14** para las cuatro pistas; la ejecución real en GPU y la escucha siguen pendientes ([R20.D]).
 5. El texto de cada paso pasa por el mismo preparador común (glosario B9c, exclusiones y matices) y el caption efectivo de cada paso es visible antes de enviar: es **el del servidor**, y solo cuando la respuesta corresponde a las entradas actuales (texto preparado, patrón y estilo común). El preview y el envío mandan el **mismo** texto preparado, así que el caption que se ve es el que viaja al motor; el reparto en compases no depende del texto.
 6. La duración final coincide con la del original: la secuencia **conserva la duración** y **no cambia el tempo**. Los campos que no apliquen (`bpm`, `duration_seconds`, `repeat_start/end`, `transition_seconds`, `groups`, `batch_size` distinto de 1) se **rechazan con un error**, no se ignoran en silencio.
 7. Coste declarado en la UI: N pasos = N generaciones en GPU (medido: 2 pasos de una canción de 20 s, 72,41 s en total; el primer paso ~52 s y el segundo ~12 s). No se promete resultado rápido.
 8. Regresiones backend/frontend, lint/build, API/UI reales y al menos **una** generación real con audio de varios pasos verificable (archivo, duración, ffprobe, parámetros por paso en el recibo). Fidelidad musical y costuras: pendientes de la escucha del usuario. PASS del tester y APPROVE del reviewer sobre los archivos completos.
 
-### [R20.D] Foco por pista en cada paso — Batería implementada 2026-11-13; resto pendiente
+### [R20.D] Foco por pista en cada paso — las cuatro pistas implementadas 2026-11-14
 
-**Por qué queda fuera de R20.A:** separar la pista concreta de cada tramo y remezclarla exige una separación por paso (Demucs) además de la llamada al motor: el coste y la calidad de esa separación no están medidos, y ofrecer el selector sin ejecutarlo sería un autoengaño.
+**Por qué quedó fuera de R20.A:** separar la pista concreta de cada tramo y remezclarla exige una separación por paso (Demucs) además de la llamada al motor: el coste y la calidad de esa separación no están medidos, y ofrecer el selector sin ejecutarlo sería un autoengaño.
 
-**Implementación 2026-11-13:** el foco `BATERÍA` ya se ejecuta. Cada paso con ese foco corta su tramo, separa los cuatro grupos con Demucs, manda el stem de batería al motor como cover, separa la generación, monta la batería nueva y recombina el tramo con la voz, el bajo y el acompañamiento originales; después lo empalma en la timeline con la duración intacta. El selector de la UI ya ofrece Batería y sigue declarando Voz, Bajo y Acompañamiento como pendientes. La vista previa no separa: declara el material como pendiente y avisa de que la separación ocurre al ejecutar.
+**Implementación 2026-11-13 (batería) y 2026-11-14 (resto):** cada paso con foco de pista corta su tramo, separa los cuatro grupos con Demucs, manda el stem de esa pista al motor como cover, separa la generación, monta la pista nueva y recombina el tramo con los otros tres grupos originales; después lo empalma en la timeline con la duración intacta. El umbral de audio restante es **por pista** (`remix.focus_min_remaining_ratio`: voz y acompañamiento 0,25; batería y bajo 0,05) y vive en configuración. Si el separador no aísla la pista nueva, el paso **falla**: no se monta una canción entera como si fuera esa pista. El selector de la UI ofrece las cuatro y `focuses_pending` queda vacío. La vista previa no separa: declara el material como pendiente y avisa de que la separación ocurre al ejecutar.
 
 **Criterios de aceptación:**
 
-1. [x] El foco `BATERÍA` regenera **solo la batería de ese tramo** (separar ese tramo → motor → remezclar con el resto original conservado), para cambiar el ritmo sobre el groove original.
-2. [x] El backend acepta los focos implementados y **rechaza los demás** con un error explícito.
-3. [x] La UI solo ofrece los focos ejecutables y declara los pendientes.
-4. [x] Verificación: audio real con la batería cambiada y el resto conservado, más la escucha del usuario. **Pendiente:** no se ejecutó una generación GPU con este foco; las regresiones cubren corte, empalme, duración y contrato, no la fidelidad musical.
+1. [x] Cada foco de pista (`vocals`, `drums`, `bass`, `other`) regenera **solo esa pista de ese tramo** (separar ese tramo → motor → remezclar con el resto original conservado).
+2. [x] El backend acepta los cinco focos declarados y **rechaza los desconocidos** con un error explícito; cada pista exige su umbral configurado.
+3. [x] La UI ofrece las cuatro pistas y no declara ninguna como pendiente.
+4. [ ] Verificación: audio real con la pista cambiada y el resto conservado, más la escucha del usuario. **Pendiente:** no se ejecutó una generación GPU con estos focos; las regresiones cubren corte, empalme, duración, montaje y contrato, no la fidelidad musical ni la obediencia del motor con voz.
 
 ### [R20.F] Rejilla de patrón por sección (Roland), traducción al modelo y verificación del bombo
 

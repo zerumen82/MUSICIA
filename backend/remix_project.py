@@ -23,10 +23,10 @@ from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from prompt_style import style_caption
-from remix_sequence import (IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep, SequencePattern,
-                            check_kick_pattern, material_origin, pattern_onset_gap_ms,
-                            sequence_timeline, step_caption, step_seed, validate_steps,
-                            validate_pattern)
+from remix_sequence import (GROUP_FOCUSES, IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep,
+                            SequencePattern, check_kick_pattern, material_origin,
+                            pattern_onset_gap_ms, sequence_timeline, step_caption, step_seed,
+                            validate_steps, validate_pattern)
 from style_translator import style_for_engine
 from separator_service import SeparatorService
 from source_understanding import category_catalog
@@ -991,12 +991,38 @@ def sequence_step_generation(request, segment, source, reference, settings, posi
     return project_generation(step_request, source, reference, settings, prompt=caption)
 
 
-def sequence_drum_generation(request, segment, drums, reference, settings, position=0) -> GenerationRequest:
-    """Contrato del foco Batería: cover del stem de batería del tramo.
+def focus_group_label(config, focus: str) -> str:
+    """Nombre visible de la pista del foco, tomado de la configuración."""
+    for group in config.groups:
+        if group.get("id") == focus:
+            return group.get("label") or focus
+    return focus
 
-    El motor no genera stems aislados con el SFT instalado: recibe la batería
+
+def focus_transform_actions(focus: str) -> dict[str, str]:
+    """Montaje del foco: la pista del foco se transforma y el resto se quita."""
+    if focus not in GROUP_FOCUSES:
+        raise ValueError(f"El foco «{focus}» no es una pista del tramo")
+    return {group: ("transform" if group == focus else "remove") for group in GROUP_FOCUSES}
+
+
+def focus_min_remaining_ratio(config, focus: str) -> float:
+    """Mínimo configurado de audio restante para la pista del foco ([R20.D])."""
+    ratios = getattr(config, "focus_min_remaining_ratio", None) or {}
+    value = ratios.get(focus) if isinstance(ratios, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Falta el mínimo de audio restante del foco «{focus}» en la configuración")
+    if not math.isfinite(value) or not 0 <= value < 1:
+        raise ValueError(f"El mínimo de audio restante del foco «{focus}» debe estar entre 0 y 1")
+    return float(value)
+
+
+def sequence_focus_generation(request, segment, material, reference, settings, position=0) -> GenerationRequest:
+    """Contrato del foco por pista: cover del stem del tramo.
+
+    El motor no genera stems aislados con el SFT instalado: recibe la pista
     separada como material y devuelve una canción nueva; al ejecutar se separa
-    esa generación y se toma únicamente la batería. El caption es el mismo que
+    esa generación y se toma únicamente esa pista. El caption es el mismo que
     ve el preview (texto del paso + patrón).
     """
     config = settings.remix
@@ -1006,7 +1032,7 @@ def sequence_drum_generation(request, segment, drums, reference, settings, posit
         "seed": step_seed(request.seed, position, config.parameters["seed"]["max"]),
     })
     caption = sequence_step_caption(segment.get("prompt") or "", segment.get("pattern"), settings)
-    return project_generation(step_request, drums, reference, settings, prompt=caption)
+    return project_generation(step_request, material, reference, settings, prompt=caption)
 
 
 def sequence_preview_request(request, timeline, source, reference, settings) -> GenerationRequest:
@@ -1021,10 +1047,10 @@ def sequence_preview_request(request, timeline, source, reference, settings) -> 
     if not enabled:
         raise ValueError("Enciende al menos un paso de la secuencia")
     first = enabled[0]
-    if first.get("focus") == "drums":
-        # Sin separar el tramo no existe el stem de batería: el preview declara
+    if first.get("focus") in GROUP_FOCUSES:
+        # Sin separar el tramo no existe el stem de la pista: el preview declara
         # el material pendiente en vez de fingir que hablará al motor con él.
-        return sequence_drum_generation(request, first, source, reference, settings)
+        return sequence_focus_generation(request, first, source, reference, settings)
     return sequence_step_generation(request, first, source, reference, settings)
 
 
@@ -1143,9 +1169,9 @@ class RemixProjectRuntime:
                 "default_steps": remix.sequence_default_steps,
                 "max_steps": remix.sequence_max_steps,
                 "min_bars_per_step": remix.sequence_min_bars_per_step,
-                # Solo los focos que el backend ejecuta de verdad. Voz, bajo y
-                # acompañamiento siguen pendientes en spec/03; la batería se
-                # ejecuta separando el tramo y remezclándolo ([R20.D]).
+                # Solo los focos que el backend ejecuta de verdad. Las cuatro
+                # pistas separan el tramo, rehacen su stem y lo remezclan con el
+                # resto original ([R20.D]).
                 "focuses": list(IMPLEMENTED_FOCUSES),
                 "focuses_pending": [focus for focus in STEP_FOCUSES if focus not in IMPLEMENTED_FOCUSES],
                 "pattern": {"steps": remix.pattern_steps,
@@ -1223,8 +1249,9 @@ class RemixProjectRuntime:
                     "engine_calls": len(enabled),
                     "bar_aligned": bool(timeline.get("bar_aligned")),
                     "stoppable": True,
-                    "focus_material": ("separated_drums" if any(
-                        segment.get("focus") == "drums" for segment in enabled) else None),
+                    "focus_material": next(
+                        (f"separated_{segment['focus']}" for segment in enabled
+                         if segment.get("focus") in GROUP_FOCUSES), None),
                 }
             if request.scope == "region":
                 for key in ("repaint_wav_crossfade_sec", "repaint_latent_crossfade_frames"):
@@ -1277,21 +1304,30 @@ class RemixProjectRuntime:
             sequence_info = result.get("sequence") or {}
             steps = sequence_info.get("steps") or []
             first_enabled = next((segment for segment in steps if segment.get("enabled")), None)
-            if any(segment.get("enabled") and segment.get("focus") == "drums" for segment in steps):
-                if first_enabled and first_enabled.get("focus") == "drums":
+            group_focus_steps = [segment for segment in steps
+                                 if segment.get("enabled") and segment.get("focus") in GROUP_FOCUSES]
+            if group_focus_steps:
+                if first_enabled and first_enabled.get("focus") in GROUP_FOCUSES:
                     # La vista previa enseña el contrato del primer paso: si ese
-                    # paso es Batería, no corta ni separa y su stem real nace al
-                    # ejecutar. Se declara pendiente, nunca una ruta inventada.
+                    # paso es una pista concreta, no corta ni separa y su stem
+                    # real nace al ejecutar. Se declara pendiente, nunca una
+                    # ruta inventada.
+                    focus = first_enabled["focus"]
+                    label = focus_group_label(config, focus)
                     result["effective_parameters"]["src_audio_path"] = None
                     result["provenance"]["src_audio_path"] = "pending_derived_material"
                     result["pending_material"].append({
                         "parameter": "src_audio_path", "path": None,
-                        "source": result["operations"]["source"], "groups": ["drums"],
-                        "operation": "Cortar el tramo, separar su batería y rehacer solo esa pista",
+                        "source": result["operations"]["source"], "groups": [focus],
+                        "operation": (f"Cortar el tramo, separar {label.lower()} "
+                                      "y rehacer solo esa pista"),
                     })
+                labels = ", ".join(dict.fromkeys(
+                    focus_group_label(config, segment["focus"]) for segment in group_focus_steps))
                 result["warnings"].append(
-                    "El foco Batería separa cada uno de sus tramos y rehace solo la batería al ejecutar; "
-                    "el resto del tramo se conserva. La vista previa no ejecuta esa separación.")
+                    f"El foco por pista ({labels}) separa cada uno de sus tramos y rehace solo "
+                    "esa pista al ejecutar; el resto del tramo se conserva. La vista previa no "
+                    "ejecuta esa separación.")
             calls = int(sequence_info.get("engine_calls") or 0)
             if calls > 1:
                 result["warnings"].append(
@@ -1653,8 +1689,8 @@ class RemixProjectRuntime:
             job["steps"] = steps_info
             self.event(job, f"Paso {segment['index'] + 1} de {len(enabled)}: rehaciendo "
                             f"{segment['start']:.1f}-{segment['end']:.1f} s")
-            if segment.get("focus") == "drums":
-                path, track, seconds = await self._run_drum_focus_step(
+            if segment.get("focus") in GROUP_FOCUSES:
+                path, track, seconds = await self._run_focus_step(
                     job, request, segment, current, reference, work, config, position,
                     entry, plan["natural_duration_seconds"])
             else:
@@ -1714,29 +1750,35 @@ class RemixProjectRuntime:
         job["steps"] = steps_info
         return current, produced, steps_info
 
-    async def _run_drum_focus_step(self, job, request, segment, current, reference, work,
-                                   config, position, entry, natural_duration):
-        """Un paso que rehace SOLO la batería del tramo (spec/02 [R20.D]).
+    async def _run_focus_step(self, job, request, segment, current, reference, work,
+                              config, position, entry, natural_duration):
+        """Un paso que rehace SOLO la pista elegida del tramo (spec/02 [R20.D]).
 
-        Corta el tramo del audio actual, lo separa, manda el stem de batería al
-        motor como cover, monta la batería nueva sobre la voz, el bajo y el
-        acompañamiento originales, y empalma el resultado en la timeline con la
-        duración intacta. Si el corte o el empalme no conservan las muestras, se
-        falla: no se entrega una secuencia desincronizada.
+        Corta el tramo del audio actual, lo separa, manda el stem de esa pista
+        al motor como cover, monta la pista nueva sobre el resto de grupos
+        originales y empalma el resultado en la timeline con la duración
+        intacta. Si el corte, la generación o el empalme no conservan la
+        duración, se falla: no se entrega una secuencia desincronizada.
         """
+        focus = segment.get("focus")
+        if focus not in GROUP_FOCUSES:
+            raise MusicEngineError(
+                f"El paso {segment['index'] + 1} no tiene una pista que rehacer")
+        label = focus_group_label(config, focus)
+        lower = label.lower()
         index = segment["index"] + 1
         start, end = float(segment["start"]), float(segment["end"])
         segment_seconds = end - start
         self.cancelled(job)
-        self.event(job, f"Paso {index}: separando el tramo para rehacer solo la batería")
+        self.event(job, f"Paso {index}: separando el tramo para rehacer solo {lower}")
         segment_path = work / f"paso-{index}-tramo.wav"
         await asyncio.to_thread(MixerService.extract_segment, current, segment_path,
                                 start, end, config)
         separated_segment = await self._groups(segment_path, job, work, f"paso-{index}-grupos")
         groups = {item["id"]: work / item["file_name"] for item in separated_segment["groups"]}
-        drums = groups.get("drums")
-        if drums is None:
-            raise MusicEngineError("El separador no devolvió la batería del tramo")
+        material = groups.get(focus)
+        if material is None:
+            raise MusicEngineError(f"El separador no devolvió {lower} del tramo")
         # El material derivado ya existe: retirar la declaración de pendiente
         # que dejó la vista previa. Si no, la ficha afirmaría que falta algo
         # que se acaba de separar.
@@ -1744,11 +1786,11 @@ class RemixProjectRuntime:
             item for item in (job.get("pending_material") or [])
             if item.get("parameter") != "src_audio_path"]
         self.cancelled(job)
-        self.event(job, f"Paso {index}: rehaciendo solo la batería con el motor")
-        generation = sequence_drum_generation(
-            request, segment, drums, reference, self.settings, position=position)
+        self.event(job, f"Paso {index}: rehaciendo solo {lower} con el motor")
+        generation = sequence_focus_generation(
+            request, segment, material, reference, self.settings, position=position)
         job["effective_parameters"] = self.music.build_payload(generation)
-        job.setdefault("provenance", {})["src_audio_path"] = "separated_drums_segment"
+        job.setdefault("provenance", {})["src_audio_path"] = f"separated_{focus}_segment"
 
         def update(status):
             self.cancelled(job)
@@ -1771,31 +1813,32 @@ class RemixProjectRuntime:
             raise MusicEngineError(final.error or "El motor terminó sin audio válido")
         track = next((item for item in final.tracks if item.file), None)
         if track is None:
-            raise MusicEngineError("El motor no devolvió audio para la batería del paso")
-        new_audio = work / f"paso-{index}-bateria.wav"
+            raise MusicEngineError("El motor no devolvió audio para la pista del paso")
+        new_audio = work / f"paso-{index}-{focus}.wav"
         await self.music.download(track.file, new_audio)
         seconds = await self.music.verify_audio(new_audio) / 1000
         if abs(seconds - segment_seconds) > config.duration_tolerance_seconds:
             raise MusicEngineError(
-                "El motor cambió la duración de la batería del paso; no se mezclan tiempos distintos")
+                "El motor cambió la duración de la pista del paso; no se mezclan tiempos distintos")
         self.cancelled(job)
-        self.event(job, f"Paso {index}: montando la batería nueva sobre el resto del tramo")
+        self.event(job, f"Paso {index}: montando la pista nueva sobre el resto del tramo")
         generated_groups = await self._groups(new_audio, job, work, f"paso-{index}-nueva")
         separated = {item["id"]: work / item["file_name"] for item in generated_groups["groups"]}
-        mounted = work / f"paso-{index}-bateria-montada.wav"
+        mounted = work / f"paso-{index}-{focus}-montada.wav"
         info = await asyncio.to_thread(
             MixerService.render_single_transform, new_audio, separated,
-            {"drums": "transform", "vocals": "remove", "bass": "remove", "other": "remove"},
-            drums, mounted, config,
-            min_remaining_ratio=config.drum_focus_min_remaining_ratio)
+            focus_transform_actions(focus),
+            material, mounted, config,
+            min_remaining_ratio=focus_min_remaining_ratio(config, focus))
         if info.get("used_full_generation"):
             raise MusicEngineError(
-                "El separador no pudo aislar la batería nueva del paso; "
-                "no se monta una canción entera como si fuera batería")
+                f"El separador no pudo aislar {lower} del paso; "
+                "no se monta una canción entera como si fuera esa pista")
         warning = info.get("warning")
         if warning and warning not in job.setdefault("warnings", []):
             job["warnings"].append(warning)
-        parts = [(groups[key], 0.0) for key in ("vocals", "bass", "other") if key in groups]
+        parts = [(groups[key], 0.0) for key in GROUP_FOCUSES
+                 if key != focus and key in groups]
         parts.append((mounted, 0.0))
         mixed = work / f"paso-{index}-mezcla.wav"
         await asyncio.to_thread(MixerService.mix_groups, parts, mixed,

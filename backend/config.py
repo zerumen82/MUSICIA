@@ -54,7 +54,7 @@ class AcestepSettings:
     # Espera de Musicia y, al arrancar el motor, ACESTEP_GENERATION_TIMEOUT.
     # El motor trae 600 s. Con SFT, 50 pasos y batch 2, un original de 81 s
     # llegó al paso 49 y la UI mostró «sin audio válido» (2026-10-13).
-    job_timeout: float = 1800.0
+    job_timeout: float = 3600.0
     lifecycle_start_timeout_seconds: float = 300.0
     lifecycle_stop_timeout_seconds: float = 15.0
     # Perfil de 8 GB: el servidor REST no debe fijar el DiT en CUDA por
@@ -249,10 +249,12 @@ class RemixSettings:
     # Si al quitar la voz generada y los grupos quitados queda menos que esta
     # fracción del audio nuevo, la pista transformada usa la generación entera.
     single_transform_min_remaining_ratio: float = 0.25
-    # La batería ocupa una parte menor de la mezcla que una voz: aplicar el
-    # umbral de 0,25 rechazaría separaciones válidas. Este mínimo solo evita
-    # montar un resto casi vacío como si fuera batería ([R20.D]).
-    drum_focus_min_remaining_ratio: float = 0.05
+    # Foco por pista en la secuencia ([R20.D]): fracción mínima del audio
+    # generado que debe quedar en la pista del foco. Batería y bajo ocupan una
+    # parte menor de la mezcla que la voz o el acompañamiento; un umbral único
+    # rechazaría separaciones válidas de las dos primeras.
+    focus_min_remaining_ratio: dict[str, float] = field(default_factory=lambda: {
+        "vocals": 0.25, "drums": 0.05, "bass": 0.05, "other": 0.25})
     timeline_min_duration_seconds: float = 1.0
     timeline_min_repeat_seconds: float = 1.0
     timeline_transition_seconds: float = 0.1

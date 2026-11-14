@@ -19,7 +19,7 @@
     "health_timeout": 3.0,
     "poll_interval": 3.0,
     "poll_max_misses": 8,
-    "job_timeout": 1800.0
+    "job_timeout": 3600.0
   },
   "generation": {
     "duration_seconds": 120.0,
@@ -151,7 +151,7 @@
     "peak_limit_dbfs": -1.0,
     "duration_tolerance_seconds": 0.25,
     "single_transform_min_remaining_ratio": 0.25,
-    "drum_focus_min_remaining_ratio": 0.05,
+    "focus_min_remaining_ratio": {"vocals": 0.25, "drums": 0.05, "bass": 0.05, "other": 0.25},
     "timeline_min_duration_seconds": 1.0,
     "timeline_min_repeat_seconds": 1.0,
     "timeline_transition_seconds": 0.1,
