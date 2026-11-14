@@ -329,9 +329,21 @@ try {
         # /health puede tardar mientras carga o genera. Un timeout por sí
         # solo no acredita que esté muerto (regresión del 2026-10-18).
         if ($Rearme -and $motorPresente) {
-            Stop-Motor 'liberando-vram'
-            $motorArriba = $false
-            $motorPresente = $false
+            $stopOk = $true
+            try {
+                Stop-Motor 'liberando-vram'
+            } catch {
+                $stopOk = $false
+                Write-Host "[motor] no se pudo detener el motor presente (identidad no verificada); se preserva: $($_.Exception.Message)"
+            }
+            if ($stopOk) {
+                $motorArriba = $false
+                $motorPresente = $false
+            } else {
+                # Motor preservado: reutilizarlo en lugar de fallar al enlazar.
+                $motorArriba = Test-Endpoint 'http://127.0.0.1:8001/health'
+                $motorPresente = $true
+            }
         }
 
         if ($motorArriba) {

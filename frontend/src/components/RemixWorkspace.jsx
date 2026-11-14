@@ -677,7 +677,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
           {group.id === 'drums' && <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-2" data-group-pattern="drums">
             <button type="button" aria-expanded={groupPatternEditor === 'drums'}
               disabled={busy} onClick={() => setGroupPatternEditor(groupPatternEditor === 'drums' ? null : 'drums')}
-              className="btn btn-ghost min-h-8 px-2 self-start" data-group-pattern-toggle="drums">
+              className={`btn btn-ghost min-h-8 px-2 self-start ${groupPatternEnabled.drums ? '!border-[var(--acc-line)] !text-[var(--acc)]' : ''}`} data-group-pattern-toggle="drums">
               {groupPatternEnabled.drums ? 'EDITAR PATRÓN' : 'PATRÓN DE BATERÍA (OCULTO)'}
             </button>
             {!groupPatternEnabled.drums && <span className="mono text-[10px] text-[var(--faint)]" data-group-pattern-hint="drums">Oculto y desactivado: no se envía nada hasta abrirlo, marcarlo y activarlo.</span>}

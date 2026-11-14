@@ -10,7 +10,7 @@ const TEXT = {
   keyboard: 'Flechas para recorrer las celdas; Espacio o Intro para marcar un golpe.',
 };
 const cell = 'h-8 w-8 shrink-0 border border-[var(--line)] text-[10px] leading-none p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--acc)]';
-const cellOn = 'bg-[var(--acc-line)] text-black border-[var(--acc-line)]';
+const cellOn = 'bg-[var(--acc)] text-black border-[var(--acc)] shadow-[0_0_8px_var(--acc)]';
 
 /** Wide optional editor. Its server-declared grid never invents a resolution. */
 export default function SequencePattern({ pattern, onChange, capabilities, disabled = false, check = null, checkLabel = null }) {

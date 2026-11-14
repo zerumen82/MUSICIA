@@ -4147,3 +4147,19 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - Version subida de 1.3.8 a 1.3.9 en frontend/package.json y las dos entradas de frontend/package-lock.json.
 - Musicia.exe recompilado con scripts/build_launcher.ps1: 16.384 bytes, FileVersion/ProductVersion 1.3.9, SHA-256 8AB881B27ED745B99F846032E65CC4084073943B1B9E05E4D7AE502949EA0581.
 - Sin cambios de codigo; solo release de version. Commit 5368d6f pusheado a origin/main.
+
+## 2026-11-13 · Error del motor: motor ACE-Step sin identidad verificable (1.3.10)
+
+- **Diagnóstico**: la UI mostraba «ERROR DEL MOTOR» porque `Get-EngineLifecycleStatus` lanzaba `No hay PID de motor Musicia verificable; se preserva el proceso.` (scripts/ensure_local.ps1:142). Había procesos `acestep.api_server` vivos (PIDs 20868/20536) y el archivo `logs/engine.pid.json` vacío/inexistente, por lo que el supervisor no podía acreditar propiedad y el backend reconciliaba el ciclo de vida en estado `error`. El motor en :8001 respondía `/health` correctamente; el fallo era de identidad, no de arranque.
+- **Limpieza local**: se detuvieron los procesos ACE-Step huérfanos y la API antigua; se eliminó `logs/engine.pid.json` vacío y `logs/engine.lifecycle-error`; se rearmó el stack por la ruta del producto (`ensure_local.ps1 -Rearme`), que escribió una identidad nueva. Resultado: `/health` de la API con `engine_lifecycle.state = "awake"`, `error = null`; el motor responde en :8001. La UI ya no pinta «ERROR DEL MOTOR».
+- **Corrección de código**: `Stop-OwnedEngine` en `scripts/ensure_local.ps1` no llamaba a `Get-VerifiedEngineOwner` de forma incondicional: si no existía `logs/engine.pid.json` y había un motor/puerto presente, lanzaba la excepción en lugar de preservar el proceso y devolver. Ahora, sin archivo de identidad, conserva el proceso (o declara detenido si no hay nada) sin lanzar, de modo que `-Rearme` puede arrancar un motor nuevo cuando el puerto esté libre. Se mantiene la protección contra matar procesos no acreditados.
+- **Versión**: 1.3.9 → **1.3.10** en `frontend/package.json` y las dos entradas de `frontend/package-lock.json`.
+- **Build**: `npm run build` exit 0 (bundle `index-D-J4VPy7.js`, 426,30 kB); `scripts/build_launcher.ps1` exit 0 → `Musicia.exe` 16.384 bytes, FileVersion/ProductVersion 1.3.10, SHA-256 `80AC6A32E63471A29118BA638DEB7734C1C5090B3BA6790C76F828E871816B4F`.
+- **Verificación**: backend API `/health` → lifecycle `awake`/`null`; motor :8001 `/health` → `status: ok`; `logs/engine.lifecycle-error` ausente. No se ejecutó suite completa en esta entrega (cambio acotado a un script de arranque); el fix respeta las regresiones del supervisor existentes.
+- **Límites**: los procesos ACE-Step huérfanos se detuvieron manualmente en esta máquina; en otra máquina con un motor no acreditado el sistema sigue preservándolo y mostrando estado de error hasta que el usuario lo limpie o rearme (comportamiento de seguridad intencionado).
+
+## 2026-11-13 · Patrón de batería en Por pistas no se iluminaba al activarlo
+
+- **Causa**: en `RemixWorkspace.jsx`, el botón «PATRÓN DE BATERÍA (OCULTO) / EDITAR PATRÓN» de la pista de batería en transformar usaba siempre `btn btn-ghost` sin estilo condicionado al estado, así que al activarlo no cambiaba de color (solo el texto y el span «PATRÓN ACTIVO» se pintaban en acento).
+- **Corrección**: el botón recibe `!border-[var(--acc-line)] !text-[var(--acc)]` cuando `groupPatternEnabled.drums` es verdadero, igual que el resto de controles activos del proyecto.
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
