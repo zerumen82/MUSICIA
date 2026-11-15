@@ -4232,3 +4232,9 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Corrección**: la medición final pasa a `required_measured_tempo(staged_output, arrangement, config)`, que aplica `tempo_after_repetition` y conserva el pulso real. Como red de seguridad, si la verificación final sigue sin cumplirse, se entrega con aviso en vez de abortar el trabajo.
 - **Verificación**: `py_compile` exit 0; `test_remix_timeline` + `test_verify_align` 75/75 OK.
 - **Entrega**: versión **1.3.19** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.19, SHA-256 `6AF0AF57AB3D3DC36CE43B4921CAFAB32B3430C5DF0475E8DD621BFC14B90571`).
+## 2026-11-15 · Recorte mínimo más claro y leniente (1.3.20)
+
+- **Petición**: log real con «El recorte es demasiado corto para usarlo como sample». Causa: el umbral se comprobaba sobre el recorte escalado por el cambio de tempo; un recorte de ~3 s se convertía en <1 s tras escalar 3.5× y fallaba.
+- **Corrección**: `timeline_min_repeat_seconds` baja de 1.0 a 0.5 s, y el mensaje de error indica el mínimo en segundos tras el cambio de tempo (y el equivalente en el audio original).
+- **Verificación**: `py_compile` exit 0; `test_remix_timeline` 53/53 OK.
+- **Entrega**: versión **1.3.20** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.20, SHA-256 `1E4B0FF8AFDBC0FBAB75162DB258858A0D2622B3A83B658C36F7EC31D1AC3EC7`).

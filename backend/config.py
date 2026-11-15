@@ -261,7 +261,7 @@ class RemixSettings:
     focus_min_remaining_ratio: dict[str, float] = field(default_factory=lambda: {
         "vocals": 0.25, "drums": 0.05, "bass": 0.05, "other": 0.25})
     timeline_min_duration_seconds: float = 1.0
-    timeline_min_repeat_seconds: float = 1.0
+    timeline_min_repeat_seconds: float = 0.5
     timeline_transition_seconds: float = 0.1
     timeline_max_transition_seconds: float = 2.0
     timeline_min_groove_confidence: float = 0.12

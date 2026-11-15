@@ -296,7 +296,11 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
     if marked:
         mapped_start, mapped_end = start / ratio, end / ratio
         if expanding and mapped_end - mapped_start < config.timeline_min_repeat_seconds:
-            raise ValueError("El recorte es demasiado corto para usarlo como sample")
+            min_original = config.timeline_min_repeat_seconds * ratio
+            raise ValueError(
+                f"El recorte es demasiado corto para usarlo como sample: "
+                f"mínimo {config.timeline_min_repeat_seconds:g} s tras el cambio de tempo "
+                f"(unas {min_original:g} s en el audio original)")
     elif expanding:
         # Sin recorte marcado: repetir la canción entera (0..natural) en tiempo ajustado
         mapped_start, mapped_end = 0.0, natural
@@ -633,7 +637,9 @@ def apply_groups_mix_tempo(plan: dict, mix_seconds: float, ratio: float,
         if marked:
             span = updated["mapped_repeat_end"] - updated["mapped_repeat_start"]
             if span < config.timeline_min_repeat_seconds:
-                raise ValueError("El recorte es demasiado corto para usarlo como sample")
+                raise ValueError(
+                    f"El recorte es demasiado corto para usarlo como sample: "
+                    f"mínimo {config.timeline_min_repeat_seconds:g} s tras el cambio de tempo")
         else:
             updated["mapped_repeat_start"], updated["mapped_repeat_end"] = 0.0, adjusted
     else:

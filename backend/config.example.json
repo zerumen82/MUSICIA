@@ -155,7 +155,7 @@
     "single_transform_min_remaining_ratio": 0.25,
     "focus_min_remaining_ratio": {"vocals": 0.25, "drums": 0.05, "bass": 0.05, "other": 0.25},
     "timeline_min_duration_seconds": 1.0,
-    "timeline_min_repeat_seconds": 1.0,
+    "timeline_min_repeat_seconds": 0.5,
     "timeline_transition_seconds": 0.1,
     "timeline_max_transition_seconds": 2.0,
     "timeline_min_groove_confidence": 0.12,
