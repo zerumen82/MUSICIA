@@ -78,6 +78,7 @@ Durante la auditoría inicial API y motor estaban apagados. La prueba posterior 
 
 | ID | Qué era | Cierre |
 |----|---------|--------|
+| T2 | Sequencer.jsx muerto con samples de tonejs.github.io | **Cerrada 2026-11-15**: el componente no estaba montado ni importado (solo un comentario en App.jsx); se elimina para quitar el riesgo de internet y la deuda T2. Si se quiere remontar, habrá que empaquetar samples locales ([C2]) |
 | T6 | Sin tests automatizados | Cerrada 2026-10-08. La auditoría CI del 2026-10-13 ejecutó **164 tests backend y 8 frontend**; hay suites unittest/Node para contratos, análisis, cuadre, fichas, biblioteca y prompts. Estas suites no sustituyen los recorridos GPU/UI ni la escucha |
 | T9 | Otras rutas DSP síncronas | **Cerrada 2026-11-13** (spec/02, evidencia en memory.md): las cinco rutas de escritura (`/audio/mix`, `/audio/tempo`, `/audio/crossfade`, `/audio/remix` DSP y `/audio/process`) trabajan con `asyncio.to_thread` y candado por stem de salida; sondeo concurrente HTTP 200 y dos salidas iguales con nombre distinto (`t9-concurrent*.mp3`). No generaliza a análisis ni a generación GPU |
 | T10 | Criba B8 de duración estéreo | **Cerrada 2026-11-13**: `screen_continuation_chunk` mide `(fin - inicio) / rate` una sola vez (`backend/remix_project.py`, antes de la región); regresiones mono/estéreo reales en `test_pending_audio_contracts` (`ContinuationFrameDurationTest`). La ruta sigue fuera de R19 |

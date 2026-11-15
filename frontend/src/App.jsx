@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Library as LibraryIcon, FileUp, SlidersHorizontal, LogOut, Loader2 } from 'lucide-react';
 import Composer from './components/Composer';
 import Library from './components/Library';
@@ -10,7 +10,7 @@ import { headerWatchText, latestJob, runningJob } from './header_job';
 import ProcessLogs from './components/ProcessLogs';
 
 // Nota: el Mixer decorativo original se sustituye por MixLab (mezcla real
-// vía POST /audio/mix). Sequencer sigue retirado (deuda T2 de spec/03).
+// vía POST /audio/mix).
 const TABS = [
   { id: 'composer', icon: AudioWaveform, label: 'CREAR', hint: 'canciones IA' },
   { id: 'uploads', icon: FileUp, label: 'REMIX', hint: 'tu audio + remix' },
