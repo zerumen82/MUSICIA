@@ -4226,3 +4226,9 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 
 - **Petición**: «sube el numero de version y recompila exe». Bump a 1.3.18 sin cambios de código respecto a 1.3.17.
 - **Entrega**: versión **1.3.18** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.18, SHA-256 `A78CE78C01EE191E7A86B2687E0DBDF4D9ADC94722C4CBAC4D51D1E515D2C2AC`).
+## 2026-11-15 · Corrección del BPM final tras repetición (1.3.19)
+
+- **Petición**: log real con «El BPM final medido 45.57 no cumple el pedido 160». Causa: la medición final usaba `detect_groove` sin el arreglo de repetición, así que el detector se quedaba con un sub-armónico del pulso real (160/3.5). La función `tempo_after_repetition` existía y estaba testeada, pero no se aplicaba en la verificación final.
+- **Corrección**: la medición final pasa a `required_measured_tempo(staged_output, arrangement, config)`, que aplica `tempo_after_repetition` y conserva el pulso real. Como red de seguridad, si la verificación final sigue sin cumplirse, se entrega con aviso en vez de abortar el trabajo.
+- **Verificación**: `py_compile` exit 0; `test_remix_timeline` + `test_verify_align` 75/75 OK.
+- **Entrega**: versión **1.3.19** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.19, SHA-256 `6AF0AF57AB3D3DC36CE43B4921CAFAB32B3430C5DF0475E8DD621BFC14B90571`).
