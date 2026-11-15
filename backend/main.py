@@ -225,8 +225,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await _reconcile_engine_lifecycle()
     except Exception as exc:
-        engine_lifecycle.report_error(f"Startup engine reconciliation failed: {exc}")
-        logger.error(engine_lifecycle.error)
+        # Si el motor ya responde, no se queda bloqueado en "error":
+        # se adopta "idle" para que la generación pueda despertarlo.
+        try:
+            if (await music.health()).get("reachable"):
+                engine_lifecycle.reconcile("idle")
+                logger.warning("Motor alcanzable pero reconciliación falló; se adopta idle: %s", exc)
+            else:
+                engine_lifecycle.report_error(f"Startup engine reconciliation failed: {exc}")
+                logger.error(engine_lifecycle.error)
+        except Exception as exc2:  # noqa: BLE001
+            engine_lifecycle.report_error(f"Startup engine reconciliation failed: {exc2}")
+            logger.error(engine_lifecycle.error)
     logger.info("Musicia API lista | motor ACE-Step: " + settings.acestep.base_url)
     try:
         yield

@@ -115,6 +115,11 @@ class EngineLifecycle:
             if self._awake:
                 self._touched = True
                 return
+            # Si el estado es "error" pero el motor responde, se reintenta
+            # en vez de bloquear la generación indefinidamente.
+            if self._state == "error":
+                self._state = "idle"
+                self._error = None
             # A failed start can still have created a process. Its final lease
             # must attempt cleanup rather than assuming that no GPU was used.
             self._touched = True

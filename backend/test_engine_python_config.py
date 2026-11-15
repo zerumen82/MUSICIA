@@ -36,7 +36,7 @@ class EnginePythonConfigTest(unittest.TestCase):
             "ACESTEP_CONFIG_PATH": settings.generation.model,
             "ACESTEP_LM_MODEL_PATH": settings.generation.lm_model,
             "ACESTEP_LM_BACKEND": settings.generation.lm_backend,
-            "ACESTEP_GENERATION_TIMEOUT": "1800",
+            "ACESTEP_GENERATION_TIMEOUT": "3600",
             "ACESTEP_ON_DEMAND_MODEL_LOAD": "true",
             "ACESTEP_OFFLOAD_TO_CPU": "true",
             "ACESTEP_OFFLOAD_DIT_TO_CPU": "false",

@@ -2462,20 +2462,7 @@ class RemixProjectRuntime:
                             self.event(job, f"El BPM final de la variante {index + 1} no se pudo verificar tras el ajuste DSP; "
                                            f"se entrega con el tempo acreditado de la base ({measured['bpm_measured']} BPM)")
                         else:
-                            try:
-                                verify_requested_tempo(measured, request.bpm, config, "después del arreglo y exportación")
-                            except ValueError as exc:
-                                # La medicion final del archivo publicado puede
-                                # no coincidir con la del audio ajustado (repeticion,
-                                # extension). Se entrega con aviso honesto en vez
-                                # de abortar todo el trabajo (decision 2026-11-15).
-                                variant_plan["final_tempo_verification"] = "uncertain_after_publication"
-                                variant_plan["final_tempo_verification_error"] = str(exc)
-                                warnings = job.setdefault("warnings", [])
-                                notice = f"El BPM final medido {measured['bpm_measured']:g} no cumple el pedido {request.bpm:g} (tolerancia {config.tempo_verify_tolerance_bpm:g} BPM); se entrega con aviso"
-                                if notice not in warnings:
-                                    warnings.append(notice)
-                                self.event(job, f"El BPM final de la variante {index + 1} no se pudo verificar; se entrega con aviso")
+                            verify_requested_tempo(measured, request.bpm, config, "después del arreglo y exportación")
                     if repeated_whole_song:
                         warning = "La parte elegida no conservaba el pulso; se repitió la canción entera."
                         warnings = job.setdefault("warnings", [])
