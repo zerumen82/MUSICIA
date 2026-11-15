@@ -4256,3 +4256,8 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Petición**: «PERO SIGUE SIN VERSE»: el `<details>` solo se mostraba cuando `needsStyle` era verdadero, así que en Por pistas sin transformaciones no aparecía. Ahora se muestra siempre que `remixing` es verdadero, con borde y etiqueta «ℹ Qué entiende el modelo (pulsa para ver)».
 - **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
 - **Entrega**: versión **1.3.23** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.23, SHA-256 `A2B2D4F86B818D13E2015A81EE9E3951484EC6AABAD58C0584C1134BF9C8D36F`).
+## 2026-11-15 · Info del modelo también en CREAR (1.3.24)
+
+- **Petición**: «YA PERO PARA CREAR MÚSICA IGUAL..DEBE APARECER DONDE SE PONGA PROMPT». Se añade el mismo `<details>` con la documentación del modelo junto al textarea del prompt de CREAR.
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
+- **Entrega**: versión **1.3.24** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.24, SHA-256 `E0A54B572DCB404DCA017F6ED1D0988C095C9A87CFBACC5C23C478C437F7B944`).
