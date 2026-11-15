@@ -679,7 +679,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <button type="button" disabled={busy} aria-pressed={solo === group.id} onClick={() => setSolo((current) => current === group.id ? null : group.id)} className="btn btn-ghost h-8 px-2">{solo === group.id ? 'CERRAR SOLO' : 'SOLO'}</button>
         {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
           <textarea aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} rows={2} className={`${field} w-full resize-y`} />
-          <details className="text-[11px] text-[var(--muted)]"><summary className="cursor-pointer select-none">Que entiende el modelo (info)</summary>
+          <details className="text-[11px] text-[var(--muted)] border border-[var(--line)] rounded px-2 py-1"><summary className="cursor-pointer select-none font-semibold">ℹ Que entiende el modelo (pulsa)</summary>
             <div className="mt-1 pl-2">Genero/estilo, instrumentos, tempo, energia (subidon/bajon), textura, estructura. No entiende mezcla (volumen, pan, EQ).</div></details>
           <PromptTools prompt={trackText[group.id] ?? ''}
             setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
@@ -730,7 +730,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && scope === 'sequence' && <p className="text-[13px] text-[var(--muted)]">El estilo de aquí se aplica a todos los pasos: viaja delante del texto de cada paso. El motor no lo recibe solo, sino dentro de cada paso.</p>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
       placeholder={scope === 'sequence' ? SEQUENCE_STYLE_PLACEHOLDER : (activeScope?.placeholder || 'Qué quieres cambiar.')} className={`${field} resize-y w-full`} />}
-    {remixing && needsStyle && <details className="text-[12px] text-[var(--muted)]"><summary className="cursor-pointer select-none">Qué entiende el modelo (info)</summary>
+    {remixing && <details className="text-[12px] text-[var(--muted)] border border-[var(--line)] rounded px-2 py-1"><summary className="cursor-pointer select-none font-semibold">ℹ Qué entiende el modelo (pulsa para ver)</summary>
       <div className="mt-1 flex flex-col gap-1 pl-2">
         <p>El modelo (ACE-Step SFT) recibe un solo texto en inglés. Entiende: género/estilo, instrumentos, tempo (BPM), energía (subidón/bajón), textura (distorsión, reverb), y estructura (intro, build, drop, breakdown, outro).</p>
         <p>Palabras útiles: build-up, drop, breakdown, riser, sweep, sub-bass, distorted kick, reverb tail, sidechain, 4x4, offbeat hi-hat.</p>
