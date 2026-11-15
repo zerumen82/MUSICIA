@@ -150,6 +150,8 @@
     "export_bitrate": "192k",
     "peak_limit_dbfs": -1.0,
     "duration_tolerance_seconds": 0.25,
+    "quantize_target_bpm": 0.0,
+    "quantize_max_ratio": 1.10,
     "single_transform_min_remaining_ratio": 0.25,
     "focus_min_remaining_ratio": {"vocals": 0.25, "drums": 0.05, "bass": 0.05, "other": 0.25},
     "timeline_min_duration_seconds": 1.0,

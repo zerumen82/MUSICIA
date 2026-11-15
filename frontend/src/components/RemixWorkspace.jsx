@@ -71,6 +71,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [groups, setGroups] = useState([]);
   const [useStems, setUseStems] = useState(false);
   const [stemFiles, setStemFiles] = useState({});
+  const [quantize, setQuantize] = useState(false);
   const [actions, setActions] = useState({});
   const [trackText, setTrackText] = useState({});
   const [trackSelections, setTrackSelections] = useState({});
@@ -528,6 +529,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       : scope === 'sequence' ? {} : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
     ...(scope === 'groups' && useStems ? { stems: Object.fromEntries(Object.entries(stemFiles).filter(([, v]) => v && v.name).map(([k, v]) => [k, v.name])), stems_kind: Object.fromEntries(Object.entries(stemFiles).filter(([, v]) => v && v.name).map(([k, v]) => [k, v.kind])) } : {}),
+    ...(scope === 'groups' && useStems && quantize ? { quantize: true } : {}),
     ...(scope === 'groups' && groupPatternEnabled.drums && patternPayload(groupPatterns.drums)
       ? { patterns: { drums: patternPayload(groupPatterns.drums) } } : {}),
     // La secuencia manda orden e intención: el servidor reparte los tramos.
@@ -665,6 +667,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
             </select>
           </label>
         ))}
+        <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={quantize} onChange={(e) => setQuantize(e.target.checked)} disabled={busy} /> Cuantizar stems al BPM objetivo</label>
       </div>}
       {!useStems && !groups.length && <button type="button" disabled={busy || grooveBusy || !capabilities || !!analysisStatus} onClick={() => void separate()} className="btn btn-signal h-10 px-4 self-start">SEPARAR PISTAS DEL ORIGINAL</button>}
       {analysisStatus && !groups.length && <p role="status" className="text-[13px]">{analysisStatus} La separación espera a que termine.</p>}

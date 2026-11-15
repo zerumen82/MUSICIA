@@ -24,6 +24,7 @@ from mixer_service import MIN_PHASE_SHIFT_MS, MixerService, plan_alignment, run_
 from music_service import GenerationRequest, MusicEngineError, engine_is_converting
 from prompt_constraints import rules as constraint_rules, validate_explicit_constraints
 from prompt_style import style_caption
+from audio_analysis import detect_groove
 from remix_sequence import (GROUP_FOCUSES, IMPLEMENTED_FOCUSES, STEP_FOCUSES, SequenceStep,
                             SequencePattern, check_kick_pattern, material_origin,
                             pattern_onset_gap_ms, sequence_timeline, step_caption, step_seed,
@@ -74,6 +75,7 @@ class RemixProjectRequest(BaseModel):
     # entregan, se saltan la separacion y el trabajo deja de ser un bootleg.
     stems: dict[str, str] | None = None
     stems_kind: dict[str, str] | None = None
+    quantize: bool = False
     patterns: dict[str, SequencePattern] | None = None
     gains_db: dict[str, float] = Field(default_factory=dict)
     source_classification: Literal["electronic", "non_electronic", "mixed", "unknown"] | None = None
@@ -2033,6 +2035,29 @@ class RemixProjectRuntime:
                     for group_id, action in (request.groups or {}).items():
                         if action in ("keep", "transform") and group_id not in originals:
                             raise ValueError(f"Falta el stem de la pista {group_id}")
+                    # Cuantizacion opcional: estirar cada stem al BPM objetivo.
+                    target_bpm = self.settings.remix.quantize_target_bpm
+                    if request.quantize and target_bpm and target_bpm > 0:
+                        quantized = {}
+                        for group_id, path in originals.items():
+                            try:
+                                groove = detect_groove(path)
+                                measured = groove.get("bpm")
+                            except Exception:  # noqa: BLE001
+                                measured = None
+                            if not measured or measured <= 0:
+                                raise ValueError(f"No se pudo medir el BPM del stem {group_id}: no se cuantiza")
+                            ratio = target_bpm / measured
+                            if (ratio < 1 / self.settings.remix.quantize_max_ratio
+                                    or ratio > self.settings.remix.quantize_max_ratio):
+                                raise ValueError(f"Estiramiento fuera de limite para {group_id}: {ratio:.3f}")
+                            out = work / f"stem-cuantizado-{group_id}{path.suffix}"
+                            await asyncio.to_thread(MixerService.tempo_audio, path, out, ratio,
+                                                    MixerService.inspect_pcm(path)["duration_seconds"],
+                                                    config)
+                            quantized[group_id] = out
+                            self.event(job, f"Stem {group_id} cuantizado: {measured:g} -> {target_bpm:g} bpm")
+                        originals = quantized
                     # Mezclar stems en la fuente de generacion.
                     engine_source = work / "stems-mezclados.wav"
                     await asyncio.to_thread(MixerService.mix_groups,

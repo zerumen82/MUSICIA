@@ -2351,7 +2351,7 @@ def _resolve_upload(name: str) -> Path:
 
 
 @app.post("/audio/upload")
-async def audio_upload(file: UploadFile) -> dict[str, Any]:
+async def audio_upload(file: UploadFile, quantize: bool = False) -> dict[str, Any]:
     """Guarda un MP3/WAV real en outputs/uploads/ y lo analiza (DSP puro).
 
     Devuelve features + hipótesis (música/voz/mixta) para que la UI
@@ -2381,8 +2381,35 @@ async def audio_upload(file: UploadFile) -> dict[str, Any]:
         target.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Audio no decodificable: {exc}") from exc
 
+    quantized_name = None
+    bpm_measured = None
+    bpm_target = settings.remix.quantize_target_bpm
+    if quantize and bpm_target and bpm_target > 0:
+        try:
+            groove = await asyncio.to_thread(detect_groove, target)
+            bpm_measured = groove.get("bpm")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"No se pudo medir el BPM para cuantizar {target.name}: {exc}")
+            bpm_measured = None
+        if bpm_measured and bpm_measured > 0:
+            ratio = bpm_target / bpm_measured
+            if ratio < 1 / settings.remix.quantize_max_ratio or ratio > settings.remix.quantize_max_ratio:
+                logger.warning(f"Estiramiento fuera de limite para {target.name}: {ratio:.3f}; no se cuantiza")
+                bpm_measured = None
+            else:
+                try:
+                    quantized = target.with_name(f"{target.stem}-q{target.suffix}")
+                    await asyncio.to_thread(MixerService.tempo_audio, target, quantized, ratio,
+                                            analysis["duration_seconds"], settings.remix)
+                    quantized_name = quantized.name
+                    logger.info(f"Cuantizado {target.name}: {bpm_measured:g} -> {bpm_target:g} bpm ({ratio:.3f})")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"No se pudo cuantizar {target.name}: {exc}")
+                    quantized_name = None
     logger.info(f"Subida analizada: {target.name} ({analysis['duration_seconds']}s)")
-    return {"status": "success", "file_name": target.name, "analysis": analysis}
+    return {"status": "success", "file_name": target.name, "analysis": analysis,
+            "quantized_file": quantized_name, "bpm_measured": bpm_measured,
+            "bpm_target": (bpm_target if (quantize and quantized_name) else None)}
 
 
 @app.get("/audio/uploads")
@@ -2958,4 +2985,4 @@ else:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    uvicorn.run(app, host=settings.host, port=settings.port)

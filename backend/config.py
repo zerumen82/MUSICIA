@@ -246,6 +246,11 @@ class RemixSettings:
     export_bitrate: str = "192k"
     peak_limit_dbfs: float = -1.0
     duration_tolerance_seconds: float = 0.25
+    # Cuantizacion de subidas (R20.B+): BPM objetivo al que se estira un audio
+    # subido cuando se pide cuantizar. 0 desactiva la cuantizacion.
+    quantize_target_bpm: float = 0.0
+    # Limite del estiramiento atempo para no degradar el audio.
+    quantize_max_ratio: float = 1.10
     # Si al quitar la voz generada y los grupos quitados queda menos que esta
     # fracción del audio nuevo, la pista transformada usa la generación entera.
     single_transform_min_remaining_ratio: float = 0.25

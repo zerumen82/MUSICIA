@@ -4214,3 +4214,11 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Verificación**: `py_compile` exit 0; focales `test_remix_focus + test_remix_sequence + test_pending_audio_contracts` 50/50 OK; frontend build exit 0, lint exit 0, 113/113 tests.
 - **Límites**: sin generación GPU con stems; la fidelidad y el cuadre de duración se prueban con regresiones deterministas, no con audio real. No se toca el perfil SFT.
 - **Entrega**: versión **1.3.16** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.16, SHA-256 `B9D9C88AC569CD097A618A9E4B431BCA091F82BD7F61C152D64447E51A456F40`).
+## 2026-11-15 · Cuantización de subidas (1.3.17)
+
+- **Petición**: «los temas deben quantizarse..las subidas». Se añade cuantización opcional.
+- **Backend**: `/audio/upload` acepta `quantize=true`: mide BPM con detect_groove y, si hay BPM medido y el estiramiento cabe en `quantize_max_ratio`, estira a `quantize_target_bpm` (config) con MixerService.tempo_audio y devuelve `quantized_file`, `bpm_measured`, `bpm_target`. `RemixProjectRequest.quantize` aplica la misma cuantización a los stems en el flujo groups antes de mezclar. Config: `quantize_target_bpm` (0 = desactivado) y `quantize_max_ratio`.
+- **UI**: casilla «Cuantizar stems al BPM objetivo» en el panel de stems propios de Por pistas.
+- **Verificación**: `py_compile` exit 0; frontend build exit 0, lint exit 0, 113/113 tests.
+- **Límites**: si no se mide BPM o el estiramiento supera el límite, no se cuantiza y se avisa. No se cambia el perfil SFT.
+- **Entrega**: versión **1.3.17** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.17, SHA-256 `245AAD8E1EA0456746A4BB14C37AB301C99F7D599B7738D625D71346CBF794B0`).
