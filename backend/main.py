@@ -218,6 +218,19 @@ _ADMIT_GENERATION = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # En Windows, los cortes abruptos de conexión (Electron/navegador) dejan
+    # trazas benignas de ConnectionResetError en el proactor. Se silencian.
+    loop = asyncio.get_event_loop()
+    default_handler = loop.get_exception_handler()
+    def _quiet_handler(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError):
+            return
+        if default_handler is not None:
+            default_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+    loop.set_exception_handler(_quiet_handler)
     _load_history()
     await music.start()
     engine_lifecycle.activate()

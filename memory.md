@@ -4275,3 +4275,8 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Petición**: «SOLO QUIERO UNA I. UN ICONO DE UNA I CIRCULADA». Se sustituye el texto «Qué entiende el modelo (info)» por el glifo circulado `ⓘ` en los cuatro lugares (CREAR y POR PISTAS/PASOS).
 - **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
 - **Entrega**: versión **1.3.27** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.27, SHA-256 `B5826E63F8AB2DED1B150236024ADDA91DE80E397CC30FC6E67471B9B344B36A`).
+## 2026-11-15 · Silencio de tracebacks benignos de Windows (1.3.28)
+
+- **Petición**: «YO VEO TRACEBACK». Los `ConnectionResetError: [WinError 10054]` en `_ProactorBasePipeTransport._call_connection_lost` son benignos: aparecen cuando Electron/navegador cierra la conexión abruptamente. Se silencian instalando un manejador de excepciones en el event loop que ignora solo `ConnectionResetError`.
+- **Verificación**: `py_compile` exit 0.
+- **Entrega**: versión **1.3.28** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.28, SHA-256 `D4AADF0BC912B736FA3485D2356FC717596FB78CBA3703AB9AF12834BD540F01`).
