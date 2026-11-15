@@ -4284,3 +4284,8 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 
 - **Petición**: «RECOMPILA EL EXE». Recompilado `Musicia.exe` con el dist actual (1.3.28); SHA-256 `F56E97129369E36456FB2BCB411EF9AA1CF25B300CCE03518B2282F165F68437` (distinto al anterior por el bundle rebuild).
 - **Entrega**: FileVersion/ProductVersion 1.3.28, 16.384 bytes, exit 0.
+## 2026-11-15 · Botón COPIAR en identify (1.3.29)
+
+- **Petición**: «PERO NO PUEDO COPIAR ESAS DESCRIPCIONES». El mensaje de identify ahora es seleccionable (`select-text`) y lleva un botón «COPIAR» que copia la descripción al portapapeles.
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
+- **Entrega**: versión **1.3.29** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.29, SHA-256 `E5AF31372BA51A32BC22024AAC348FCA7DE332FAD146321303E805DC4E6E9603`).

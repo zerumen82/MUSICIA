@@ -356,7 +356,10 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                 <p role="status" className="mono text-[11px] text-[var(--muted)] px-3 pb-2">{identify[item.name].phase}</p>
               )}
               {identify[item.name]?.message && (
-                <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] px-3 pb-2 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('No está') || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
+                <div className="flex items-start gap-2 px-3 pb-2">
+                  <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] select-text cursor-text flex-1 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('No está') || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
+                  <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar descripción" onClick={() => { navigator.clipboard?.writeText(identify[item.name].message); }}>COPIAR</button>
+                </div>
               )}
             </div>
           ))}
