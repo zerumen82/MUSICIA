@@ -4206,3 +4206,11 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Petición**: «sigue arreglando». Se cierra la deuda T2: `frontend/src/components/Sequencer.jsx` no estaba montado ni importado (solo un comentario en `App.jsx`); se elimina para quitar el riesgo de internet (`tonejs.github.io`) y la deuda queda cerrada en spec/03. Si se quiere remontar, habrá que empaquetar samples locales ([C2]).
 - **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113. Sin tests backend afectados (no hay import del componente).
 - **Entrega**: versión **1.3.15** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.15, SHA-256 `04A9433303817A57A9EC533097E591172B7C211A717B9AB3280DF601B44B295C`).
+## 2026-11-15 · R20.B stems propios: contrato backend + UI (1.3.16)
+
+- **Petición**: «continua» → se implementa R20.B (stems propios).
+- **Backend**: `RemixProjectRequest` gana `stems: dict[str,str]` y `stems_kind`. En el flujo groups, si se entregan stems se salta la separación, se validan grupos y duración común, se mezclan en `stems-mezclados.wav` como fuente de generación y `material_origin` pasa a `MATERIAL_ORIGIN_STEMS`. `pending_material` no declara separación pendiente si los stems están completos.
+- **UI**: casilla «Usar stems propios» en Por pistas con un selector por pista (vocals/drums/bass/other) poblado desde la lista de subidas; el payload envía `stems` y `stems_kind`. La validación exige al menos un stem o la separación clásica.
+- **Verificación**: `py_compile` exit 0; focales `test_remix_focus + test_remix_sequence + test_pending_audio_contracts` 50/50 OK; frontend build exit 0, lint exit 0, 113/113 tests.
+- **Límites**: sin generación GPU con stems; la fidelidad y el cuadre de duración se prueban con regresiones deterministas, no con audio real. No se toca el perfil SFT.
+- **Entrega**: versión **1.3.16** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.16, SHA-256 `B9D9C88AC569CD097A618A9E4B431BCA091F82BD7F61C152D64447E51A456F40`).

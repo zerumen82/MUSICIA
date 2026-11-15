@@ -69,6 +69,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const [region, setRegion] = useState({ start: 0, end: null });
   const [duration, setDuration] = useState(ficha?.duration_seconds ?? null);
   const [groups, setGroups] = useState([]);
+  const [useStems, setUseStems] = useState(false);
+  const [stemFiles, setStemFiles] = useState({});
   const [actions, setActions] = useState({});
   const [trackText, setTrackText] = useState({});
   const [trackSelections, setTrackSelections] = useState({});
@@ -509,6 +511,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     || (bounds(key)?.min != null && Number(value) < bounds(key).min)
     || (bounds(key)?.max != null && Number(value) > bounds(key).max)
   )) ? 'Revisa los parámetros avanzados: pasos y lote deben ser enteros positivos; guidance debe ser finito y no negativo, dentro de los límites indicados.' : null;
+  const groupIds = ['vocals', 'drums', 'bass', 'other'];
+  const groupLabel = (id) => ({ vocals: 'Voz', drums: 'Batería', bass: 'Bajo', other: 'Acompañamiento' }[id] ?? id);
   const requestError = bpmError || timeline.error || advancedError || sequenceValidationError || sequenceBpmError;
   const hasTargetDuration = durationMinutes !== '' || durationSeconds !== '';
   const chosenReference = needsCover ? references.find((item) => item.id === reference) : null;
@@ -523,6 +527,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     ...(scope === 'region' ? { region_start: Number(region.start), region_end: Number(region.end ?? duration), repaint_mode: controls.repaint_mode, ...(controls.repaint_mode === 'balanced' ? { repaint_strength: controls.repaint_strength } : {}) }
       : scope === 'sequence' ? {} : needsCover ? { cover_strength: controls.cover_strength, cover_noise_strength: controls.cover_noise_strength } : {}),
     ...(scope === 'groups' ? { groups: actions, gains_db: Object.fromEntries(Object.entries(gains).filter(([id]) => actions[id] !== 'remove')) } : {}),
+    ...(scope === 'groups' && useStems ? { stems: Object.fromEntries(Object.entries(stemFiles).filter(([, v]) => v && v.name).map(([k, v]) => [k, v.name])), stems_kind: Object.fromEntries(Object.entries(stemFiles).filter(([, v]) => v && v.name).map(([k, v]) => [k, v.kind])) } : {}),
     ...(scope === 'groups' && groupPatternEnabled.drums && patternPayload(groupPatterns.drums)
       ? { patterns: { drums: patternPayload(groupPatterns.drums) } } : {}),
     // La secuencia manda orden e intención: el servidor reparte los tramos.
@@ -543,7 +548,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       if (sequencePreparationNote) throw new Error(sequencePreparationNote);
       if (sequencePending) throw new Error('Espera a que los textos de los pasos estén preparados.');
     }
-    if (scope === 'groups' && !groups.length) throw new Error('Separa primero las pistas del original');
+    if (scope === 'groups' && !groups.length && !(useStems && Object.values(stemFiles).some((v) => v && v.name))) throw new Error('Sube o selecciona stems para las pistas, o separa el original');
     if (scope === 'region' && !(Number(region.end ?? duration) > Number(region.start))) throw new Error('Selecciona un tramo con final posterior al inicio');
     if (grooveBusy) throw new Error('Espera a que termine la medición del BPM original.');
     if (requestError) throw new Error(requestError);
@@ -649,7 +654,19 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       {capabilities?.limitations?.repaint_normalization && <Fold title={SECTIONS.limit.title} why={SECTIONS.limit.why}><p className="mono text-[10px] text-[var(--faint)] py-2">{capabilities.limitations.repaint_normalization}</p></Fold>}
     </div>}
     {remixing && scope === 'groups' && <div className="flex flex-col gap-2">
-      {!groups.length && <button type="button" disabled={busy || grooveBusy || !capabilities || !!analysisStatus} onClick={() => void separate()} className="btn btn-signal h-10 px-4 self-start">SEPARAR PISTAS DEL ORIGINAL</button>}
+      <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={useStems} onChange={(e) => setUseStems(e.target.checked)} disabled={busy} /> Usar stems propios (vocals/drums/bass/other) en vez de separar</label>
+      {useStems && <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-2">
+        {groupIds.map((gid) => (
+          <label key={gid} className="flex items-center gap-2 text-[13px]">{groupLabel(gid)}
+            <select className="desk-select" value={stemFiles[gid]?.id ?? ''} disabled={busy}
+              onChange={(e) => { const item = references.find((r) => r.id === e.target.value); setStemFiles((prev) => ({ ...prev, [gid]: item ? { name: item.name, kind: item.kind, id: item.id } : null })); }}>
+              <option value="">— sin stem —</option>
+              {references.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.kind})</option>)}
+            </select>
+          </label>
+        ))}
+      </div>}
+      {!useStems && !groups.length && <button type="button" disabled={busy || grooveBusy || !capabilities || !!analysisStatus} onClick={() => void separate()} className="btn btn-signal h-10 px-4 self-start">SEPARAR PISTAS DEL ORIGINAL</button>}
       {analysisStatus && !groups.length && <p role="status" className="text-[13px]">{analysisStatus} La separación espera a que termine.</p>}
       {groups.map((group) => <div key={group.id} className="stem-row border-b border-[var(--line)] py-2">
         <span className="text-[14px] text-[var(--text)]">{group.label}</span>

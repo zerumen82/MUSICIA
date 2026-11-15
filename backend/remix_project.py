@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
+import os
 import time
 import uuid
 from pathlib import Path
@@ -69,6 +70,10 @@ class RemixProjectRequest(BaseModel):
     use_format: bool | None = None
     batch_size: int | None = Field(default=None, gt=0)
     groups: dict[str, Literal["keep", "transform", "remove"]] | None = None
+    # Stems propios del usuario (R20.B): grupo -> nombre de archivo. Si se
+    # entregan, se saltan la separacion y el trabajo deja de ser un bootleg.
+    stems: dict[str, str] | None = None
+    stems_kind: dict[str, str] | None = None
     patterns: dict[str, SequencePattern] | None = None
     gains_db: dict[str, float] = Field(default_factory=dict)
     source_classification: Literal["electronic", "non_electronic", "mixed", "unknown"] | None = None
@@ -81,6 +86,23 @@ class RemixProjectRequest(BaseModel):
 class SeparateGroupsRequest(BaseModel):
     file_name: str
     source_kind: Literal["upload", "output"] | None = None
+
+
+def _resolve_stem_file(name: str, kind: str | None, settings) -> Path:
+    """Localiza un stem subido o generado (outputs/uploads)."""
+    outputs = settings.outputs_dir.resolve()
+    uploads = (settings.outputs_dir / "uploads").resolve()
+    if kind == "upload":
+        resolvers = (uploads, outputs)
+    elif kind == "output":
+        resolvers = (outputs, uploads)
+    else:
+        resolvers = (outputs, uploads)
+    for base in resolvers:
+        candidate = (base / Path(name).name).resolve()
+        if str(candidate).lower().startswith(str(base).lower() + os.sep) and candidate.exists():
+            return candidate
+    raise ValueError(f"Stem no encontrado: {name}")
 
 
 def source_digest(source: Path) -> str:
@@ -1280,12 +1302,17 @@ class RemixProjectRuntime:
             "export": {"format": "mp3", "bitrate": config.export_bitrate,
                        "sample_rate": config.sample_rate, "peak_limit_dbfs": config.peak_limit_dbfs},
         }
+        stems_complete = bool(request.stems) and all(
+            group in (request.stems or {}) for group in (request.groups or {})
+            if (request.groups or {}).get(group) in ("keep", "transform"))
+        stems_pending = transform and request.scope == "groups" and not stems_complete
         result["pending_material"] = ([{
             "parameter": "src_audio_path", "path": None,
             "source": source.name,
             "groups": [group for group, action in request.groups.items() if action == "transform"],
-            "operation": "Separación, tempo común y mezcla PCM de los grupos a transformar",
-        }] if transform and request.scope == "groups" else [])
+            "operation": ("Mezcla de stems propios" if stems_complete
+                          else "Separación, tempo común y mezcla PCM de los grupos a transformar"),
+        }] if stems_pending else [])
         if request.scope == "region":
             result["warnings"].append("El motor normaliza el nivel global antes de repintar; el master final puede cambiar el nivel fuera del intervalo.")
             if (request.repaint_mode or config.repaint_mode) == "aggressive":
@@ -1350,7 +1377,17 @@ class RemixProjectRuntime:
         return result
 
     async def _prepare(self, request):
-        source = self.find_audio(request.source_name, request.source_kind)
+        if request.stems:
+            # R20.B: la fuente es la mezcla de los stems subidos.
+            stems_paths = [_resolve_stem_file(name, (request.stems_kind or {}).get(gid),
+                                             self.settings) for gid, name in request.stems.items()]
+            durations = [MixerService.inspect_pcm(p)["duration_seconds"] for p in stems_paths]
+            if durations and max(durations) - min(durations) > self.settings.remix.duration_tolerance_seconds:
+                raise HTTPException(status_code=422, detail="Los stems tienen duraciones distintas")
+            # Se usa el primer stem como fuente representativa para el resto del flujo.
+            source = stems_paths[0]
+        else:
+            source = self.find_audio(request.source_name, request.source_kind)
         reference = self.find_audio(request.reference_name, request.reference_kind) if request.reference_name else None
         digest = await asyncio.to_thread(source_digest, source)
         def duration_seconds():
@@ -1975,6 +2012,33 @@ class RemixProjectRuntime:
                     _generated, originals = recovered
                     targets = [key for key, action in request.groups.items() if action == "transform"]
                     job["preserved_groups"] = [key for key, action in request.groups.items() if action == "keep"]
+                elif request.scope == "groups" and (request.stems or {}):
+                    # R20.B: stems propios del usuario: se saltan la separacion.
+                    self.event(job, "Usando los stems subidos por el usuario")
+                    originals = {}
+                    for group_id, file_name in (request.stems or {}).items():
+                        kind = (request.stems_kind or {}).get(group_id)
+                        path = _resolve_stem_file(file_name, kind, self.settings)
+                        originals[group_id] = path
+                    # Validacion: grupos validos.
+                    allowed = {g["id"] for g in config.groups}
+                    for group_id in originals:
+                        if group_id not in allowed:
+                            raise ValueError(f"Stem con grupo desconocido: {group_id}")
+                    # Duracion comun: todos los stems deben durar lo mismo.
+                    durations = [MixerService.inspect_pcm(p)["duration_seconds"] for p in originals.values()]
+                    if durations and max(durations) - min(durations) > config.duration_tolerance_seconds:
+                        raise ValueError("Los stems tienen duraciones distintas: no se pueden mezclar")
+                    # Todo grupo que se conserve o transforme debe estar entre los stems.
+                    for group_id, action in (request.groups or {}).items():
+                        if action in ("keep", "transform") and group_id not in originals:
+                            raise ValueError(f"Falta el stem de la pista {group_id}")
+                    # Mezclar stems en la fuente de generacion.
+                    engine_source = work / "stems-mezclados.wav"
+                    await asyncio.to_thread(MixerService.mix_groups,
+                                            [(p, 0.0) for p in originals.values()],
+                                            engine_source, natural_duration, config.sample_rate)
+                    job["operations"]["separation_origin"] = "user_stems"
                 elif request.scope == "groups":
                     self.event(job, "Separando los grupos del original")
                     for item in reversed(list(self.separate_jobs.values())):

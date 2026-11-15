@@ -238,7 +238,9 @@ def step_seed(requested: int | None, position: int, seed_max: int) -> int | None
 def material_origin(request) -> str:
     """Origen declarado del material: stems del usuario o mezcla separada."""
     stems = getattr(request, "stems", None)
-    return MATERIAL_ORIGIN_STEMS if stems else MATERIAL_ORIGIN_MIX
+    if isinstance(stems, dict) and stems:
+        return MATERIAL_ORIGIN_STEMS
+    return MATERIAL_ORIGIN_MIX
 
 
 class SequenceStep(BaseModel):
