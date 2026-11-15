@@ -4280,3 +4280,7 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Petición**: «YO VEO TRACEBACK». Los `ConnectionResetError: [WinError 10054]` en `_ProactorBasePipeTransport._call_connection_lost` son benignos: aparecen cuando Electron/navegador cierra la conexión abruptamente. Se silencian instalando un manejador de excepciones en el event loop que ignora solo `ConnectionResetError`.
 - **Verificación**: `py_compile` exit 0.
 - **Entrega**: versión **1.3.28** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.28, SHA-256 `D4AADF0BC912B736FA3485D2356FC717596FB78CBA3703AB9AF12834BD540F01`).
+## 2026-11-15 · Recompilación del EXE (1.3.28, sin cambio de código)
+
+- **Petición**: «RECOMPILA EL EXE». Recompilado `Musicia.exe` con el dist actual (1.3.28); SHA-256 `F56E97129369E36456FB2BCB411EF9AA1CF25B300CCE03518B2282F165F68437` (distinto al anterior por el bundle rebuild).
+- **Entrega**: FileVersion/ProductVersion 1.3.28, 16.384 bytes, exit 0.
