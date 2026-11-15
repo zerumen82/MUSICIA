@@ -4222,3 +4222,7 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Verificación**: `py_compile` exit 0; frontend build exit 0, lint exit 0, 113/113 tests.
 - **Límites**: si no se mide BPM o el estiramiento supera el límite, no se cuantiza y se avisa. No se cambia el perfil SFT.
 - **Entrega**: versión **1.3.17** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.17, SHA-256 `245AAD8E1EA0456746A4BB14C37AB301C99F7D599B7738D625D71346CBF794B0`).
+## 2026-11-15 · Bump de versión y recompilación (1.3.18)
+
+- **Petición**: «sube el numero de version y recompila exe». Bump a 1.3.18 sin cambios de código respecto a 1.3.17.
+- **Entrega**: versión **1.3.18** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.18, SHA-256 `A78CE78C01EE191E7A86B2687E0DBDF4D9ADC94722C4CBAC4D51D1E515D2C2AC`).
