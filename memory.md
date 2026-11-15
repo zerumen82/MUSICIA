@@ -4270,3 +4270,8 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Tests**: `test_engine_python_config` actualizado al timeout de 3600 s; suite focal verde (engine_python_config + remix_recovery = 28/28 OK).
 - **Entrega**: versión **1.3.26** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.26, SHA-256 `D56C51CBACC63E67536DB39F42DA363CF0011F2EDCEB2C33972D380DA5856ED0`).
 - **Sigue abierto**: R9/R10/Q2/R18/B6 (criterios integrales, requieren GPU/UI), B7/R20.E/R20.F (escucha del usuario), B9c (glosario, requiere fuentes), T3 (bundle, requiere plan), T4/T5 (pip, requieren acuerdo).
+## 2026-11-15 · Icono circulado (ⓘ) en vez de texto (1.3.27)
+
+- **Petición**: «SOLO QUIERO UNA I. UN ICONO DE UNA I CIRCULADA». Se sustituye el texto «Qué entiende el modelo (info)» por el glifo circulado `ⓘ` en los cuatro lugares (CREAR y POR PISTAS/PASOS).
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
+- **Entrega**: versión **1.3.27** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.27, SHA-256 `B5826E63F8AB2DED1B150236024ADDA91DE80E397CC30FC6E67471B9B344B36A`).

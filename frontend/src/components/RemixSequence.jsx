@@ -69,7 +69,7 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
           </select>}
           <textarea aria-label={'Texto del paso ' + (step.index + 1)} value={step.prompt} rows={3} disabled={busy} placeholder={placeholder}
             onChange={(event) => update(step.index, { prompt: event.target.value })} className={field + ' w-full resize-y'} data-sequence-prompt={step.index} />
-          <details className="text-[11px] text-[var(--muted)] border border-[var(--line)] rounded px-2 py-1"><summary className="cursor-pointer select-none font-semibold">ℹ Que entiende el modelo (pulsa)</summary>
+          <details className="text-[11px] text-[var(--muted)] border border-[var(--line)] rounded px-2 py-1"><summary className="cursor-pointer select-none font-semibold">ⓘ</summary>
             <div className="mt-1 pl-2">Genero/estilo, instrumentos, tempo, energia (subidon/bajon), textura, estructura. No entiende mezcla (volumen, pan, EQ).</div></details>
           <button type="button" aria-expanded={editingIndex === step.index}
             aria-controls="sequence-pattern-editor" aria-label={'Editar patrón opcional del paso ' + (step.index + 1)}
