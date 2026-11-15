@@ -4246,3 +4246,8 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Pendiente**: el patrón en Por pistas sigue siendo una intención textual (no garantiza los golpes; documentado en remix_pattern.js). Si se quiere forzarlo, habría que añadir una restricción estructural al generador, fuera del alcance de esta pasada.
 - **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
 - **Entrega**: versión **1.3.21** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.21, SHA-256 `2B3488CEBE5914EF98AD28D678EE8CFA634C1881213EE8607667B061B9EDFCF7`).
+## 2026-11-15 · Info del modelo junto a cada prompt (1.3.22)
+
+- **Petición**: el icono de info no aparecía junto a cada sitio donde se mete prompt. Se añade un `<details>` con la documentación del modelo en español junto al textarea del prompt general, al de cada pista y al de cada paso de la secuencia.
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
+- **Entrega**: versión **1.3.22** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.22, SHA-256 `E93ED656597D96EEB1A7C2FE3A7DDA1FB4A7141B2278F81A0DF1F4DA3774E5E9`).

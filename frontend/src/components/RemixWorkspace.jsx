@@ -679,6 +679,8 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <button type="button" disabled={busy} aria-pressed={solo === group.id} onClick={() => setSolo((current) => current === group.id ? null : group.id)} className="btn btn-ghost h-8 px-2">{solo === group.id ? 'CERRAR SOLO' : 'SOLO'}</button>
         {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
           <textarea aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} rows={2} className={`${field} w-full resize-y`} />
+          <details className="text-[11px] text-[var(--muted)]"><summary className="cursor-pointer select-none">Que entiende el modelo (info)</summary>
+            <div className="mt-1 pl-2">Genero/estilo, instrumentos, tempo, energia (subidon/bajon), textura, estructura. No entiende mezcla (volumen, pan, EQ).</div></details>
           <PromptTools prompt={trackText[group.id] ?? ''}
             setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
             prepared={{ ...preparedTracks[group.id], selection: trackSelection(group.id),
