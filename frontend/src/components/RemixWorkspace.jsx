@@ -728,6 +728,13 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {remixing && scope === 'sequence' && <p className="text-[13px] text-[var(--muted)]">El estilo de aquí se aplica a todos los pasos: viaja delante del texto de cada paso. El motor no lo recibe solo, sino dentro de cada paso.</p>}
     {remixing && needsStyle && <textarea aria-label="Prompt del remix" value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} rows={3}
       placeholder={scope === 'sequence' ? SEQUENCE_STYLE_PLACEHOLDER : (activeScope?.placeholder || 'Qué quieres cambiar.')} className={`${field} resize-y w-full`} />}
+    {remixing && needsStyle && <details className="text-[12px] text-[var(--muted)]"><summary className="cursor-pointer select-none">Qué entiende el modelo (info)</summary>
+      <div className="mt-1 flex flex-col gap-1 pl-2">
+        <p>El modelo (ACE-Step SFT) recibe un solo texto en inglés. Entiende: género/estilo, instrumentos, tempo (BPM), energía (subidón/bajón), textura (distorsión, reverb), y estructura (intro, build, drop, breakdown, outro).</p>
+        <p>Palabras útiles: build-up, drop, breakdown, riser, sweep, sub-bass, distorted kick, reverb tail, sidechain, 4x4, offbeat hi-hat.</p>
+        <p>No entiende instrucciones de mezcla (volumen, pan, ecualización): eso se hace con los controles de pistas y mezcla de Musicia.</p>
+        <p>El estilo general viaja delante del texto de cada pista; si una pista tiene texto propio, se suma.</p>
+      </div></details>}
     {remixing && scope === 'groups' && groups.length > 0 && !needsStyle && <p className="text-[13px] text-[var(--muted)]">Conservar y quitar no usan texto. Pon una pista en transformar para describir el cambio.</p>}
     {remixing && needsStyle && <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />}
     {remixing && scope === 'sequence' && <div className="flex flex-col gap-2">

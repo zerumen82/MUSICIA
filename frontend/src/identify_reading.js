@@ -1,8 +1,13 @@
-/** Lo que se enseña tras IDENTIFY. El género solo si el backend lo confirmó en el glosario. */
+/** Lo que se enseña tras IDENTIFY. El modelo describe la canción y, si el
+ *  género se confirmó en el glosario, se muestra también. */
 export function identifyReading(result) {
+  const description = String(result?.description ?? '').trim();
   const genre = String(result?.glossary_genre ?? '').trim();
-  if (genre) return genre;
   const raw = String(result?.genres ?? '').trim();
-  if (raw) return `No está en el glosario: ${raw}`;
-  return 'El modelo no devolvió un género del glosario';
+  const parts = [];
+  if (description) parts.push(description);
+  if (genre) parts.push(`Género: ${genre}`);
+  else if (raw) parts.push(`No está en el glosario: ${raw}`);
+  if (!parts.length) return 'El modelo no devolvió un género del glosario';
+  return parts.join(' · ');
 }

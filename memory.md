@@ -4238,3 +4238,11 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Corrección**: `timeline_min_repeat_seconds` baja de 1.0 a 0.5 s, y el mensaje de error indica el mínimo en segundos tras el cambio de tempo (y el equivalente en el audio original).
 - **Verificación**: `py_compile` exit 0; `test_remix_timeline` 53/53 OK.
 - **Entrega**: versión **1.3.20** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.20, SHA-256 `1E4B0FF8AFDBC0FBAB75162DB258858A0D2622B3A83B658C36F7EC31D1AC3EC7`).
+## 2026-11-15 · Info del modelo + identify con prompt (1.3.21)
+
+- **Petición**: «HE PENSADO DOS COSAS. EN POR PISTAS Y USO DEL PATRÓN NO PARECE HACER CASO, Y CUANDO AÑADES DEL GLOSARIO NO QUEDA CLARO FUNCIONAMIENTO DEL PROMPT. ME GUSTARÍA UN ICONO PEQUEÑO CON INFO DOCUMENTACIÓN DEL MODELO EN ESPAÑOL PARA SABER QUE ENTIENDE, SI QUIERO QUE AÑADA SUBIDONES, BAJONES,... LUEGO QUIERO QUE REVISES LA FUNCIÓN IDENTIFY Y QUE ME DEVUELVA UN PROMPT CON LO QUE DEFINIRÍA EL MODELO QUE ES LA CANCIÓN QUE ANALIZA».
+- **Info del modelo**: se añade un `<details>` junto al textarea del prompt del remix con documentación en español de lo que entiende ACE-Step (género/estilo, instrumentos, tempo, energía, textura, estructura) y lo que no (mezcla: volumen, pan, EQ).
+- **identify**: `identifyReading` ahora devuelve también la descripción que el modelo extrajo del audio (`description`), además del género del glosario. Test actualizado.
+- **Pendiente**: el patrón en Por pistas sigue siendo una intención textual (no garantiza los golpes; documentado en remix_pattern.js). Si se quiere forzarlo, habría que añadir una restricción estructural al generador, fuera del alcance de esta pasada.
+- **Verificación**: `npm run build` exit 0, `npm run lint` exit 0, `node --test src/*.test.js` 113/113.
+- **Entrega**: versión **1.3.21** en `frontend/package.json` y las dos entradas propias del lock; `frontend/dist` reconstruido; `Musicia.exe` recompilado (exit 0, 16.384 bytes, FileVersion/ProductVersion 1.3.21, SHA-256 `2B3488CEBE5914EF98AD28D678EE8CFA634C1881213EE8607667B061B9EDFCF7`).
