@@ -3,7 +3,7 @@ import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
 import { api, actionError, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
-import { identifyCopyText, identifyModelPrompt, identifyReading, identifyScopeReading, markedRegionReading } from '../identify_reading';
+import { identifyCopyText, identifyReading, identifyScopeReading, markedRegionReading } from '../identify_reading';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import Waveform from './Waveform';
@@ -91,7 +91,7 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                     return;
                   }
                   if (found.status === 'succeeded') {
-                    setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(found.result), copyText: identifyCopyText(found.result), modelPrompt: identifyModelPrompt(found.result), scope: identifyScopeReading(found.result, region) } }));
+                    setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(found.result), copyText: identifyCopyText(found.result), scope: identifyScopeReading(found.result, region) } }));
                     return;
                   }
                   if (found.status === 'failed') {
@@ -113,7 +113,7 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
           if (!alive.current) return;
           if (job.status === 'failed') throw new Error(job.error || 'El análisis falló');
           if (job.status === 'succeeded') {
-            setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result), copyText: identifyCopyText(job.result), modelPrompt: identifyModelPrompt(job.result), scope: identifyScopeReading(job.result, region) } }));
+            setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result), copyText: identifyCopyText(job.result), scope: identifyScopeReading(job.result, region) } }));
             return;
           }
           setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: job.phase || 'El modelo local analiza el audio', message: '' } }));
@@ -400,11 +400,8 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                   <p className="mono text-[10px] tracking-[0.05em] text-[var(--acc)]">{identify[item.name].scope}</p>
                 )}
                 <div className="flex items-start gap-2">
-                  <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] select-text cursor-text flex-1 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('No está') || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
-                  <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar descripción" onClick={() => { navigator.clipboard?.writeText(identify[item.name].copyText ?? identify[item.name].message); }}>COPIAR</button>
-                  {identify[item.name].modelPrompt && (
-                    <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar el prompt en formato del modelo: género del glosario + descripción" onClick={() => { navigator.clipboard?.writeText(identify[item.name].modelPrompt); }}>COPIAR PARA EL MODELO</button>
-                  )}
+                  <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] select-text cursor-text flex-1 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
+                  <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar el prompt en formato del modelo (lo que se muestra)" onClick={() => { navigator.clipboard?.writeText(identify[item.name].copyText ?? identify[item.name].message); }}>COPIAR</button>
                 </div>
                 </div>
               )}

@@ -1,23 +1,19 @@
-/** Lo que se enseña tras IDENTIFY. El modelo describe la canción y, si el
- *  género se confirmó en el glosario, se muestra también. */
+/** Lo que se enseña tras IDENTIFY: el resultado montado EN FORMATO DEL MODELO
+ *  (género del glosario del motor delante + descripción, que es el formato
+ *  caption nativo del propio motor). Así lo que se muestra, lo que se copia y
+ *  lo que se pega en cualquier prompt es el mismo texto que el motor entiende. */
 export function identifyReading(result) {
-  const description = String(result?.description ?? '').trim();
-  const genre = String(result?.glossary_genre ?? '').trim();
-  const raw = String(result?.genres ?? '').trim();
-  const parts = [];
-  if (description) parts.push(description);
-  if (genre) parts.push(`Género: ${genre}`);
-  else if (raw) parts.push(`No está en el glosario: ${raw}`);
-  if (!parts.length) return 'El modelo no devolvió un género del glosario';
-  return parts.join(' · ');
+  const mounted = identifyModelPrompt(result);
+  if (mounted) return mounted;
+  return 'El modelo no devolvió un género del glosario';
 }
 
-/** Texto que COPIAR lleva al portapapeles: solo la descripción del modelo. */
+/** Texto que COPIAR lleva al portapapeles: el mismo prompt en formato del
+ *  modelo que se muestra (petición 1.3.36; sustituye al «solo descripción» de
+ *  1.3.32). */
 export function identifyCopyText(result) {
-  const description = String(result?.description ?? '').trim();
-  if (description) return description;
-  const raw = String(result?.genres ?? '').trim();
-  if (raw) return raw;
+  const mounted = identifyModelPrompt(result);
+  if (mounted) return mounted;
   return 'El modelo no devolvió un género del glosario';
 }
 

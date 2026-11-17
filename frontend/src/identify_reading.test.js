@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatClock, identifyCopyText, identifyModelPrompt, identifyReading, identifyScopeReading, markedRegionReading } from './identify_reading.js';
 
-test('IDENTIFY enseña la descripción del modelo y el género del glosario', () => {
+test('IDENTIFY muestra y copia el prompt montado en formato del modelo', () => {
   const withGenre = { description: 'hard gabber con kick distorsionado', glossary_genre: 'gabber, hardstyle, hardcore', genres: 'otra cosa' };
-  assert.equal(identifyReading(withGenre), 'hard gabber con kick distorsionado · Género: gabber, hardstyle, hardcore');
-  assert.equal(identifyCopyText(withGenre), 'hard gabber con kick distorsionado');
-  assert.equal(identifyReading({ description: '', glossary_genre: null, genres: 'piano contemplativo' }), 'No está en el glosario: piano contemplativo');
+  assert.equal(identifyReading(withGenre), 'gabber, hardstyle, hardcore. hard gabber con kick distorsionado');
+  assert.equal(identifyCopyText(withGenre), 'gabber, hardstyle, hardcore. hard gabber con kick distorsionado');
+  assert.equal(identifyReading({ description: '', glossary_genre: null, genres: 'piano contemplativo' }), 'piano contemplativo');
   assert.equal(identifyCopyText({ description: '', glossary_genre: null, genres: 'piano contemplativo' }), 'piano contemplativo');
   assert.equal(identifyReading({}), 'El modelo no devolvió un género del glosario');
   assert.equal(identifyCopyText({}), 'El modelo no devolvió un género del glosario');
