@@ -725,5 +725,23 @@ class ExclusionSpanTest(unittest.TestCase):
         # No se sabe qué significa: la app no la toca (no se inventa texto).
         self.assertEqual(self.tramos("gabber sin caja y sin agudos"), ["sin caja"])
 
+
+class JoinedPromptPunctuationTest(unittest.TestCase):
+    """2026-11-17: la ficha no se pega tras el punto de la frase."""
+
+    def test_description_after_a_sentence_gets_a_space_not_a_comma(self):
+        result = enhance_prompt("", main_style="gabber")
+        self.assertNotIn(".,", result["enhanced"])
+        self.assertTrue(result["enhanced"].startswith("Predominantly gabber. "))
+        self.assertIn(CLAUSES["hardcore holandes"], result["enhanced"])
+
+    def test_bpm_after_details_that_close_a_sentence_keeps_one_separator(self):
+        result = enhance_prompt("sin voz.", bpm=175)
+        self.assertEqual(result["enhanced"], "sin voz. 175 bpm")
+
+    def test_plain_details_keep_the_comma_before_the_bpm(self):
+        result = enhance_prompt("gabber", bpm=175)
+        self.assertEqual(result["enhanced"], "gabber, 175 bpm")
+
 if __name__ == "__main__":
     unittest.main()

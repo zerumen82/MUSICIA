@@ -59,6 +59,7 @@
     "influences_template": "Predominantly {main_style}, with subtle influences of {influence_styles}.",
     "influence_separator": ", ",
     "detail_separator": " ",
+    "sentence_separator": " ",
     "description_separator": ", "
   },
   "caption_exclusions": [

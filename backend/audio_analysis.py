@@ -570,7 +570,8 @@ def analyze_audio(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"No existe el audio: {path}")
 
-    audio = AudioSegment.from_file(path)
+    with path.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=path.suffix.lstrip("."))
     if len(audio) < 1000:  # < 1 s
         raise ValueError("El audio es demasiado corto para analizarlo (mínimo 1 segundo)")
 

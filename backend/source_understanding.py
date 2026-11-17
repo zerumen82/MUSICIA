@@ -100,7 +100,8 @@ def _make_clip(source: Path, destination: Path, seconds: float,
     """
     if seconds <= 0:
         raise ValueError("source_analysis.max_seconds debe ser positivo")
-    audio = AudioSegment.from_file(source)
+    with source.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=source.suffix.lstrip("."))
     if not len(audio):
         raise ValueError("El audio no contiene muestras")
     total = len(audio)
@@ -121,7 +122,7 @@ def _make_clip(source: Path, destination: Path, seconds: float,
         start = round(begin * 1000)
         heard_until = start + round((finish - begin) * 1000)
         length = min(heard_until - start, round(seconds * 1000))
-    audio[start:start + length].export(destination, format="wav")
+    audio[start:start + length].export(destination, format="wav").close()
     return {"start": start / 1000, "end": (start + length) / 1000,
             "source_duration": total_seconds,
             "truncated": start + length < heard_until}

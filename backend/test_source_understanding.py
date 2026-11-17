@@ -130,7 +130,7 @@ class SourceUnderstandingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "fuente.wav"
             clip = Path(folder) / "clip.wav"
-            AudioSegment.silent(duration=3000).export(source, format="wav")
+            AudioSegment.silent(duration=3000).export(source, format="wav").close()
             whole = _make_clip(source, clip, 240.0)
             self.assertEqual(whole["source_duration"], 3.0)
             self.assertEqual(whole["start"], 0.0)
@@ -147,7 +147,7 @@ class SourceUnderstandingTest(unittest.TestCase):
         from pydub import AudioSegment
 
         source = Path(folder) / "fuente.wav"
-        AudioSegment.silent(duration=3000).export(source, format="wav")
+        AudioSegment.silent(duration=3000).export(source, format="wav").close()
         return source
 
     def test_analysis_uses_the_region_chosen_on_the_waveform(self):
@@ -161,7 +161,9 @@ class SourceUnderstandingTest(unittest.TestCase):
             self.assertEqual(chosen["start"], 1.0)
             self.assertEqual(chosen["end"], 2.0)
             self.assertFalse(chosen["truncated"])
-            self.assertAlmostEqual(len(AudioSegment.from_file(clip)) / 1000, 1.0, places=2)
+            with clip.open("rb") as stream:
+                self.assertAlmostEqual(len(AudioSegment.from_file(stream, format="wav")) / 1000,
+                                       1.0, places=2)
             from_start = _make_clip(source, clip, 240.0, 2.0, None)
             self.assertEqual((from_start["start"], from_start["end"]), (2.0, 3.0))
 
@@ -176,7 +178,9 @@ class SourceUnderstandingTest(unittest.TestCase):
             self.assertEqual(cut["start"], 0.0)
             self.assertEqual(cut["end"], 1.0)
             self.assertTrue(cut["truncated"])
-            self.assertAlmostEqual(len(AudioSegment.from_file(clip)) / 1000, 1.0, places=2)
+            with clip.open("rb") as stream:
+                self.assertAlmostEqual(len(AudioSegment.from_file(stream, format="wav")) / 1000,
+                                       1.0, places=2)
 
     def test_a_region_without_audio_is_rejected(self):
         import tempfile

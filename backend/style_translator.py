@@ -45,9 +45,18 @@ class _Worker:
     def stop(self) -> None:
         proc = self.proc
         self.proc = None
-        if proc is not None and proc.poll() is None:
-            proc.kill()
+        if proc is not None:
+            if proc.poll() is None:
+                proc.kill()
             proc.wait(timeout=5)
+            # Popen crea envoltorios de texto para stdin/stdout; si no se
+            # cierran, el recolector los avisa como ResourceWarning.
+            for stream in (proc.stdin, proc.stdout):
+                if stream is not None and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
         if self.log is not None:
             self.log.close()
             self.log = None
@@ -357,6 +366,10 @@ def _start_worker(settings: AppSettings) -> None:
     env["PYTHONIOENCODING"] = "utf-8"
     env["HF_HUB_DISABLE_TELEMETRY"] = "1"
     env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    # LOCAL-FIRST: el modelo está cacheado; sin red no se reintenta la descarga
+    # ni se ensucia el log con fallos de proxy que no impiden traducir.
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
     env["TRANSFORMERS_VERBOSITY"] = "error"
     env["TOKENIZERS_PARALLELISM"] = "false"
     proc = subprocess.Popen(

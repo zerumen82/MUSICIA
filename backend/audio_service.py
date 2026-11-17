@@ -43,7 +43,8 @@ def process_audio(
     if not source.exists():
         raise FileNotFoundError(f"No existe el audio de origen: {source}")
 
-    audio = AudioSegment.from_file(source)
+    with source.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=source.suffix.lstrip("."))
 
     start_ms = max(0, int(trim_start_s * 1000))
     if start_ms >= len(audio):
@@ -66,5 +67,5 @@ def process_audio(
         audio = audio + gain_db
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    audio.export(output, format="mp3")
+    audio.export(output, format="mp3").close()
     return len(audio)

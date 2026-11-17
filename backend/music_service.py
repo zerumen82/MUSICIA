@@ -857,9 +857,16 @@ class MusicService:
         """Verifica que el audio existe y no está vacío. Devuelve su duración."""
         if not path.exists():
             raise MusicEngineError(f"El motor no dejó el archivo esperado: {path}")
-        duration_ms = await asyncio.to_thread(
-            lambda: len(AudioSegment.from_file(path)) if path.stat().st_size > 0 else 0
-        )
+
+        def _duration_ms() -> int:
+            if path.stat().st_size <= 0:
+                return 0
+            # pydub no cierra el descriptor cuando recibe una ruta: se abre
+            # aquí para cerrarlo siempre (Windows no borra un fichero abierto).
+            with path.open("rb") as stream:
+                return len(AudioSegment.from_file(stream, format=path.suffix.lstrip(".")))
+
+        duration_ms = await asyncio.to_thread(_duration_ms)
         if duration_ms <= min_duration_ms:
             raise MusicEngineError(f"El audio generado está vacío o corrupto: {path}")
         logger.info(f"Audio verificado: {path.name} ({duration_ms / 1000:.1f} s)")

@@ -604,6 +604,13 @@ def _write_ficha(audio_path: Path, job: dict[str, Any], measured: dict[str, Any]
     if measured:
         ficha["bpm_measured"] = measured.get("bpm_measured")
         ficha["bpm_confidence"] = measured.get("bpm_confidence")
+    if job.get("peak_gain_db") is not None:
+        ficha["peak_gain_db"] = job.get("peak_gain_db")
+    if job.get("target_true_peak_dbtp") is not None:
+        ficha["target_true_peak_dbtp"] = job.get("target_true_peak_dbtp")
+    loudness = job.get("loudness")
+    if isinstance(loudness, dict) and loudness.get("input_tp") is not None:
+        ficha["published_true_peak_dbtp"] = loudness.get("input_tp")
     _ficha_path(audio_path).write_text(
         json.dumps(ficha, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -807,7 +814,13 @@ async def _finalize_generation(job_id: str) -> None:
                     job["phase"] = f"Master a {TARGET_LUFS:g} LUFS"
                 mastered = output_path.with_name(f"{output_path.stem}-master.mp3")
                 try:
-                    job["loudness"] = await asyncio.to_thread(normalize_track, output_path, mastered)
+                    normalized = await asyncio.to_thread(
+                        normalize_track, output_path, mastered,
+                        settings.remix.peak_limit_dbfs,
+                    )
+                    job["loudness"] = normalized["loudness"]
+                    job["peak_gain_db"] = normalized["peak_gain_db"]
+                    job["target_true_peak_dbtp"] = normalized["target_true_peak_dbtp"]
                     _throw_if_cancelled(job)
                     mastered.replace(output_path)
                 finally:
@@ -966,6 +979,7 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
                     request.vocal_volume,
                     normalize_lufs=request.normalize_lufs,
                     fade_s=settings.mixer.vocal_slice_fade_s,
+                    peak_limit_dbfs=settings.remix.peak_limit_dbfs,
                 )
             else:
                 if request.align:
@@ -985,6 +999,7 @@ async def mix_audio(request: MixRequest) -> dict[str, Any]:
                     request.vocal_volume,
                     alignment=alignment,
                     normalize_lufs=request.normalize_lufs,
+                    peak_limit_dbfs=settings.remix.peak_limit_dbfs,
                 )
         except HTTPException:
             raise
@@ -1406,6 +1421,7 @@ async def _mezclar_voz_en_base(
             arrangement,
             normalize_lufs=True,
             fade_s=settings.mixer.vocal_slice_fade_s,
+            peak_limit_dbfs=settings.remix.peak_limit_dbfs,
         )
         return mixed, info
 
@@ -1434,6 +1450,7 @@ async def _mezclar_voz_en_base(
         str(mixed),
         alignment=alignment,
         normalize_lufs=True,
+        peak_limit_dbfs=settings.remix.peak_limit_dbfs,
     )
     return mixed, info
 
@@ -1514,12 +1531,17 @@ async def _modo_conservar_voz(
             base_path, vocals_path, base_bpm, groove,
             f"{stem}-con-voz{suffix}", step,
         )
+        job["peak_gain_db"] = info.get("peak_gain_db")
+        job["target_true_peak_dbtp"] = info.get("target_true_peak_dbtp")
         _throw_if_cancelled(job)
         # [M3] Tempo de la mezcla final (voz + base): el que importa al oírla.
         measured = await asyncio.to_thread(_measure_bpm, mixed)
         _carry_ficha(source, mixed, "remix", prompt=request.prompt, seed=track.seed,
                      seed_origin=track.seed_origin, effective_parameters=job.get("effective_parameters"),
                      seed_requested=request.seed, provenance=job.get("provenance"),
+                     peak_gain_db=info.get("peak_gain_db"),
+                     target_true_peak_dbtp=info.get("target_true_peak_dbtp"),
+                     published_true_peak_dbtp=(info.get("loudness") or {}).get("input_tp"),
                      **(measured or {}))
         saved.append(mixed.name)
         metadata.append({"file_name": mixed.name, "seed": track.seed,
@@ -2204,6 +2226,8 @@ def _side_job_view(job: dict[str, Any]) -> dict[str, Any]:
         "phase": job.get("phase") or "",
         "elapsed_seconds": _live_elapsed(job),
         "events": (job.get("events") or [])[-5:],
+        "steps": job.get("steps"),
+        "engine_progress_text": job.get("engine_progress_text") or "",
         "output_name": output_name,
         "duration_seconds": None,
         "error": job.get("error"),
@@ -2344,6 +2368,10 @@ async def music_library() -> dict[str, Any]:
                 "model": None if ficha is None else ficha.get("model"),
                 "task_type": None if ficha is None else ficha.get("task_type"),
                 "prompt": None if ficha is None else ficha.get("prompt"),
+                # Pico real del MP3 publicado y atenuación aplicada por el guard:
+                # None en pistas antiguas o sin medición (la UI no enseña nada).
+                "published_true_peak_dbtp": None if ficha is None else ficha.get("published_true_peak_dbtp"),
+                "peak_gain_db": None if ficha is None else ficha.get("peak_gain_db"),
             }
         )
     return {"outputs_dir": str(outputs), "items": items}
@@ -2607,9 +2635,10 @@ def audio_peaks(
     source = _find_audio(name, source_kind)
 
     try:
+        with source.open("rb") as stream:
+            audio = AudioSegment.from_file(stream, format=source.suffix.lstrip("."))
         audio = (
-            AudioSegment.from_file(source)
-            .set_channels(1)
+            audio.set_channels(1)
             .set_frame_rate(ANALYSIS_RATE)
             .set_sample_width(2)
         )
@@ -2646,7 +2675,8 @@ def _render_remix_dsp(source: Path, output_path: Path, request: RemixRequest) ->
     """
     from pydub import AudioSegment
 
-    audio = AudioSegment.from_file(source)
+    with source.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=source.suffix.lstrip("."))
 
     start_ms = max(0, int(request.trim_start_s * 1000))
     end_ms = len(audio) if request.trim_end_s is None else int(request.trim_end_s * 1000)
@@ -2678,7 +2708,7 @@ def _render_remix_dsp(source: Path, output_path: Path, request: RemixRequest) ->
         audio = audio + request.gain_db
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    audio.export(output_path, format="mp3")
+    audio.export(output_path, format="mp3").close()
     return round(len(audio) / 1000.0, 2)
 
 

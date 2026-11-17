@@ -13,6 +13,7 @@ import subprocess
 import struct
 import sys
 from array import array
+from collections.abc import Callable
 from pathlib import Path
 
 from loguru import logger
@@ -26,6 +27,9 @@ TARGET_LUFS = -14.0
 MP3_BITRATE = "192k"
 # True peak máximo para que nada sature al exportar.
 TARGET_TP = -1.0
+# Margen para que el codificador MP3 no pase del límite: el true peak
+# medido del MP3 suele quedar ~0,1 dB por encima del objetivo de loudnorm.
+LOUDNORM_TP = TARGET_TP - 0.1
 # Rango que acepta `loudnorm` para reutilizar la primera medición
 # (`ffmpeg -h filter=loudnorm`). Un intermedio por encima del fondo de escala
 # mide input_i > 0 y el silencio mide -inf: el filtro rechaza esa opción con
@@ -36,6 +40,9 @@ LOUDNORM_MEASURED_RANGES = {
     "input_lra": (0.0, 99.0),
     "input_thresh": (-99.0, 0.0),
 }
+# Pasadas de corrección del pico real: el MP3 puede subir el pico medido en
+# el PCM y se re-renderiza desde la mezcla; nunca se recomprime el MP3.
+MAX_PEAK_PASSES = 2
 # Desfasos por debajo de esto son ruido de medición: no se tocan.
 MIN_PHASE_SHIFT_MS = 5.0
 # Confianza mínima del groove para fiarse y alinear. Por debajo, el tempo es
@@ -160,14 +167,14 @@ def _loudnorm_args(measured: dict, measured_flag: bool) -> str:
     """
     if measured_flag and _loudnorm_measurements_fit(measured):
         return (
-            f"I={TARGET_LUFS:g}:TP={TARGET_TP:g}:LRA=11:"
+            f"I={TARGET_LUFS:g}:TP={LOUDNORM_TP:g}:LRA=11:"
             f"measured_I={measured['input_i']}:"
             f"measured_TP={measured.get('input_tp')}:"
             f"measured_LRA={measured.get('input_lra')}:"
             f"measured_thresh={measured.get('input_thresh', -24)}:"
             "offset=0:linear=true:print_format=summary"
         )
-    return f"I={TARGET_LUFS:g}:TP={TARGET_TP:g}:LRA=11:print_format=summary"
+    return f"I={TARGET_LUFS:g}:TP={LOUDNORM_TP:g}:LRA=11:print_format=summary"
 
 
 def measure_loudness(path: Path) -> dict:
@@ -205,23 +212,83 @@ def measure_loudness(path: Path) -> dict:
     return {}
 
 
-def normalize_track(source: Path, dest: Path) -> dict:
+def peak_correction_db(measured: dict, limit: float) -> float:
+    """Atenuación necesaria para no superar `limit` dBTP (0 si ya cumple)."""
+    try:
+        peak = float(measured.get("input_tp"))
+    except (TypeError, ValueError):
+        peak = float("nan")
+    if not math.isfinite(peak):
+        raise RuntimeError("No se pudo medir el pico real del master")
+    return round(limit - peak, 4) if peak > limit else 0.0
+
+
+def master_peak_guard(
+    render: Callable[[str], None], out: Path, master: str, limit: float,
+) -> tuple[dict, float]:
+    """Verifica el pico del master ya codificado y lo atenúa si lo supera.
+
+    `render` re-renderiza desde la misma mezcla aplicando el filtro recibido;
+    nunca se recomprime el MP3. Devuelve las medidas finales y la atenuación
+    total aplicada en dB. Si tras `MAX_PEAK_PASSES` sigue por encima, falla y
+    retira la salida: no se publica un master que satura.
+    """
+    info = measure_loudness(out)
+    applied = 0.0
+    try:
+        for attempt in range(MAX_PEAK_PASSES + 1):
+            gain = peak_correction_db(info, limit)
+            if gain == 0.0:
+                return info, applied
+            if attempt == MAX_PEAK_PASSES:
+                break
+            applied = round(applied + gain, 4)
+            render(f"{master},volume={applied}dB")
+            info = measure_loudness(out)
+        raise RuntimeError(
+            f"El master sigue por encima del pico permitido "
+            f"({info.get('input_tp')} > {limit:g} dBTP)"
+        )
+    except RuntimeError:
+        # Nunca se deja una salida que satura o sin medidas válidas.
+        out.unlink(missing_ok=True)
+        raise
+
+
+def normalize_track(source: Path, dest: Path,
+                    peak_limit_dbfs: float | None = None) -> dict:
     """Master de una pista al mismo LUFS que la mezcla, en dos datos medidos.
 
     La primera pasada solo mide. La segunda aplica ese medidor. Así una
-    versión o un tramo salen al mismo nivel que una mezcla.
+    versión o un tramo salen al mismo nivel que una mezcla. Después se
+    verifica el pico real del MP3 y, si la codificación lo supera, se
+    re-renderiza atenuado desde la fuente (nunca se recomprime el MP3); si
+    no baja del límite, se retira `dest` y se falla (R20.L).
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg no está disponible en el PATH")
     if not source.exists():
         raise FileNotFoundError(f"No existe la pista: {source.name}")
     measured = measure_loudness(source)
-    run_ffmpeg(
-        ["-i", str(source), "-af", f"loudnorm={_loudnorm_args(measured, True)}",
-         "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, "-f", "mp3", str(dest)],
-        dest,
-    )
-    return measure_loudness(dest)
+    master = f"loudnorm={_loudnorm_args(measured, True)}"
+    limit = TARGET_TP if peak_limit_dbfs is None else float(peak_limit_dbfs)
+
+    def render(filter_spec: str | None) -> None:
+        run_ffmpeg(
+            ["-i", str(source), "-af", filter_spec or master,
+             "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, "-f", "mp3", str(dest)],
+            dest,
+        )
+
+    render(master)
+    info, gain = master_peak_guard(render, dest, master, limit)
+    if gain:
+        logger.info(f"Pista masterizada con atenuación de pico: {dest.name} {gain:+.2f} dB")
+    return {
+        "loudness": info,
+        "peak_gain_db": gain,
+        "target_true_peak_dbtp": limit,
+    }
 
 
 def run_ffmpeg(args: list[str], output: Path) -> None:
@@ -270,7 +337,8 @@ def first_beat_seconds(groove: dict) -> float:
 
 
 def _audio_seconds(path: Path) -> float:
-    audio = AudioSegment.from_file(path)
+    with path.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=path.suffix.lstrip("."))
     return len(audio) / 1000.0
 
 
@@ -286,7 +354,8 @@ def _frame_db(samples: list[int], start: int, frame: int) -> float:
 
 def _silence_regions(vocal: Path, mixer) -> list[tuple[float, float]]:
     """Tramos con voz. El silencio más corto que el mínimo no parte la frase."""
-    audio = AudioSegment.from_file(vocal)
+    with vocal.open("rb") as stream:
+        audio = AudioSegment.from_file(stream, format=vocal.suffix.lstrip("."))
     mono = audio.set_channels(1).set_frame_rate(ANALYSIS_RATE).set_sample_width(2)
     samples = list(mono.get_array_of_samples())
     frame = max(1, int(ANALYSIS_RATE * mixer.vocal_frame_ms / 1000))
@@ -490,7 +559,7 @@ def crossfade(tracks: list[Path], out: Path, fade_seconds: float = 4.0) -> dict:
             f"{last}[pre{index}]acrossfade=d={fade_seconds:g}:c1=tri:c2=tri{label}"
         )
         last = label
-    filters.append(f"{last}loudnorm=I={TARGET_LUFS:g}:TP={TARGET_TP:g}:LRA=11[out]")
+    filters.append(f"{last}loudnorm=I={TARGET_LUFS:g}:TP={LOUDNORM_TP:g}:LRA=11[out]")
 
     run_ffmpeg(
         [*args, "-filter_complex", ";".join(filters), "-map", "[out]",
@@ -1117,12 +1186,14 @@ class MixerService:
         vocal_volume: float = 0,
         alignment: dict | None = None,
         normalize_lufs: bool = True,
+        peak_limit_dbfs: float | None = None,
     ) -> dict:
         """Mezcla base + voz con ffmpeg.
 
         `alignment` es el plan de `plan_alignment`; si llega, aplica atempo
         (tempo) y adelay (fase) a la voz. Con `normalize_lufs` cierra con
-        loudnorm a -14 LUFS y pico máximo -1 dBTP.
+        loudnorm a -14 LUFS y verifica el pico final: si la codificación lo
+        supera, re-renderiza el master atenuado antes de publicarlo.
         """
         base = Path(base_track_path)
         vocal = Path(vocal_track_path)
@@ -1171,6 +1242,8 @@ class MixerService:
             )
 
         used_filters = ";".join(filters)
+        peak_gain = 0.0
+        limit = TARGET_TP if peak_limit_dbfs is None else float(peak_limit_dbfs)
         if normalize_lufs:
             # Dos pasadas, como un master de estudio: 1ª render sin normalizar
             # para MEDIR, 2ª con esos datos (si no, el resultado se queda
@@ -1179,20 +1252,26 @@ class MixerService:
             try:
                 render(probe, None)
                 measured = measure_loudness(probe)
-                render(out, f"loudnorm={_loudnorm_args(measured, measured_flag=True)}")
+                master = f"loudnorm={_loudnorm_args(measured, measured_flag=True)}"
+                render(out, master)
+                info, peak_gain = master_peak_guard(
+                    lambda extra: render(out, extra), out, master, limit,
+                )
                 used_filters = f"{used_filters};loudnorm(2 pasadas {measured})"
             finally:
                 probe.unlink(missing_ok=True)
         else:
             render(out, None)
+            info = measure_loudness(out)
 
-        info = measure_loudness(out)
-        logger.info(f"Mezcla lista: {out.name} {info}")
+        logger.info(f"Mezcla lista: {out.name} {info} atenuación_pico={peak_gain:+.2f} dB")
         return {
             "output_path": str(out),
             "applied": bool(alignment),
             "loudness": info,
             "filters": used_filters,
+            "peak_gain_db": peak_gain,
+            "target_true_peak_dbtp": limit if normalize_lufs else None,
         }
 
     @staticmethod
@@ -1205,8 +1284,13 @@ class MixerService:
         vocal_volume: float = 0,
         normalize_lufs: bool = True,
         fade_s: float = 0.02,
+        peak_limit_dbfs: float | None = None,
     ) -> dict:
-        """Coloca los trozos del plan sobre la base. No cambia su duración ni su tono."""
+        """Coloca los trozos del plan sobre la base. No cambia su duración ni su tono.
+
+        Con `normalize_lufs` el master verifica el pico real final y se
+        re-renderiza atenuado si la codificación lo supera (R20.L).
+        """
         base = Path(base_track_path)
         vocal = Path(vocal_track_path)
         out = Path(output_path)
@@ -1255,18 +1339,25 @@ class MixerService:
             )
 
         used = f"arrange:{len(pieces)}"
+        peak_gain = 0.0
+        limit = TARGET_TP if peak_limit_dbfs is None else float(peak_limit_dbfs)
         if normalize_lufs:
             probe = out.with_name(f"{out.stem}-probe.mp3")
             try:
                 render(probe, None)
                 measured = measure_loudness(probe)
-                render(out, f"loudnorm={_loudnorm_args(measured, measured_flag=True)}")
+                master = f"loudnorm={_loudnorm_args(measured, measured_flag=True)}"
+                render(out, master)
+                info, peak_gain = master_peak_guard(
+                    lambda extra: render(out, extra), out, master, limit,
+                )
             finally:
                 probe.unlink(missing_ok=True)
         else:
             render(out, None)
-        info = measure_loudness(out)
-        logger.info(f"Arreglo listo: {out.name} trozos={len(pieces)} {info}")
+            info = measure_loudness(out)
+        logger.info(f"Arreglo listo: {out.name} trozos={len(pieces)} {info} "
+                    f"atenuación_pico={peak_gain:+.2f} dB")
         return {
             "output_path": str(out),
             "applied": False,
@@ -1274,4 +1365,6 @@ class MixerService:
             "pieces": len(pieces),
             "loudness": info,
             "filters": used,
+            "peak_gain_db": peak_gain,
+            "target_true_peak_dbtp": limit if normalize_lufs else None,
         }

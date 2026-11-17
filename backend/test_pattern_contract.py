@@ -146,7 +146,7 @@ class PatternContractTest(unittest.TestCase):
                               sample_width=2, channels=1, frame_rate=rate)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "final.wav"
-            audio.export(path, format="wav")
+            audio.export(path, format="wav").close()
             job = {"steps": [{"index": 0, "start": 0.0, "end": duration, "status": "done"}]}
             plan = {"steps": [{"index": 0, "pattern": pattern.model_dump(mode="json")}],
                     "source_bpm": bpm}
@@ -169,7 +169,7 @@ class PatternContractTest(unittest.TestCase):
         runtime = SimpleNamespace(settings=self.settings)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "final.wav"
-            AudioSegment.silent(duration=4000, frame_rate=self.settings.remix.sample_rate).export(path, format="wav")
+            AudioSegment.silent(duration=4000, frame_rate=self.settings.remix.sample_rate).export(path, format="wav").close()
             asyncio.run(remix_project.RemixProjectRuntime._measure_final_patterns(
                 runtime, job, path, plan, config))
         check = job["steps"][0]["pattern_check"]
@@ -191,7 +191,7 @@ class PatternContractTest(unittest.TestCase):
         audio = AudioSegment((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes(), frame_rate=rate, sample_width=2, channels=1)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "dense.wav"
-            audio.export(path, format="wav")
+            audio.export(path, format="wav").close()
             kwargs = {}
             if hasattr(remix_sequence, "pattern_onset_gap_ms"):
                 kwargs["min_gap_ms"] = remix_sequence.pattern_onset_gap_ms(bpm, self.settings.mixer.beats_per_bar, self.config)

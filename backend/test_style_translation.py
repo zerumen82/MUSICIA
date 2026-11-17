@@ -1,11 +1,16 @@
 """El estilo sale en inglés. La letra no se traduce. Una caption inglesa no se reescribe."""
 from __future__ import annotations
 
+import gc
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 
+import style_translator
 from config import AppSettings
 from style_translator import (
     correct_translated_terms,
@@ -304,3 +309,23 @@ class LocalTranslationTest(unittest.TestCase):
         shown = TestClient(main.app).post("/music/style-english", json={"prompt": body["prompt"]})
         self.assertEqual(shown.status_code, 200)
         self.assertEqual(shown.json()["prompt"], generation.prompt)
+
+
+class WorkerPipesTest(unittest.TestCase):
+    """2026-11-17: al parar el worker no quedan pipes de texto sin cerrar."""
+
+    def test_stop_closes_the_worker_pipes(self):
+        worker = style_translator._Worker()
+        worker.proc = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.readline()"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            child = worker.proc
+            worker.stop()
+            del child
+            gc.collect()
+        self.assertIsNone(worker.proc)
+        self.assertEqual(
+            [w for w in caught if issubclass(w.category, ResourceWarning)], [])

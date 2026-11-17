@@ -37,8 +37,11 @@ def main() -> int:
         import torch
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(args.model)
-        model = AutoModelForSeq2SeqLM.from_pretrained(args.model)
+        # Local-first: el modelo ya está en la caché. Sin esta opción,
+        # transformers pide HEAD a huggingface.co en cada arranque y llena el
+        # log de errores de red que no impiden traducir.
+        tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
+        model = AutoModelForSeq2SeqLM.from_pretrained(args.model, local_files_only=True)
         model.to(args.device)
         model.eval()
     except Exception as exc:  # noqa: BLE001 - el padre tiene que ver el fallo de carga

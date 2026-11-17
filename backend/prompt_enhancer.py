@@ -18,6 +18,19 @@ from prompt_style import (
 
 MIN_LENGTH = PROMPT_PREPARATION["min_length"]
 MAX_PROMPT_CHARS = PROMPT_PREPARATION["max_prompt_chars"]
+# Tras un cierre de frase, un añadido va con espacio: «gabber. A track…»,
+# nunca «gabber., A track…».
+SENTENCE_ENDINGS = (".", "!", "?", "…")
+
+
+def _join_addition(text: str, addition: str, separator: str) -> str:
+    """Une un añadido respetando el cierre de frase del texto."""
+    if not text:
+        return addition
+    trimmed = text.rstrip()
+    if trimmed.endswith(SENTENCE_ENDINGS):
+        return f"{trimmed}{PROMPT_PREPARATION['sentence_separator']}{addition}"
+    return f"{text}{separator}{addition}"
 
 # Textos históricos de sugerencia optativa; no intervienen en el caption
 # efectivo. La ruta que los presenta debe declarar que son un borrador y
@@ -153,7 +166,8 @@ def enhance_prompt(
         if caption_conflicts(clause, gate_source):
             warnings.append(f"No se añade la descripción de «{entry['name']}»: contradice tus instrucciones.")
             continue
-        candidate = enhanced + PROMPT_PREPARATION["description_separator"] + clause
+        candidate = _join_addition(enhanced, clause,
+                                   PROMPT_PREPARATION["description_separator"])
         if len(candidate) <= MAX_PROMPT_CHARS:
             enhanced = candidate
             additions.append(clause)
@@ -175,7 +189,7 @@ def enhance_prompt(
         warnings.append("El BPM del texto y el seleccionado difieren; revisa cuál quieres conservar.")
     elif bpm and not written_bpms:
         addition = f"{bpm} bpm"
-        candidate = f"{enhanced}, {addition}"
+        candidate = _join_addition(enhanced, addition, ", ")
         if len(candidate) <= MAX_PROMPT_CHARS:
             enhanced = candidate
             additions.append(addition)

@@ -368,6 +368,17 @@ export default function Library({ externalRefresh = 0 }) {
                           PEDÍA {Math.round(diff.asked)} · SALIÓ {Math.round(diff.got)} BPM
                         </span>
                       )}
+                      {/* Pico real del MP3 publicado (ficha). La atenuación solo
+                          aparece si el guard tuvo que bajar el nivel; sin dato,
+                          la línea no existe. */}
+                      {item.published_true_peak_dbtp != null && (
+                        <span className="mono text-[10px] text-[var(--faint)] block">
+                          PICO {Number(item.published_true_peak_dbtp).toFixed(1)} dBTP
+                          {item.peak_gain_db
+                            ? ` · ATENUADO ${Math.abs(Number(item.peak_gain_db)).toFixed(1)} dB`
+                            : ''}
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>

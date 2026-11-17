@@ -261,7 +261,8 @@ class SeparatorService:
                     raise RuntimeError(f"Demucs no produjo el grupo {group['id']}")
                 target = out_dir / f"{stem_name}-{group['id']}.wav"
                 shutil.copyfile(src, target)
-                audio = AudioSegment.from_file(target)
+                with target.open("rb") as stream:
+                    audio = AudioSegment.from_file(stream, format=target.suffix.lstrip("."))
                 if len(audio) <= 0:
                     raise RuntimeError(f"El grupo {group['id']} está vacío o corrupto")
                 groups.append({

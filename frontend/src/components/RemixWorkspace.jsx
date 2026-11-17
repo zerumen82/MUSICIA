@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import { api, actionError, API_BASE_URL, isEnginePollBlip, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, staleTransportError, TRANSPORT_ERROR_CLEAR_MS, PROMPT_PREVIEW_DEBOUNCE_MS } from '../api';
 import { ANALYSIS_FALLBACK, deskPhase, movingPercent } from '../desk_phase';
-import { ACTIONS, ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, REPAINT, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
+import { ADJUST_SUBMITTING, CONVERTING, REMIX_SUBMITTING, SEPARATION_SUBMITTING, SCOPE_WHY, SECTIONS, VOICE_SUBMITTING, actionWhy, remixBusyLine } from '../remix_sections';
 import useStylePrompt, { usePreparedStylePrompts } from '../useStylePrompt';
 import { applyTrackAction, effectiveTrackSelection, emptyStyleSelection, emptyTouchedRoles, stylePromptRequest } from '../style_prompt';
 import { arrowDirection, nudgeInterval } from '../timeline_nudge';
@@ -11,6 +11,11 @@ import { defaultSequenceSteps, sequencePayloadSteps, sequencePreparationError, s
 import { patternPayload, patternSummary } from '../remix_pattern';
 import { MATERIAL_ENTRY_NOTE, materialOriginLabel } from '../remix_material';
 import RemixPanel from './RemixPanel';
+import RemixRegionEditor from './RemixRegionEditor';
+import RemixScopeSelector from './RemixScopeSelector';
+import RemixStemPicker from './RemixStemPicker';
+import RemixDrumPattern from './RemixDrumPattern';
+import RemixGroupRow from './RemixGroupRow';
 import Waveform from './Waveform';
 import InfoHint from './InfoHint';
 import PromptGuide from './PromptGuide';
@@ -19,7 +24,6 @@ import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import AudioComparator from './AudioComparator';
 import RemixSequence from './RemixSequence';
-import SequencePattern from './SequencePattern';
 import VoiceBackingPanel from './VoiceBackingPanel';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
@@ -167,6 +171,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const alive = useRef(true);
   const classificationEdited = useRef(false);
   const workspace = useRef(null);
+  const resultsRef = useRef(null);
   const currentSourceKey = useRef(sourceKey);
   currentSourceKey.current = sourceKey;
   const measurementRequest = useRef(0);
@@ -268,6 +273,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       && grooveReading?.sourceKey !== sourceKey) void measureSourceTempo();
   }, [scope, bpm, capabilities, busy, grooveBusy, grooveReading, sourceKey, measureSourceTempo]);
 
+  useEffect(() => { if (action === 'voice') setAdvanced(true); }, [action]);
   useEffect(() => {
     if (!advanced) return undefined;
     let active = true;
@@ -405,7 +411,6 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     .filter((step) => step.enabled)
     .every((step) => sequenceSentTexts[step.index] != null);
 
-  const onRange = useCallback((selection) => setRegion({ start: selection.trim_start_s ?? 0, end: selection.trim_end_s }), []);
   const onRepeatRange = useCallback((selection) => {
     const bounds = repeatBoundsFromWave(selection);
     setRepeatStart(bounds.start);
@@ -544,6 +549,13 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     ...(needsStyle ? { use_format: advancedUseFormat } : {}),
     ...(needsStyle && advancedBatch !== '' && scope !== 'sequence' ? { batch_size: Number(advancedBatch) } : {}),
   };
+  const resetForm = () => {
+    setPrompt(''); setBpm(''); setDurationMinutes(''); setDurationSeconds('');
+    setRepeatStart(''); setRepeatEnd(''); setRegion({ start: 0, end: null });
+    setGains({}); setSolo(null); setOutputName(''); setSeed('');
+    setAdvancedGuidance(''); setAdvancedSteps(''); setAdvancedUseFormat(false); setAdvancedBatch('');
+    setError(null); setNotice('Formulario restablecido.');
+  };
   const run = () => execute(async () => {
     if (needsStyle && !promptsReady) throw new Error('Espera a que todos los prompts estén preparados.');
     if (needsStyle && !sentPrompt && scope !== 'sequence') throw new Error('Describe los cambios que quieres hacer');
@@ -612,6 +624,45 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const spoken = remixBusyLine(phase, action, ratio, !!job, pendingMessage);
   const busyLine = spoken || job?.error || 'La operación no se completó';
   const percent = movingPercent(phase, ratio);
+  // Persistencia del borrador por archivo: al reabrir la mesa se recupera lo
+  // escrito (prompt, BPM, duración, región, ajustes) sin tocar el motor.
+  const restoredKey = useRef(null);
+  useEffect(() => {
+    if (!capabilities) return;
+    if (restoredKey.current === sourceKey) return;
+    restoredKey.current = sourceKey;
+    let draft = null;
+    try { const raw = sessionStorage.getItem(`musicia:remix:draft:${sourceKey}`); if (raw) draft = JSON.parse(raw); } catch { draft = null; }
+    if (!draft) return;
+    if (typeof draft.action === 'string') setAction(draft.action === 'tramo' ? 'region' : draft.action);
+    if (typeof draft.prompt === 'string') setPrompt(draft.prompt);
+    if (typeof draft.bpm === 'string') setBpm(draft.bpm);
+    if (typeof draft.durationMinutes === 'string') setDurationMinutes(draft.durationMinutes);
+    if (typeof draft.durationSeconds === 'string') setDurationSeconds(draft.durationSeconds);
+    if (typeof draft.repeatStart === 'string') setRepeatStart(draft.repeatStart);
+    if (typeof draft.repeatEnd === 'string') setRepeatEnd(draft.repeatEnd);
+    if (draft.region && typeof draft.region === 'object') setRegion({ start: draft.region.start ?? 0, end: draft.region.end ?? null });
+    if (draft.gains && typeof draft.gains === 'object') setGains(draft.gains);
+    if (typeof draft.solo === 'string' || draft.solo === null) setSolo(draft.solo ?? null);
+    if (typeof draft.outputName === 'string') setOutputName(draft.outputName);
+    if (typeof draft.seed === 'string') setSeed(draft.seed);
+    if (typeof draft.advancedGuidance === 'string') setAdvancedGuidance(draft.advancedGuidance);
+    if (typeof draft.advancedSteps === 'string') setAdvancedSteps(draft.advancedSteps);
+    if (typeof draft.advancedUseFormat === 'boolean') setAdvancedUseFormat(draft.advancedUseFormat);
+    if (typeof draft.advancedBatch === 'string') setAdvancedBatch(draft.advancedBatch);
+    if (typeof draft.vocalMode === 'string') setVocalMode(draft.vocalMode);
+    if (typeof draft.lyrics === 'string') setLyrics(draft.lyrics);
+  }, [sourceKey, capabilities]);
+  useEffect(() => {
+    try {
+      const draft = { action, prompt, bpm, durationMinutes, durationSeconds, repeatStart, repeatEnd, region, gains, solo, outputName, seed, advancedGuidance, advancedSteps, advancedUseFormat, advancedBatch, vocalMode, lyrics };
+      sessionStorage.setItem(`musicia:remix:draft:${sourceKey}`, JSON.stringify(draft));
+    } catch { /* cuota o modo privado: se ignora */ }
+  }, [sourceKey, action, prompt, bpm, durationMinutes, durationSeconds, repeatStart, repeatEnd, region, gains, solo, outputName, seed, advancedGuidance, advancedSteps, advancedUseFormat, advancedBatch, vocalMode, lyrics]);
+  useEffect(() => {
+    if (outputs.length > 0) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [outputs.length]);
+
   // El BPM original se revisa igual en «por pistas» y en la secuencia: el
   // control, la medición y la ficha de origen son los mismos; solo cambian la
   // etiqueta accesible y la frase que dice qué hacer con el valor.
@@ -628,102 +679,34 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
   const comparisonTracks = useMemo(() => [{ id: 'original', label: 'ORIGINAL', url: originalUrl, duration },
     ...outputs.map((name, index) => ({ id: name, label: `VARIANTE ${String.fromCharCode(65 + index)} · ${name}`, url: api.audioUrl(name) }))], [originalUrl, duration, outputs]);
 
+  const groupRowCtx = {
+    actions, setActions, solo, setSolo, trackText, setTrackText,
+    trackSelections, setTrackSelections, trackSelectionRoles, setTrackSelectionRoles,
+    trackRoles, trackSelection, preparedTracks, applyTrackAction, emptyStyleSelection,
+    stylePrepared: prepared, busy, mediaUrl, capabilities,
+    groupPatternEditor, setGroupPatternEditor, groupPatternEnabled, setGroupPatternEnabled,
+    groupPatterns, setGroupPatterns, patternSummary,
+  };
+
   return <div ref={workspace} className="flex flex-col gap-3" data-remix-project onPlayCapture={(event) => {
     workspace.current?.querySelectorAll('audio').forEach((player) => { if (player !== event.target) player.pause(); });
   }}>
-    <div className="flex flex-col gap-2">
-      <p className="text-[13px] text-[var(--muted)]">{fileName}{duration == null ? '' : ` · ${Number(duration).toFixed(1)} s`}</p>
-      <label className="flex flex-col gap-1">
-        <span className="text-[13px] text-[var(--text)]">Qué hacer</span>
-        <select aria-label="Qué hacer" className="desk-select" disabled={busy || grooveBusy || !capabilities} value={action} onChange={(event) => { setAction(event.target.value); setSolo(null); }}>
-          {ACTIONS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-        </select>
-      </label>
-      {!capabilities && !error && <span className="text-[13px] text-[var(--muted)]">Cargando opciones…</span>}
-    </div>
-    {scopeWhy && <p className="text-[13px] leading-snug">{scopeWhy}</p>}
+    <RemixScopeSelector fileName={fileName} duration={duration} action={action} setAction={setAction} setSolo={setSolo} capabilities={capabilities} busy={busy} grooveBusy={grooveBusy} error={error} scopeWhy={scopeWhy} />
+    {remixing && !advanced && <p className="mono text-[10px] text-[var(--faint)]">Más opciones (voz, referencia tímbrica, semilla, parámetros del motor) están en el desplegable «Avanzado» al final.</p>}
     {remixing && <p className="text-[13px] leading-snug text-[var(--muted)]" data-material-origin-note>{MATERIAL_ENTRY_NOTE}</p>}
-    {remixing && scope === 'region' && <div className="flex flex-col gap-2"><Waveform key={`${sourceKind}:${fileName}`} fileName={fileName} sourceKind={sourceKind} onSelection={onRange} selection={region} disabled={busy} nudgeStep={nudgeStep} scales={false} />
-      <div className="flex gap-3 flex-wrap">
-        <label className="label">DESDE <input aria-label="Inicio del tramo" type="number" min="0" step={Number(nudgeStep) > 0 ? nudgeStep : undefined} disabled={busy} value={region.start} onKeyDown={nudgeRegion('start')} onChange={(event) => setRegion((current) => ({ ...current, start: event.target.value }))} className={`${field} w-24`} /> s</label>
-        <label className="label">HASTA <input aria-label="Final del tramo" type="number" min="0" step={Number(nudgeStep) > 0 ? nudgeStep : undefined} disabled={busy} value={region.end ?? duration ?? ''} onKeyDown={nudgeRegion('end')} onChange={(event) => setRegion((current) => ({ ...current, end: event.target.value }))} className={`${field} w-24`} /> s</label>
-      </div>
-      <label className="flex flex-col gap-1 text-[13px] text-[var(--text)]">Transición <select aria-label="Modo de edición regional" disabled={busy} className="desk-select" value={controls.repaint_mode ?? ''} onChange={(event) => update('repaint_mode', event.target.value)}>
-        {(capabilities?.repaint_modes ?? []).map((item) => {
-          const id = item.id ?? item;
-          return <option key={id} value={id}>{REPAINT[id]?.label || item.label || id}</option>;
-        })}</select></label>
-      {REPAINT[controls.repaint_mode]?.why && <p className="text-[13px] leading-snug">{REPAINT[controls.repaint_mode].why}</p>}
-      {controls.repaint_mode === 'balanced' && range('repaint_strength', 'TRANSFORMACIÓN DEL TRAMO')}
-      {capabilities?.limitations?.repaint_normalization && <Fold title={SECTIONS.limit.title} why={SECTIONS.limit.why}><p className="mono text-[10px] text-[var(--faint)] py-2">{capabilities.limitations.repaint_normalization}</p></Fold>}
-    </div>}
+    {remixing && scope === 'region' && <RemixRegionEditor fileName={fileName} sourceKind={sourceKind} region={region} setRegion={setRegion} duration={duration} nudgeStep={nudgeStep} busy={busy} capabilities={capabilities} controls={controls} update={update} range={range} nudgeRegion={nudgeRegion} originalUrl={originalUrl} />}
     {remixing && scope === 'groups' && <div className="flex flex-col gap-2">
       <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={useStems} onChange={(e) => setUseStems(e.target.checked)} disabled={busy} /> Usar stems propios (vocals/drums/bass/other) en vez de separar</label>
-      {useStems && <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-2">
-        {groupIds.map((gid) => (
-          <label key={gid} className="flex items-center gap-2 text-[13px]">{groupLabel(gid)}
-            <select className="desk-select" value={stemFiles[gid]?.id ?? ''} disabled={busy}
-              onChange={(e) => { const item = references.find((r) => r.id === e.target.value); setStemFiles((prev) => ({ ...prev, [gid]: item ? { name: item.name, kind: item.kind, id: item.id } : null })); }}>
-              <option value="">— sin stem —</option>
-              {references.map((r) => <option key={r.id} value={r.id}>{r.name} ({r.kind})</option>)}
-            </select>
-          </label>
-        ))}
-        <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={quantize} onChange={(e) => setQuantize(e.target.checked)} disabled={busy} /> Cuantizar stems al BPM objetivo</label>
+      {useStems && <RemixStemPicker groupIds={groupIds} groupLabel={groupLabel} stemFiles={stemFiles} setStemFiles={setStemFiles} references={references} quantize={quantize} setQuantize={setQuantize} busy={busy} />}
+      {!useStems && !groups.length && <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void separate()} className="btn btn-signal h-10 px-4 self-start">SEPARAR PISTAS DEL ORIGINAL</button>}
+      {analysisStatus && !groups.length && <p role="status" className="text-[13px] text-[var(--muted)]">{analysisStatus} La separación puede empezar igualmente; la clasificación es solo orientativa.</p>}
+      {groups.map((group) => <RemixGroupRow key={group.id} group={group} ctx={groupRowCtx} />)}
+      {groups.length > 0 && <div className="flex items-center gap-3 flex-wrap">
+        <p className="mono text-[10px] text-[var(--muted)]" data-groups-summary>
+          {Object.values(actions).filter((a) => a === 'transform').length} transformar · {Object.values(actions).filter((a) => a === 'keep').length} conservar · {Object.values(actions).filter((a) => a === 'remove').length} quitar
+        </p>
+        <button type="button" disabled={busy || grooveBusy || !capabilities} onClick={() => void separate()} className="btn btn-ghost h-8 px-3">RE-SEPARAR</button>
       </div>}
-      {!useStems && !groups.length && <button type="button" disabled={busy || grooveBusy || !capabilities || !!analysisStatus} onClick={() => void separate()} className="btn btn-signal h-10 px-4 self-start">SEPARAR PISTAS DEL ORIGINAL</button>}
-      {analysisStatus && !groups.length && <p role="status" className="text-[13px]">{analysisStatus} La separación espera a que termine.</p>}
-      {groups.map((group) => <div key={group.id} className="stem-row border-b border-[var(--line)] py-2">
-        <span className="text-[14px] text-[var(--text)]">{group.label}</span>
-        <select aria-label={`Acción de ${group.label}`} disabled={busy} value={actions[group.id] ?? 'keep'} onChange={(event) => setActions((current) => ({ ...current, [group.id]: event.target.value }))} className="desk-select">
-          {(capabilities?.actions ?? []).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-        </select>
-        <button type="button" disabled={busy} aria-pressed={solo === group.id} onClick={() => setSolo((current) => current === group.id ? null : group.id)} className="btn btn-ghost h-8 px-2">{solo === group.id ? 'CERRAR SOLO' : 'SOLO'}</button>
-        {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
-          <textarea aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista" onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} rows={2} className={`${field} w-full resize-y`} />
-          <PromptGuide label="Cómo montar el prompt de esta pista para el modelo" />
-          <PromptTools prompt={trackText[group.id] ?? ''}
-            setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
-            prepared={{ ...preparedTracks[group.id], selection: trackSelection(group.id),
-              setSelection: (next) => {
-                // La acción parte de lo que el usuario VE (la selección
-                // efectiva) y solo deja de heredarse el papel que cambia.
-                const step = applyTrackAction(
-                  trackSelections[group.id] ?? emptyStyleSelection(),
-                  trackRoles(group.id),
-                  prepared.selection,
-                  next,
-                );
-                setTrackSelections((current) => ({ ...current, [group.id]: step.own }));
-                setTrackSelectionRoles((current) => ({ ...current, [group.id]: step.touched }));
-              } }} disabled={busy} />
-          {group.id === 'drums' && <div className="flex flex-col gap-2 border border-[var(--line)] rounded p-2" data-group-pattern="drums">
-            <button type="button" aria-expanded={groupPatternEditor === 'drums'}
-              disabled={busy} onClick={() => setGroupPatternEditor(groupPatternEditor === 'drums' ? null : 'drums')}
-              className={`btn btn-ghost min-h-8 px-2 self-start ${groupPatternEnabled.drums ? '!border-[var(--acc-line)] !text-[var(--acc)]' : ''}`} data-group-pattern-toggle="drums">
-              {groupPatternEnabled.drums ? 'EDITAR PATRÓN' : 'PATRÓN DE BATERÍA (OCULTO)'}
-            </button>
-            {!groupPatternEnabled.drums && <span className="mono text-[10px] text-[var(--faint)]" data-group-pattern-hint="drums">Oculto y desactivado: no se envía nada hasta abrirlo, marcarlo y activarlo.</span>}
-            {groupPatternEnabled.drums && <>
-              <span className="mono text-[10px] text-[var(--acc)]" data-group-pattern-active="drums">PATRÓN ACTIVO · {patternSummary(groupPatterns.drums ?? {})}</span>
-              <button type="button" disabled={busy} onClick={() => setGroupPatternEnabled('drums', false)}
-                className="btn btn-ghost min-h-8 px-2 self-start" data-group-pattern-deactivate="drums">DESACTIVAR PATRÓN</button>
-            </>}
-            {groupPatternEditor === 'drums' && <section id="group-pattern-editor-drums" tabIndex={-1}
-              className="flex flex-col gap-3 border border-[var(--line-strong)] rounded p-3 min-w-0" data-group-pattern-editor="drums">
-              <label className="flex items-center gap-2 text-[13px]">
-                <input type="checkbox" aria-label="Usar patrón en esta pista" checked={Boolean(groupPatternEnabled.drums)} disabled={busy}
-                  onChange={(event) => setGroupPatternEnabled('drums', event.target.checked)} />
-                Usar patrón en esta pista
-              </label>
-              <SequencePattern key="drums" pattern={groupPatterns.drums ?? {}} capabilities={capabilities}
-                disabled={busy || !groupPatternEnabled.drums}
-                onChange={(pattern) => setGroupPatterns((current) => ({ ...current, drums: pattern }))} />
-            </section>}
-          </div>}
-        </fieldset>}
-        {solo === group.id && <audio controls autoPlay src={mediaUrl(group.url, group.file_name)} aria-label={`Escuchar ${group.label}`} className="player w-full" style={{ gridColumn: '1 / -1' }} />}
-      </div>)}
       {remixing && needsStyle && promptsReady && !requestError && scope === 'groups' && <StyleEnglish request={payload}
         why="El modelo recibe un solo texto: el prompt general más una línea por cada pista en «transformar». Se muestra el texto efectivo del servidor. Las pistas no se tratan por separado." />}
       <div><InfoHint label="Cómo heredan las pistas">Cada pista hereda el estilo general; si eliges otro en la pista, manda ese. El texto de una pista se suma (vacía no añade nada). El acompañamiento puede juntar varios instrumentos.</InfoHint></div>
@@ -752,7 +735,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       <p className="text-[13px] text-[var(--muted)]">El tempo lo mide el servidor sobre el original: los cortes caen en compases completos. Si la medición no es fiable, indica el BPM original revisado.</p>
       {sourceTempoControls({ label: 'BPM original de la secuencia', uncertain: 'Medición incierta o fuera de límites: indica el BPM original para repartir los pasos.' })}
     </div>}
-    {remixing && scope === 'full' && bpm !== '' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p>}
+    {remixing && scope === 'full' && (bpm !== '' ? <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.full}</p> : <p className="text-[13px] text-[var(--faint)]">Vacío = mantener el tempo original.</p>)}
     {remixing && scope === 'region' && <p className="text-[13px] text-[var(--muted)]">{TEMPO_TEXT.region}</p>}
     {remixing && scope === 'groups' && bpm !== '' && <div className="flex flex-col gap-2">
       <p className="text-[13px] text-[var(--muted)]">Todas las pistas cambian de tempo juntas, sin cambiar el tono. Las grabaciones conservadas también se procesan.</p>
@@ -787,6 +770,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         <input aria-label="Nombre del remix" value={outputName} disabled={busy} onChange={(event) => setOutputName(event.target.value)}
           placeholder={fileName ? `${fileName.replace(/\.[^.]+$/, '')}-remix` : 'Nombre de las variantes'} className={field} />
       </label>
+      <button type="button" onClick={() => void resetForm()} disabled={busy} className="btn btn-ghost h-10 px-3">RESTABLECER</button>
       <button type="button" onClick={() => void run()} disabled={busy || grooveBusy || !!requestError || !!analysisStatus || !capabilities || (needsStyle && (!promptsReady || (!sentPrompt && scope !== 'sequence')))} className="btn btn-signal h-10 px-5">
       {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} {busy ? 'TRABAJANDO…' : 'REMIX'}</button></div>}
     {action === 'voice' && <VoiceBackingPanel fileName={fileName} sourceKind={sourceKind} duration={duration} capabilities={capabilities} busy={busy} onRun={voiceBacking} />}
@@ -803,6 +787,17 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
     {busy && <div role="status" aria-live="polite" className="flex items-center gap-3">
       <Loader2 size={14} className="animate-spin shrink-0" aria-hidden="true" />
       <p className="text-[13px]">{busyLine}</p>
+      {scope === 'sequence' && Array.isArray(job?.steps) && (
+        <p className="mono text-[10px] text-[var(--muted)]" data-sequence-progress>
+          {(() => {
+            const running = job.steps.find((s) => s.status === 'running');
+            const done = job.steps.filter((s) => s.status === 'done').length;
+            const total = job.steps.filter((s) => s.enabled !== false).length || job.steps.length;
+            return running ? `Paso ${running.index + 1} de ${total} en curso` : `${done} de ${total} pasos hechos`;
+          })()}
+          {Array.isArray(job.events) && job.events.length ? ` · ${job.events[job.events.length - 1]}` : ''}
+        </p>
+      )}
       {percent != null && <>
         <progress className="flex-1 min-w-[120px]" max="1" value={ratio} />
         <span className="num text-[13px]">{percent}%</span>
@@ -811,7 +806,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
       {currentJob.current && scope === 'sequence' && <button type="button" onClick={() => void stopSequence()} className="btn btn-signal h-8 px-3">PARAR SECUENCIA</button>}
       {currentJob.current && <button type="button" onClick={() => void cancel()} className="btn btn-ghost h-8 px-3">CANCELAR</button>}
     </div>}
-    {(error || (!spoken && job?.error)) && <p role="alert" className="mono text-[11px] st-err flex gap-2 items-center"><AlertTriangle size={13} />{error || job.error}</p>}
+    {(error || (!spoken && job?.error)) && <p role="alert" className="mono text-[11px] st-err flex gap-2 items-center"><AlertTriangle size={13} />{error || job.error}{scope === 'sequence' && Array.isArray(job?.steps) ? ` (paso ${(job.steps.find((s) => s.status === 'running')?.index ?? job.steps.filter((s) => s.status === 'done').length) + 1})` : ''}</p>}
     {notice && <p role="status" className="mono text-[10px] text-[var(--muted)]">{notice}</p>}
     {remixing && <Fold title={SECTIONS.advanced.title} why="Timbre, voz, semilla, parámetros del motor y lo detectado en el archivo." onToggle={(event) => setAdvanced(event.currentTarget.open)}>
       <div className="flex flex-col gap-3 border-l border-[var(--line)] pl-3 py-2">
@@ -873,7 +868,7 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
         source_analysis: job.result?.source_analysis ?? job.source_analysis }, null, 2)}</pre>
       {(job.warnings ?? []).map((warning, index) => <p key={index} className="mono text-[10px] st-warn">{typeof warning === 'string' ? warning : JSON.stringify(warning)}</p>)}
     </Fold>}
-    {outputs.length > 0 && <div className="flex flex-col gap-2">
+    {outputs.length > 0 && <div ref={resultsRef} className="flex flex-col gap-2">
       <p className="text-[13px]">Resultado, al lado del original.</p>
       {materialOriginLabel(job?.result?.material_origin) && <p className="text-[13px] text-[var(--muted)]" data-material-origin>{materialOriginLabel(job?.result?.material_origin)}</p>}
       <AudioComparator tracks={comparisonTracks} interval={scope === 'region' ? region : null} nudgeStep={nudgeStep} />
