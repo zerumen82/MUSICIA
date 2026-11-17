@@ -3,6 +3,7 @@ import { defaultSequenceSteps, sequenceCostText, sequenceEnabledCount, sequenceI
 import { patternCheckLabel, patternSummary } from '../remix_pattern';
 import SequencePattern from './SequencePattern';
 import InfoHint from './InfoHint';
+import PromptGuide from './PromptGuide';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
 const FOCUS_LABEL = { todo: 'Todo el tramo', drums: 'Batería', vocals: 'Voz', bass: 'Bajo', other: 'Acompañamiento' };
@@ -70,7 +71,7 @@ export default function RemixSequence({ steps, onSteps, capabilities, preview, p
           </select>}
           <textarea aria-label={'Texto del paso ' + (step.index + 1)} value={step.prompt} rows={3} disabled={busy} placeholder={placeholder}
             onChange={(event) => update(step.index, { prompt: event.target.value })} className={field + ' w-full resize-y'} data-sequence-prompt={step.index} />
-          <InfoHint label="Qué entiende el modelo en este paso">Género/estilo, instrumentos, tempo, energía (subidón/bajón), textura, estructura. No entiende mezcla (volumen, pan, EQ).</InfoHint>
+          <PromptGuide label="Cómo montar el prompt de este paso para el modelo" />
           <button type="button" aria-expanded={editingIndex === step.index}
             aria-controls="sequence-pattern-editor" aria-label={'Editar patrón opcional del paso ' + (step.index + 1)}
             ref={(node) => { if (node) patternButtons.current.set(step.index, node); else patternButtons.current.delete(step.index); }}

@@ -21,6 +21,19 @@ export function identifyCopyText(result) {
   return 'El modelo no devolvió un género del glosario';
 }
 
+/** Prompt en formato del modelo para pegar y generar: primero el género en el
+ *  vocabulario del glosario del motor (lo que el motor entiende de estilo) y
+ *  después la descripción, que es el formato caption nativo del propio motor.
+ *  No se inventa nada: ambos textos salen del análisis. */
+export function identifyModelPrompt(result) {
+  const genre = String(result?.glossary_genre ?? '').trim();
+  const raw = String(result?.genres ?? '').trim();
+  const description = String(result?.description ?? '').trim();
+  const head = genre || raw;
+  if (head && description) return `${head}. ${description}`;
+  return description || head;
+}
+
 /** Reloj m:ss para etiquetas de tramo. */
 export function formatClock(seconds) {
   const total = Math.max(0, Math.round(Number(seconds) || 0));

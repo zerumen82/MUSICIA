@@ -20,6 +20,7 @@ import { moodClauses, moodTooltip } from '../mood_clauses';
 import { CATALOG_GENRES, findGenre } from '../genres';
 import { canAttemptEngineOperation, generationWaitMessage } from '../engine_generation';
 import InfoHint from './InfoHint';
+import PromptGuide from './PromptGuide';
 
 const UI = {
   minDuration: 10,
@@ -482,7 +483,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
             placeholder="Tus detalles y restricciones. Elige el principal y los matices en sus controles."
             className="bg-transparent outline-none resize-none text-[17px] leading-relaxed text-zinc-100 placeholder:text-[var(--faint)] min-h-[110px] font-medium border-l-2 border-[var(--line-strong)] pl-5 py-1.5 focus:border-[var(--acc-line)] transition-colors"
           />
-          <div className="pl-5"><InfoHint label="Qué entiende el modelo en CREAR">Género/estilo, instrumentos, tempo, energía (subidón/bajón), textura, estructura. No entiende mezcla (volumen, pan, EQ).</InfoHint></div>
+          <div className="pl-5"><PromptGuide /></div>
           <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />
           {prepared.ready && <EffectivePreview request={generationRequest(finalPrompt, seed.trim() === '' ? null : Number(seed))} loadPreview={api.generationPreview} title="VER LO QUE SE ENVÍA" />}
           {mode === 'voice' && (

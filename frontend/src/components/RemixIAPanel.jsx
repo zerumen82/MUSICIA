@@ -5,6 +5,7 @@ import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import InfoHint from './InfoHint';
+import PromptGuide from './PromptGuide';
 import useStylePrompt from '../useStylePrompt';
 
 /** Compatibilidad de apertura: todas las versiones trabajan sobre el original. */
@@ -50,6 +51,7 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
       <span className="block">Montaje: el motor crea un instrumental nuevo desde tu texto. No escucha el audio original: solo usa su duración como sugerencia inicial del control DURACIÓN.</span>
       <span className="block">El resultado es un tema aparte en BIBLIOTECA; para apilarlo sobre el original usa el remix por pistas.</span>
     </InfoHint>
+    <PromptGuide />
     <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={generating} />
     <div className="flex gap-3 flex-wrap">
       <label className="label">BPM <input aria-label="BPM del acompañamiento" type="number" min="1" value={bpm} disabled={generating} onChange={(event) => setBpm(event.target.value)} placeholder="Auto" className="w-24 px-2 py-1" /></label>

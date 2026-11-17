@@ -4,6 +4,7 @@ import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
 import InfoHint from './InfoHint';
+import PromptGuide from './PromptGuide';
 import useStylePrompt from '../useStylePrompt';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
@@ -29,7 +30,9 @@ export default function VoiceBackingPanel({ fileName, sourceKind, duration, capa
       <InfoHint label="Cómo se monta la voz y la base">
         <span className="block">Montaje: 1) se separa tu voz del original; 2) el texto crea una base instrumental nueva al tempo del tema; 3) tu voz se cuadra sobre esa base (tempo y fase) y se mezcla debajo.</span>
         <span className="block">La letra no se usa: la voz es tu grabación. El texto solo describe la música nueva.</span>
+        <span className="block">La base se genera SOLO con tu texto: si el texto no nombra un instrumento (p. ej. «distorted kick»), la base no lo lleva.</span>
       </InfoHint>
+      <PromptGuide />
       <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />
       <div className="flex gap-3 flex-wrap">
         <label className="label">MINUTOS <input aria-label="Minutos de la base con voz original" type="number" step="any" min="0" disabled={busy} value={minutes} onChange={(event) => setMinutes(event.target.value)} placeholder={duration ? (duration / SECONDS_PER_MINUTE).toFixed(2) : 'Duración original'} className={`${field} w-36`} /></label>
