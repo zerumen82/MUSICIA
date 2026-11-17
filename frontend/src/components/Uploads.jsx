@@ -3,7 +3,7 @@ import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
 import { api, actionError, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
-import { identifyCopyText, identifyReading, identifyScopeReading } from '../identify_reading';
+import { identifyCopyText, identifyReading, identifyScopeReading, markedRegionReading } from '../identify_reading';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
 import Waveform from './Waveform';
@@ -355,7 +355,7 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                       className="btn btn-ghost h-7 px-2.5 shrink-0"
                     >
                       {identify[item.name]?.status === 'running' ? <Loader2 size={11} className="animate-spin" /> : null}
-                      IDENTIFY
+                      {regions[item.name] ? 'IDENTIFY · TRAMO' : 'IDENTIFY'}
                     </button>
                   </>
                 )}
@@ -375,6 +375,9 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                   <p className="mono text-[10px] text-[var(--faint)]">
                     Arrastra los marcadores y pulsa IDENTIFY: la descripción será de ese tramo. Sin tocar la onda se analiza el tema entero (o su centro si es muy largo).
                   </p>
+                  {markedRegionReading(regions[item.name]) && (
+                    <p className="mono text-[10px] text-[var(--acc)]" data-region-marked>{markedRegionReading(regions[item.name])}</p>
+                  )}
                   <Waveform
                     fileName={item.name}
                     sourceKind="upload"

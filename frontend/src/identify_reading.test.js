@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { identifyCopyText, identifyReading, identifyScopeReading } from './identify_reading.js';
+import { formatClock, identifyCopyText, identifyReading, identifyScopeReading, markedRegionReading } from './identify_reading.js';
 
 test('IDENTIFY enseña la descripción del modelo y el género del glosario', () => {
   const withGenre = { description: 'hard gabber con kick distorsionado', glossary_genre: 'gabber, hardstyle, hardcore', genres: 'otra cosa' };
@@ -27,4 +27,11 @@ test('IDENTIFY declara ANTES de la descripción qué parte se describió', () =>
     'TEMA COMPLETO · OÍDO 0:00–3:09 de 3:09',
   );
   assert.equal(identifyScopeReading({}, { start: 0, end: 10 }), '');
+});
+
+test('La onda marca el tramo elegido y el reloj formatea m:ss', () => {
+  assert.equal(markedRegionReading({ start: 30, end: 90 }), 'TRAMO MARCADO 0:30–1:30 · IDENTIFY describirá ese trozo');
+  assert.equal(markedRegionReading({ start: 0, end: null }), 'TRAMO MARCADO 0:00–FINAL · IDENTIFY describirá ese trozo');
+  assert.equal(markedRegionReading(null), null);
+  assert.equal(formatClock(189), '3:09');
 });

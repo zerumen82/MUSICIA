@@ -21,6 +21,21 @@ export function identifyCopyText(result) {
   return 'El modelo no devolvió un género del glosario';
 }
 
+/** Reloj m:ss para etiquetas de tramo. */
+export function formatClock(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Marca visible bajo la onda: declara que hay un tramo elegido y que
+ *  IDENTIFY describirá ESE trozo. Sin tramo devuelve null (automático). */
+export function markedRegionReading(region) {
+  if (!region) return null;
+  const start = formatClock(region.start);
+  const end = region.end == null ? 'FINAL' : formatClock(region.end);
+  return `TRAMO MARCADO ${start}–${end} · IDENTIFY describirá ese trozo`;
+}
+
 /** Etiqueta de contexto del análisis (análisis_range del backend): declara
  *  ANTES de la descripción qué parte se escuchó y quién lo decidió. Con tramo
  *  elegido en la onda la descripción es DE ESE TROZO; sin tramo, la elección
@@ -31,16 +46,12 @@ export function identifyScopeReading(result, chosenRegion = null) {
   const start = Number(range?.start);
   const end = Number(range?.end);
   if (!Number.isFinite(end)) return '';
-  const clock = (seconds) => {
-    const total = Math.max(0, Math.round(Number(seconds) || 0));
-    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
-  };
   const tail = range.truncated ? ' · recortado al máximo' : '';
-  const heard = `${clock(start)}–${clock(end)}`;
+  const heard = `${formatClock(start)}–${formatClock(end)}`;
   if (chosenRegion) {
     return `TRAMO ELEGIDO ${heard} · DESCRIPCIÓN DE ESE TROZO${tail}`;
   }
   const total = Number(range?.source_duration);
-  const whole = Number.isFinite(total) ? ` de ${clock(total)}` : '';
+  const whole = Number.isFinite(total) ? ` de ${formatClock(total)}` : '';
   return `TEMA COMPLETO · OÍDO ${heard}${whole}${tail}`;
 }

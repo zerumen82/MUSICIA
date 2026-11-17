@@ -1302,7 +1302,9 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 - [x] La traducción al motor no cambia: el análisis sigue siendo `full_analysis_only` con `use_cot_caption` intacto y sin `use_format`.
 - [x] Regresiones backend (`test_source_understanding` 16/16), frontend 114/114, ESLint y build verdes.
 - [x] El resultado declara ANTES de la descripción qué parte se describió y quién lo decidió (2026-11-17): con tramo elegido `TRAMO ELEGIDO 0:30–1:30 · DESCRIPCIÓN DE ESE TROZO`; sin tramo `TEMA COMPLETO · OÍDO 0:00–3:09 de 3:09`; con recorte del tope añade `· recortado al máximo`. El rango es `analysis_range` del backend, nunca el pedido. `identifyScopeReading` en `frontend/src/identify_reading.js` (sustituye a `analyzedRangeReading`), etiqueta visible en la UI de SUBIR.
-- [ ] Verificación real con el motor sobre una pista del usuario (tramo elegido + rango declarado) y escucha: pendiente de que el stack esté arrancado; no se acredita por los tests.
+- [x] Marca visible del tramo elegido (2026-11-17, «cuando está seleccionado en ONDA debería coger ese trozo, o se debe marcar de alguna manera»): bajo la onda aparece `TRAMO MARCADO 0:30–1:30 · IDENTIFY describirá ese trozo` (o `0:00–FINAL` si el marcador final va al último segundo) y el botón pasa a `IDENTIFY · TRAMO` mientras haya tramo elegido. `markedRegionReading` y `formatClock` en `identify_reading.js`; sin tramo la fila y el botón vuelven al automático.
+- [x] Verificación real con el motor sobre una pista del usuario (tramo elegido + rango declarado): ejecutada el 2026-11-17 12:2x con el stack arrancado; job `381fbc7ff57e48788bd8b49c2419eb1a`, tramo pedido 60–90 s de `49a33fd0-Y2Mate.is - ADRIN MILLS - 240 INTRO 2.mp3` (189,243 s), `analysis_range` devuelto start=60 end=90 truncated=False y caption del trozo («An energetic and driving Italo-disco instrumental intro…», género `Italo-disco`). La descripción corresponde al tramo elegido.
+- [ ] Escucha del usuario de la descripción del tramo en la ventana: pendiente de su lectura artística.
 
 ## [R22] ⓘ con información al pasar el ratón en todos los sitios con prompt — pedido 2026-11-17
 
