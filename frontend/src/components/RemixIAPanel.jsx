@@ -4,6 +4,7 @@ import { api, actionError } from '../api';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
+import InfoHint from './InfoHint';
 import useStylePrompt from '../useStylePrompt';
 
 /** Compatibilidad de apertura: todas las versiones trabajan sobre el original. */
@@ -45,6 +46,10 @@ export default function RemixIAPanel({ fileName, sourceKind = null, sourceDurati
   if (!createBacking) return <RemixActions fileName={fileName} sourceKind={sourceKind} onDone={onDone} />;
   return <div className="flex flex-col gap-3 border-t border-[var(--line)] pt-3">
     <textarea aria-label="Prompt del acompañamiento" disabled={generating} value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={3} placeholder="Describe el acompañamiento que quieres crear" className="px-3 py-2 bg-transparent border border-[var(--line)] text-[13px]" />
+    <InfoHint label="Cómo se crea el acompañamiento">
+      <span className="block">Montaje: el motor crea un instrumental nuevo desde tu texto. No escucha el audio original: solo usa su duración como sugerencia inicial del control DURACIÓN.</span>
+      <span className="block">El resultado es un tema aparte en BIBLIOTECA; para apilarlo sobre el original usa el remix por pistas.</span>
+    </InfoHint>
     <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={generating} />
     <div className="flex gap-3 flex-wrap">
       <label className="label">BPM <input aria-label="BPM del acompañamiento" type="number" min="1" value={bpm} disabled={generating} onChange={(event) => setBpm(event.target.value)} placeholder="Auto" className="w-24 px-2 py-1" /></label>

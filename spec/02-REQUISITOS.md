@@ -797,7 +797,7 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 
 **Como** usuario, **quiero** un botón IDENTIFY al lado de REMIX en cada subida, **para** que el modelo escuche el audio y devuelva el género si es una línea de su glosario.
 
-**Decisión**: 30 segundos del centro, el recorte ya configurado. El resultado solo se muestra. No entra en la frase del remix. Si el texto del modelo no es una línea entera del glosario, se dice y no se inventa otro.
+**Decisión (2026-11-16)**: se analiza la canción entera hasta `source_analysis.max_seconds` (240 s por defecto); si el tema es más largo, se toma el centro. Sustituye a los 30 s fijos del 2026-10-15, que describían un fragmento y no el tema (medido: 189 s de audio, `duration: 30` y caption de «breakbeat funky»). El resultado solo se muestra. No entra en la frase del remix. Si el texto del modelo no es una línea entera del glosario, se dice y no se inventa otro.
 
 - [ ] En cada fila de SUBIR, IDENTIFY está al lado de REMIX.
 - [ ] La llamada es el análisis local ya existente. El género mostrado es `glossary_genre`, una línea literal.
@@ -813,6 +813,7 @@ Estado: **EN CURSO**, sin veredicto final todavía. El 2026-10-15 la sonda de se
 - [x] Si el origen dice «batería» o «baterías» y el inglés dice battery o batteries, queda drums. Si dice «bombo», «bombos» o «doble bombo» y el inglés dice bumper, bumpers o double bumper, queda kick, kicks o double kick. El fichero es `backend/style_term_fixes.json`. Una caption ya inglesa, incluida «a car battery», no se toca y no carga el modelo. Si el fichero falta o no se lee, no se envía el estilo. Medido 2026-10-16: «Soft drums at the bottom» y «4x4 hardcore with double kick». Tester PASS y reviewer APPROVE en memory.md CLVII.
 - [x] En CREAR, el ánimo elegido añade su cláusula de `style_catalog.json` a la misma caption y se ve en «Se envía». Tranquilo y Chill no añaden «a slow, laid-back tempo» si el BPM está puesto. No se envía el párrafo ambient ni «driving drums as the lead». Esto no cierra B7. Bundle `index-C_jpjCgM.js`. La ventana no se ha pulsado.
 - [x] «gabber», «A track with gabber hardcore», «Original prompt», «120 bpm» y «medieval flutes» se quedan igual y no cargan el modelo.
+- [x] Una caption inglesa con préstamos musicales no se reescribe (2026-11-16): «staccato» es italiano y el fallback por palabra reescribía la descripción entera («staccato chords» → «detached chords», mayúsculas perdidas). El fallback por palabra queda para etiquetas sueltas y solo para el idioma español, que es el único con correcciones verificadas. Regresión en `test_style_translation.test_english_description_with_musical_loanwords_is_not_rewritten`.
 - [x] La letra de una petición con voz sigue igual. El preview y el payload llevan el mismo inglés. «120 bpm» con el control en 140 sigue en 422.
 - [x] CREAR, remix, conservar voz y acompañamiento muestran esa frase antes de enviar. El bundle servido es `index-CtsKExfA.js`. La ventana no se ha pulsado en esta sesión.
 
@@ -1030,6 +1031,7 @@ El usuario ha elegido explícitamente **un estilo principal y los demás como ma
 4. Crear, Remix, Voz + base y Por pistas siguen usando el preparador común, conservan detalles/exclusiones y envían el mismo caption efectivo que el mostrado. No se envían respuestas de una selección anterior ni se pega la prosa derivada al texto editable.
 5. Regresiones pertinentes, lint/build, API/UI reales y generación local con archivo/duración/parámetros verificables; fidelidad artística pendiente del oído del usuario. PASS del tester y APPROVE del reviewer independientes, archivos completos y bitácora antes de cierre.
 6. Sin instalaciones, cambio de perfil SFT, separación/BPM/mezcla/continuación ni alteración del alcance T9–T12. Cobertura del resto de etiquetas sin ficha declarada en spec/03, sin promesa de 178.572 definiciones.
+7. **Ajuste del 2026-11-16 (petición del usuario, reproducido con audio real):** sin un principal elegido explícitamente no se añade ninguna ficha. El texto propio es la descripción; antes se añadían las fichas de todos los estilos detectados en la prosa y se contradecían entre sí («guitarras suaves y batería acústica» → «electric guitars» + «nylon-string guitars»). Con principal elegido el comportamiento no cambia. Regresiones en `test_prompt_style.test_prosa_propia_no_recibe_fichas_de_estilos_detectados` y `test_etiqueta_escrita_sin_principal_se_queda_sin_ficha`.
 
 ## [R20] Secuencia visual de pasos, stems propios y origen del material declarado — alcance aprobado; implementación parcial
 
@@ -1287,3 +1289,29 @@ La app no autoriza ni publica nada: la diferencia es de derechos sobre el materi
 - [x] tester PASS + reviewer APPROVE; bitácora en memory.md.
 
 **Evidencia y límite de la cola (2026-10-26)**: extracto real de 20 s de la fuente del usuario, batería transformada y otros grupos conservados/quitados; después se repite la mezcla creada hasta 35 s. El PCM de la cola coincide exactamente con esa mezcla y el coseno espectral tras MP3 es 0,9999979479. No se afirma que la batería transformada sea idéntica a la grabación original ni que el estilo esté aprobado de oído. Audio: `backend/outputs/verificacion-r19-gpu-85f9b028.mp3`; job `91b76209f58b4be1ad0198916d795353`.
+
+## [R21] Elegir con la onda el tramo que escucha IDENTIFY — pedido y aprobado 2026-11-16
+
+**Petición:** «¿no se puede decidir qué trozo de la subida se muestrea para IDENTIFY?»; al elegir la forma, «con la onda, como cuando repites». Aprobado el tope de **240 s por análisis** (`source_analysis.max_seconds`).
+
+**Decisión:** se reutiliza el `Waveform` de remix (picos reales de `/audio/peaks`, dos marcadores arrastrables) bajo la fila de la subida, tras el botón ONDA. El tramo elegido viaja como `region_start`/`region_end` en `POST /music/remix/analyze`, igual que en repaint. Sin tocar la onda, el análisis automático no cambia (tema entero o su centro). Si el tramo supera el tope, se analiza desde su inicio hasta el tope y el resultado lo declara (`truncated`); la UI muestra siempre el rango realmente escuchado (`Oído: 0:30–4:30 de 3:09`), fuera del texto de COPIAR.
+
+- [x] El tramo forma parte de la firma de caché: dos zonas del mismo audio son dos análisis distintos.
+- [x] Un tramo invertido, vacío, negativo o posterior al final se rechaza con mensaje real; nunca se sustituye en silencio.
+- [x] `_make_clip` respeta inicio y fin elegidos, corta al tope y devuelve `start`, `end`, `source_duration` y `truncated`; probado con audio real de 3 s y con el recorte exportado medido.
+- [x] La traducción al motor no cambia: el análisis sigue siendo `full_analysis_only` con `use_cot_caption` intacto y sin `use_format`.
+- [x] Regresiones backend (`test_source_understanding` 16/16), frontend 114/114, ESLint y build verdes.
+- [x] El resultado declara ANTES de la descripción qué parte se describió y quién lo decidió (2026-11-17): con tramo elegido `TRAMO ELEGIDO 0:30–1:30 · DESCRIPCIÓN DE ESE TROZO`; sin tramo `TEMA COMPLETO · OÍDO 0:00–3:09 de 3:09`; con recorte del tope añade `· recortado al máximo`. El rango es `analysis_range` del backend, nunca el pedido. `identifyScopeReading` en `frontend/src/identify_reading.js` (sustituye a `analyzedRangeReading`), etiqueta visible en la UI de SUBIR.
+- [ ] Verificación real con el motor sobre una pista del usuario (tramo elegido + rango declarado) y escucha: pendiente de que el stack esté arrancado; no se acredita por los tests.
+
+## [R22] ⓘ con información al pasar el ratón en todos los sitios con prompt — pedido 2026-11-17
+
+**Petición:** «Debes poner el icono de la I circulada con la info en todos los lugares donde se pueda poner prompt. En lugar de desplegable. La I debe ser con info de hover cuando pasas por encima.»
+
+**Decisión:** componente `frontend/src/components/InfoHint.jsx` (lucide `Info`, 13 px; tooltip CSS `group-hover`/`group-focus-within`, visible también con teclado). Sustituye a los desplegables `<details>ⓘ</details>` de CREAR (`Composer.jsx`), prompt del remix y texto por pista (`RemixWorkspace.jsx`) y texto por paso (`RemixSequence.jsx`). Se añade donde hoy no había nada, con el texto del montaje real: `VoiceBackingPanel.jsx` (separar voz → base nueva con el texto al tempo del tema → cuadrar voz sobre la base y mezclar; la letra no se usa) y `RemixIAPanel.jsx` (instrumental nuevo desde el texto; no escucha el original, solo su duración; resultado aparte en BIBLIOTECA).
+
+- [x] Los cuatro desplegables ⓘ existentes pasan a ⓘ con hover; el contenido informativo se conserva íntegro.
+- [x] Voz+base y Acompañamiento nuevo ganan el ⓘ con el montaje declarado en `backend/main.py` (`_modo_conservar_voz`) y en el panel; sin números mágicos.
+- [x] Unificación en TODA la app (2026-11-17, «lo quiero igual en toda la app»): los `why` visibles de `StyleEnglish.jsx` (remix por pistas y por prompt) y de `EffectivePreview.jsx` (envío efectivo en CREAR, remix, voz y acompañamiento) pasan a ⓘ con hover; los dos párrafos explicativos del workspace (herencia de pistas y estilo común en la secuencia) también. En `EffectivePreview` el clic sobre ⓘ no despliega el JSON (`stopPropagation`). En Voz+base el why deja de decir «pulsar REMIX» y nombra su botón real.
+- [x] Frontend 114/114, ESLint y build verdes; las utilidades del tooltip quedan en el CSS servido.
+- [ ] Verificación de hover y legibilidad en la ventana real (Electron) y lectura del usuario: pendiente; no se acredita por los tests.

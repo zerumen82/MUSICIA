@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { isTransportBlip, PROMPT_PREVIEW_DEBOUNCE_MS, TRANSPORT_ERROR_CLEAR_MS } from '../api';
+import InfoHint from './InfoHint';
 
 /** Consulta el mismo preparador que usa la ejecución; nunca inventa defaults. */
 export default function EffectivePreview({ request, loadPreview, title = 'PARÁMETROS DEL MOTOR', why = '' }) {
@@ -26,7 +27,9 @@ export default function EffectivePreview({ request, loadPreview, title = 'PARÁM
   }, [open, encoded, loadPreview]);
   const current = answer?.key === encoded ? answer : null;
   return <details onToggle={(event) => setOpen(event.currentTarget.open)} data-effective-preview>
-    <summary className="cursor-pointer"><span className="label">{title}</span>{why && <span className="ml-3 text-[13px] leading-snug text-[var(--muted)]">{why}</span>}</summary>
+    <summary className="cursor-pointer flex items-center gap-2 flex-wrap"><span className="label">{title}</span>
+      {why && <span onClick={(event) => event.stopPropagation()}><InfoHint label="Sobre esta vista">{why}</InfoHint></span>}
+    </summary>
     {open && <div className="flex flex-col gap-2 py-2">
       {!current && <p role="status" className="mono text-[10px]">CONSULTANDO PARÁMETROS…</p>}
       {current?.error && <p role="alert" className="mono text-[11px] st-err">{current.error}</p>}

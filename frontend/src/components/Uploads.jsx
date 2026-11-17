@@ -3,9 +3,10 @@ import {
   Upload, Loader2, AlertTriangle, Trash2, Download, RefreshCw, Play, Pause, Pencil, Check,
 } from 'lucide-react';
 import { api, actionError, isTransportBlip, JOB_POLL_INTERVAL_MS, JOB_POLL_MAX_MISSES, TRANSPORT_ERROR_CLEAR_MS } from '../api';
-import { identifyReading } from '../identify_reading';
+import { identifyCopyText, identifyReading, identifyScopeReading } from '../identify_reading';
 import RemixIAPanel from './RemixIAPanel';
 import RemixActions from './RemixActions';
+import Waveform from './Waveform';
 
 const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
 
@@ -24,6 +25,8 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
   const [remixName, setRemixName] = useState(null); // subida abierta en la mesa de remix
   const [confirmDelete, setConfirmDelete] = useState(null); // subida pendiente de confirmar
   const [identify, setIdentify] = useState({});
+  const [waveName, setWaveName] = useState(null); // subida con la onda abierta
+  const [regions, setRegions] = useState({}); // tramo elegido por subida (segundos)
   const inputRef = useRef(null);
   const alive = useRef(true);
 
@@ -61,8 +64,15 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
     setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: 'Esperando análisis', message: '' } }));
     while (alive.current) {
       try {
-        const started = await api.remixAnalyze({ source_name: name, source_kind: 'upload' });
+        const region = regions[name];
+        const started = await api.remixAnalyze({
+          source_name: name,
+          source_kind: 'upload',
+          ...(region ? { region_start: region.start, region_end: region.end ?? undefined } : {}),
+        });
         let misses = 0;
+        // Con tramo elegido la descripción es DE ESE TROZO; la etiqueta de
+        // contexto lo declara encima del texto (identifyScopeReading).
         for (;;) {
           if (!alive.current) return;
           let job;
@@ -81,7 +91,7 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                     return;
                   }
                   if (found.status === 'succeeded') {
-                    setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(found.result) } }));
+                    setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(found.result), copyText: identifyCopyText(found.result), scope: identifyScopeReading(found.result, region) } }));
                     return;
                   }
                   if (found.status === 'failed') {
@@ -103,7 +113,7 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
           if (!alive.current) return;
           if (job.status === 'failed') throw new Error(job.error || 'El análisis falló');
           if (job.status === 'succeeded') {
-            setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result) } }));
+            setIdentify((current) => ({ ...current, [name]: { status: 'succeeded', phase: '', message: identifyReading(job.result), copyText: identifyCopyText(job.result), scope: identifyScopeReading(job.result, region) } }));
             return;
           }
           setIdentify((current) => ({ ...current, [name]: { status: 'running', phase: job.phase || 'El modelo local analiza el audio', message: '' } }));
@@ -332,6 +342,14 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setWaveName(waveName === item.name ? null : item.name)}
+                      className={`btn btn-ghost h-7 px-2.5 shrink-0 ${waveName === item.name ? '!border-[var(--acc-line)] !text-[var(--text)]' : ''}`}
+                      title="Elegir el tramo que se analiza"
+                    >
+                      ONDA
+                    </button>
+                    <button
+                      type="button"
                       disabled={identifyBusy}
                       onClick={() => void identifyFile(item.name)}
                       className="btn btn-ghost h-7 px-2.5 shrink-0"
@@ -352,13 +370,36 @@ export default function Uploads({ onChanged, externalRefresh = 0 }) {
                   <button onClick={() => setConfirmDelete(item.name)} className="btn btn-ghost h-7 px-2 shrink-0 hover:!border-[rgba(255,92,92,0.5)] hover:!text-red-300"><Trash2 size={11} /></button>
                 )}
               </div>
+              {waveName === item.name && (
+                <div className="px-3 pb-3 pt-1 flex flex-col gap-1.5">
+                  <p className="mono text-[10px] text-[var(--faint)]">
+                    Arrastra los marcadores y pulsa IDENTIFY: la descripción será de ese tramo. Sin tocar la onda se analiza el tema entero (o su centro si es muy largo).
+                  </p>
+                  <Waveform
+                    fileName={item.name}
+                    sourceKind="upload"
+                    selection={regions[item.name] ? { start: regions[item.name].start, end: regions[item.name].end } : null}
+                    disabled={identify[item.name]?.status === 'running'}
+                    scales={false}
+                    onSelection={(sel) => setRegions((current) => ({
+                      ...current,
+                      [item.name]: { start: sel.trim_start_s, end: sel.trim_end_s },
+                    }))}
+                  />
+                </div>
+              )}
               {identify[item.name]?.status === 'running' && (
                 <p role="status" className="mono text-[11px] text-[var(--muted)] px-3 pb-2">{identify[item.name].phase}</p>
               )}
               {identify[item.name]?.message && (
-                <div className="flex items-start gap-2 px-3 pb-2">
+                <div className="flex flex-col gap-1 px-3 pb-2">
+                {identify[item.name].scope && (
+                  <p className="mono text-[10px] tracking-[0.05em] text-[var(--acc)]">{identify[item.name].scope}</p>
+                )}
+                <div className="flex items-start gap-2">
                   <p role={identify[item.name].status === 'failed' ? 'alert' : 'status'} className={`mono text-[11px] select-text cursor-text flex-1 ${identify[item.name].status === 'failed' || identify[item.name].message.startsWith('No está') || identify[item.name].message.startsWith('El modelo no') ? 'st-err' : 'text-[var(--acc)]'}`}>{identify[item.name].message}</p>
-                  <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar descripción" onClick={() => { navigator.clipboard?.writeText(identify[item.name].message); }}>COPIAR</button>
+                  <button type="button" className="btn btn-ghost h-6 px-2 shrink-0" title="Copiar descripción" onClick={() => { navigator.clipboard?.writeText(identify[item.name].copyText ?? identify[item.name].message); }}>COPIAR</button>
+                </div>
                 </div>
               )}
             </div>

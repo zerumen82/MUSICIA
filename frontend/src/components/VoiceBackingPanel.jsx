@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { api } from '../api';
-import { SECTIONS } from '../remix_sections';
 import PromptTools from './PromptTools';
 import EffectivePreview from './EffectivePreview';
 import StyleEnglish from './StyleEnglish';
+import InfoHint from './InfoHint';
 import useStylePrompt from '../useStylePrompt';
 
 const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
@@ -26,6 +26,10 @@ export default function VoiceBackingPanel({ fileName, sourceKind, duration, capa
   };
   return <div className="flex flex-col gap-3" data-voice-backing>
       <textarea aria-label="Prompt de la base con voz original" rows={3} value={prompt} disabled={busy} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe la nueva música para acompañar la voz original" className={field} />
+      <InfoHint label="Cómo se monta la voz y la base">
+        <span className="block">Montaje: 1) se separa tu voz del original; 2) el texto crea una base instrumental nueva al tempo del tema; 3) tu voz se cuadra sobre esa base (tempo y fase) y se mezcla debajo.</span>
+        <span className="block">La letra no se usa: la voz es tu grabación. El texto solo describe la música nueva.</span>
+      </InfoHint>
       <PromptTools prompt={prompt} setPrompt={setPrompt} prepared={prepared} disabled={busy} />
       <div className="flex gap-3 flex-wrap">
         <label className="label">MINUTOS <input aria-label="Minutos de la base con voz original" type="number" step="any" min="0" disabled={busy} value={minutes} onChange={(event) => setMinutes(event.target.value)} placeholder={duration ? (duration / SECONDS_PER_MINUTE).toFixed(2) : 'Duración original'} className={`${field} w-36`} /></label>
@@ -34,7 +38,7 @@ export default function VoiceBackingPanel({ fileName, sourceKind, duration, capa
       </div>
       <label className="label">NOMBRE <input aria-label="Nombre de la base con voz original" value={name} disabled={busy} onChange={(event) => setName(event.target.value)} placeholder="Nombre de las variantes" className={`${field} w-full mt-1`} /></label>
       {prepared.ready && <StyleEnglish text={prepared.effectivePrompt} />}
-      {prepared.ready && <EffectivePreview request={request} loadPreview={api.remixAiPreview} why={SECTIONS.engine.why} />}
+      {prepared.ready && <EffectivePreview request={request} loadPreview={api.remixAiPreview} why="Lo que se enviará al pulsar CONSERVAR VOZ Y CREAR BASE." />}
       <button type="button" onClick={() => { if (prepared.ready && prepared.effectivePrompt) void onRun(request); }} disabled={busy || !capabilities || !prepared.ready || !prepared.effectivePrompt} className="btn btn-signal h-10 px-4 self-start">CONSERVAR VOZ Y CREAR BASE</button>
   </div>;
 }
