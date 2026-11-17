@@ -23,7 +23,9 @@ from pydub import AudioSegment
 
 @dataclass
 class SourceAnalysisSettings:
-    sample_seconds: float = 30.0
+    # El análisis escucha la canción entera hasta este tope, no un único
+    # fragmento central de 30 s: la descripción debe hablar del tema completo.
+    max_seconds: float = 240.0
     poll_interval: float = 3.0
     timeout_seconds: float = 1800.0
     max_history: int = 30
@@ -33,6 +35,10 @@ class SourceAnalysisSettings:
 class SourceAnalysisRequest(BaseModel):
     source_name: str
     source_kind: Literal["upload", "output"]
+    # Tramo elegido en la onda (segundos). Sin tramo, el análisis escoge el
+    # tema entero o su centro, como antes.
+    region_start: float | None = None
+    region_end: float | None = None
 
 
 analysis_jobs: dict[str, dict[str, Any]] = {}
@@ -82,17 +88,43 @@ def classify_metadata(metadata: dict, catalog: dict) -> dict:
             "classification_basis": "audio-derived genre metadata"}
 
 
-def _make_clip(source: Path, destination: Path, seconds: float) -> dict:
+def _make_clip(source: Path, destination: Path, seconds: float,
+               region_start: float | None = None,
+               region_end: float | None = None) -> dict:
+    """Recorta el tramo pedido, como máximo `seconds`.
+
+    Sin tramo pedido se conserva la elección automática: el tema entero si cabe
+    en el tope y, si no, su centro (para no analizar solo la intro). Con tramo
+    pedido se respeta su inicio y se corta al llegar al tope; `truncated`
+    declara que no se escuchó todo lo marcado.
+    """
     if seconds <= 0:
-        raise ValueError("source_analysis.sample_seconds debe ser positivo")
+        raise ValueError("source_analysis.max_seconds debe ser positivo")
     audio = AudioSegment.from_file(source)
     if not len(audio):
         raise ValueError("El audio no contiene muestras")
-    length = min(len(audio), round(seconds * 1000))
-    start = (len(audio) - length) // 2
+    total = len(audio)
+    total_seconds = total / 1000
+    if region_start is None and region_end is None:
+        length = min(total, round(seconds * 1000))
+        start = (total - length) // 2
+        heard_until = total
+    else:
+        if region_start is not None and region_start < 0:
+            raise ValueError("El inicio del tramo no puede ser negativo")
+        begin = float(region_start or 0.0)
+        finish = min(float(region_end), total_seconds) if region_end is not None else total_seconds
+        if begin >= total_seconds:
+            raise ValueError("El tramo empieza después del final del audio")
+        if finish <= begin:
+            raise ValueError("El tramo elegido no tiene duración")
+        start = round(begin * 1000)
+        heard_until = start + round((finish - begin) * 1000)
+        length = min(heard_until - start, round(seconds * 1000))
     audio[start:start + length].export(destination, format="wav")
     return {"start": start / 1000, "end": (start + length) / 1000,
-            "source_duration": len(audio) / 1000}
+            "source_duration": total_seconds,
+            "truncated": start + length < heard_until}
 
 
 def visible_analysis_phase(_progress_text: str) -> str:
@@ -101,7 +133,9 @@ def visible_analysis_phase(_progress_text: str) -> str:
 
 
 async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSettings,
-                         update: Callable[[str], None]) -> dict:
+                         update: Callable[[str], None],
+                         region_start: float | None = None,
+                         region_end: float | None = None) -> dict:
     """Invoke native audio-to-codes + local LM and read its raw analysis result."""
     from music_service import GenerationRequest, MusicEngineError
 
@@ -111,7 +145,8 @@ async def analyze_source(music: Any, source: Path, settings: SourceAnalysisSetti
     clip = Path(temp_name)
     try:
         update("Preparando un fragmento del audio original")
-        audio_range = await asyncio.to_thread(_make_clip, source, clip, settings.sample_seconds)
+        audio_range = await asyncio.to_thread(_make_clip, source, clip, settings.max_seconds,
+                                              region_start, region_end)
         request = GenerationRequest(prompt="", instrumental=True, source_path=str(clip),
                                     task_type="cover", duration_seconds=None)
         payload = music.build_payload(request)
@@ -171,13 +206,15 @@ def register_source_understanding(app: Any, music: Any, settings: Any,
                                   lifecycle: Any = None):
     from remix_project import COMPUTE_LOCK
 
-    async def run(job_id: str, source: Path):
+    async def run(job_id: str, source: Path, region_start: float | None = None,
+                  region_end: float | None = None):
         job = analysis_jobs[job_id]
         try:
             async with COMPUTE_LOCK:
                 job.update(status="running", phase="Analizando audio")
                 result = await analyze_source(music, source, settings.source_analysis,
-                                              lambda phase: job.update(phase=phase))
+                                              lambda phase: job.update(phase=phase),
+                                              region_start, region_end)
                 job.update(status="succeeded", phase="Análisis disponible", result=result)
         except Exception as exc:
             logger.exception("Fallo real en análisis de fuente")
@@ -186,7 +223,10 @@ def register_source_understanding(app: Any, music: Any, settings: Any,
     @app.post("/music/remix/analyze")
     async def submit(request: SourceAnalysisRequest, background: BackgroundTasks):
         source = find_audio(request.source_name, request.source_kind)
-        signature = (str(source), source.stat().st_mtime_ns, source.stat().st_size)
+        # El tramo forma parte de la firma: analizar otra zona del mismo audio
+        # es otro análisis, no el resultado cacheado de la anterior.
+        signature = (str(source), source.stat().st_mtime_ns, source.stat().st_size,
+                     request.region_start, request.region_end)
         cached = _cache.get(signature)
         if cached in analysis_jobs and analysis_jobs[cached]["status"] != "failed":
             return {"job_id": cached, "cached": True}
@@ -203,7 +243,9 @@ def register_source_understanding(app: Any, music: Any, settings: Any,
             raise HTTPException(409, detail="Hay una operación en curso; analiza al terminar")
         job_id = uuid.uuid4().hex
         analysis_jobs[job_id] = {"job_id": job_id, "status": "queued",
-                                 "phase": "Esperando análisis", "error": None}
+                                 "phase": "Esperando análisis", "error": None,
+                                 "region_start": request.region_start,
+                                 "region_end": request.region_end}
         _cache[signature] = job_id
         terminal = [key for key, job in analysis_jobs.items()
                     if job["status"] in {"failed", "succeeded"}]
@@ -212,7 +254,7 @@ def register_source_understanding(app: Any, music: Any, settings: Any,
         for key in list(_cache):
             if _cache[key] not in analysis_jobs:
                 _cache.pop(key)
-        background.add_task(run, job_id, source)
+        background.add_task(run, job_id, source, request.region_start, request.region_end)
         return {"job_id": job_id, "cached": False}
 
     @app.get("/music/remix/analyze/{job_id}")

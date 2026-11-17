@@ -334,7 +334,9 @@ class EnhancePromptTest(unittest.TestCase):
                 self.assertEqual(result["additions"], [])
                 self.assertEqual(result["adaptation"], "literal")
 
-    def test_etiqueta_del_modelo_recibe_su_clausula_validada(self):
+    def test_etiqueta_escrita_sin_principal_se_queda_sin_ficha(self):
+        # Decisión del usuario (2026-11-16): sin un principal elegido solo
+        # aplica el texto propio; una etiqueta detectada no añade su receta.
         vocab = _vocab_lines()
         for label in ("gabber", "techno", "lofi", "jazz"):
             with self.subTest(label=label):
@@ -342,9 +344,20 @@ class EnhancePromptTest(unittest.TestCase):
                 self.assertEqual(len(result["genres"]), 1)
                 estilo = result["genres"][0]
                 self.assertIn(estilo["genre"].lower(), vocab)
-                clause = CLAUSES[estilo["name"]]
-                self.assertEqual(result["enhanced"], f"{label}, {clause}")
-                self.assertEqual(result["additions"], [clause])
+                self.assertEqual(result["enhanced"], label)
+                self.assertEqual(result["additions"], [])
+                self.assertEqual(result["applied_descriptions"], [])
+
+    def test_prosa_propia_no_recibe_fichas_de_estilos_detectados(self):
+        # Bug real: «guitarras suaves y batería acústica» recibía la ficha de
+        # rock («electric guitars») y la de folk («nylon-string guitars»).
+        prompt = "rock alternativo con guitarras suaves y batería acústica"
+        result = enhance_prompt(prompt)
+        self.assertEqual(result["enhanced"], prompt)
+        self.assertEqual(result["additions"], [])
+        self.assertEqual(result["applied_descriptions"], [])
+        self.assertNotIn(CLAUSES["rock"], result["enhanced"])
+        self.assertNotIn(CLAUSES["folk acustico"], result["enhanced"])
 
     def test_clausula_ya_escrita_no_se_duplica(self):
         clause = CLAUSES["hardcore holandes"]
@@ -361,7 +374,8 @@ class EnhancePromptTest(unittest.TestCase):
         # La exclusión del género no se puede contrastar con las reglas
         # instrumentales: el fallback conserva el texto y omite la receta.
         self.assertEqual(result["enhanced"], "sin hardcore, relajado")
-        self.assertTrue(result["warnings"])
+        self.assertEqual(result["warnings"], [])
+        self.assertEqual(result["additions"], [])
 
     def test_estilo_sin_linea_del_modelo_no_se_annade_y_se_avisa(self):
         # Si el modelo no declara el estilo, no se añade su cláusula (NO FAKE).
@@ -371,22 +385,21 @@ class EnhancePromptTest(unittest.TestCase):
         self.assertEqual(result["enhanced"], "gabber")
         self.assertEqual(result["additions"], [])
         self.assertIsNone(result["genres"][0]["genre"])
-        self.assertTrue(any("no es una línea del modelo" in w for w in result["warnings"]))
+        self.assertEqual(result["applied_descriptions"], [])
 
-    def test_varios_estilos_anidan_clausulas_y_avisan(self):
+    def test_varios_estilos_avisan_y_no_aniden_clausulas(self):
         # La documentación oficial recomienda repetición o evolución temporal;
         # combinar opuestos a ciegas degrada. El aviso lo dice la propia app.
         result = enhance_prompt("gabber y trance")
         self.assertEqual(result["genres"][0]["name"], "hardcore holandes")
-        self.assertEqual(result["additions"],
-                         [CLAUSES["hardcore holandes"], CLAUSES["trance"]])
+        self.assertEqual(result["additions"], [])
+        self.assertEqual(result["applied_descriptions"], [])
         self.assertTrue(any("Varios estilos" in w for w in result["warnings"]))
 
-    def test_bpm_elegido_se_propone_detras_de_la_clausula(self):
+    def test_bpm_elegido_se_propone_tras_el_texto(self):
         result = enhance_prompt("gabber", bpm=175)
-        clause = CLAUSES["hardcore holandes"]
-        self.assertEqual(result["enhanced"], f"gabber, {clause}, 175 bpm")
-        self.assertEqual(result["additions"], [clause, "175 bpm"])
+        self.assertEqual(result["enhanced"], "gabber, 175 bpm")
+        self.assertEqual(result["additions"], ["175 bpm"])
         self.assertEqual(result["suggested_bpm"], 180)
 
     def test_bpm_existente_no_se_duplica(self):
@@ -428,7 +441,7 @@ class EnhancePromptTest(unittest.TestCase):
                 result = enhance_prompt(prompt)
                 self.assertEqual(result["enhanced"], prompt)
                 self.assertEqual(result["additions"], [])
-                self.assertTrue(result["warnings"])
+                self.assertEqual(result["applied_descriptions"], [])
 
     def test_no_quiero_estilo_no_lo_activa(self):
         result = enhance_prompt("no quiero techno")

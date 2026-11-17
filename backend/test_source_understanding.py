@@ -11,6 +11,7 @@ import httpx
 from music_service import MusicEngineError, MusicService
 from source_understanding import (
     SourceAnalysisSettings,
+    _make_clip,
     analyze_source,
     classify_metadata,
     visible_analysis_phase,
@@ -120,6 +121,86 @@ class SourceUnderstandingTest(unittest.TestCase):
             self._analyze(music)
         self.assertEqual([call for call in music.calls if call[0] == "/query_result"],
                          [("/query_result", False)])
+
+    def test_analysis_listens_the_whole_track_up_to_the_configured_limit(self):
+        """Ya no se analiza solo un fragmento central de 30 s."""
+        import tempfile
+        from pydub import AudioSegment
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "fuente.wav"
+            clip = Path(folder) / "clip.wav"
+            AudioSegment.silent(duration=3000).export(source, format="wav")
+            whole = _make_clip(source, clip, 240.0)
+            self.assertEqual(whole["source_duration"], 3.0)
+            self.assertEqual(whole["start"], 0.0)
+            self.assertEqual(whole["end"], 3.0)
+            centered = _make_clip(source, clip, 1.0)
+            self.assertEqual(centered["start"], 1.0)
+            self.assertEqual(centered["end"], 2.0)
+
+    def test_analysis_limit_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "max_seconds"):
+            _make_clip(Path("fuente.mp3"), Path("clip.wav"), 0)
+
+    def _three_seconds(self, folder):
+        from pydub import AudioSegment
+
+        source = Path(folder) / "fuente.wav"
+        AudioSegment.silent(duration=3000).export(source, format="wav")
+        return source
+
+    def test_analysis_uses_the_region_chosen_on_the_waveform(self):
+        import tempfile
+        from pydub import AudioSegment
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = self._three_seconds(folder)
+            clip = Path(folder) / "clip.wav"
+            chosen = _make_clip(source, clip, 240.0, 1.0, 2.0)
+            self.assertEqual(chosen["start"], 1.0)
+            self.assertEqual(chosen["end"], 2.0)
+            self.assertFalse(chosen["truncated"])
+            self.assertAlmostEqual(len(AudioSegment.from_file(clip)) / 1000, 1.0, places=2)
+            from_start = _make_clip(source, clip, 240.0, 2.0, None)
+            self.assertEqual((from_start["start"], from_start["end"]), (2.0, 3.0))
+
+    def test_a_region_longer_than_the_limit_is_cut_and_declared(self):
+        import tempfile
+        from pydub import AudioSegment
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = self._three_seconds(folder)
+            clip = Path(folder) / "clip.wav"
+            cut = _make_clip(source, clip, 1.0, 0.0, 3.0)
+            self.assertEqual(cut["start"], 0.0)
+            self.assertEqual(cut["end"], 1.0)
+            self.assertTrue(cut["truncated"])
+            self.assertAlmostEqual(len(AudioSegment.from_file(clip)) / 1000, 1.0, places=2)
+
+    def test_a_region_without_audio_is_rejected(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            source = self._three_seconds(folder)
+            clip = Path(folder) / "clip.wav"
+            with self.assertRaisesRegex(ValueError, "después del final"):
+                _make_clip(source, clip, 240.0, 5.0, 6.0)
+            with self.assertRaisesRegex(ValueError, "no tiene duración"):
+                _make_clip(source, clip, 240.0, 2.0, 2.0)
+            with self.assertRaisesRegex(ValueError, "negativo"):
+                _make_clip(source, clip, 240.0, -1.0, None)
+
+    def test_analysis_forwards_the_chosen_region_to_the_clip(self):
+        music = _FakeMusic([{"status": 1, "result": json.dumps([{"genre": "techno"}])}])
+        settings = SourceAnalysisSettings(poll_interval=0.0, timeout_seconds=5.0)
+        clip = {"start": 1.0, "end": 2.0, "source_duration": 3.0, "truncated": False}
+        with patch("source_understanding._make_clip", return_value=clip) as make_clip, \
+                patch("source_understanding.category_catalog", return_value=self.catalog):
+            asyncio.run(analyze_source(music, Path("fuente.mp3"), settings,
+                                       lambda _phase: None, 1.0, 2.0))
+        self.assertEqual(make_clip.call_args.args[2], settings.max_seconds)
+        self.assertEqual(make_clip.call_args.args[3:], (1.0, 2.0))
 
     def test_analysis_does_not_mutate_model_metadata(self):
         metadata = {"genre": "techno", "prompt": "a description", "metas": {"bpm": 40}}

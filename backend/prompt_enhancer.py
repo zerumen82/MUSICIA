@@ -127,7 +127,11 @@ def enhance_prompt(
     else:
         rules = find_styles(original)
         genres = _model_genres(rules)
-        descriptions = genres
+        # Sin un principal elegido explícitamente no se añade ninguna ficha:
+        # el texto propio es la descripción y una receta detectada puede
+        # contradecirlo (2026-11-16: «guitarras suaves» recibía «driving live
+        # drums, electric guitars» y, a la vez, «nylon-string guitars»).
+        descriptions = []
 
     source = without_catalog_descriptions(original)
     # Fuente de exclusiones para vetar descripciones: el propio texto más

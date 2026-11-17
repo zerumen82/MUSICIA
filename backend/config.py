@@ -392,6 +392,9 @@ class StyleTranslationSettings:
     long_text_foreign_ratio: float = 1.5
     word_min_chars: int = 4
     word_min_confidence: float = 0.16
+    # El fallback por palabra solo vale para etiquetas sueltas: en una frase
+    # una palabra italiana no demuestra que la frase sea italiana.
+    word_fallback_max_words: int = 3
     # Una palabra solo destapa un idioma si supera al inglés por este múltiplo.
     word_foreign_ratio: float = 4.0
     max_input_tokens: int = 256

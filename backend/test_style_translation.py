@@ -43,6 +43,21 @@ class EnglishStyleStaysTest(unittest.TestCase):
                 self.assertEqual(style_for_engine(prompt), prompt)
         self.assertFalse(translation_worker_running())
 
+    def test_english_description_with_musical_loanwords_is_not_rewritten(self):
+        # Bug real 2026-11-16: «staccato» (italiano) bastaba para que NLLB
+        # reescribiera la caption inglesa como «detached» y perdiera mayúsculas.
+        for prompt in (
+            "deep techno with staccato synth stabs and a persistent groove",
+            "A clean, funky electric guitar plays staccato chords and licks, "
+            "adding a layer of rhythmic complexity.",
+            "An energetic and funky breakbeat track kicks off with a brief, "
+            "filtered spoken-word sample before launching into a driving groove.",
+        ):
+            with self.subTest(prompt=prompt[:40]):
+                reset_style_translation_cache()
+                self.assertEqual(style_for_engine(prompt), prompt)
+        self.assertFalse(translation_worker_running())
+
     def test_language_without_code_is_sent_unchanged(self):
         # Un idioma que el traductor no conoce (el latín, p. ej.) no corta
         # la generación: el texto escrito viaja tal cual al motor.

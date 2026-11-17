@@ -104,6 +104,8 @@ def _check(settings: AppSettings) -> None:
         raise ValueError("La relación para traducir tiene que ser mayor que 1.")
     if config.word_min_chars < 1 or config.long_text_chars < 1:
         raise ValueError("Los mínimos de letras del traductor tienen que ser positivos.")
+    if config.word_fallback_max_words < 1:
+        raise ValueError("El máximo de palabras del fallback tiene que ser positivo.")
     if config.num_beams < 1 or config.max_input_tokens < 1 or config.max_new_tokens < 1:
         raise ValueError("Los límites del traductor tienen que ser positivos.")
     if config.load_timeout_seconds <= 0 or config.request_timeout_seconds <= 0:
@@ -286,14 +288,28 @@ def _source_iso(text: str, settings: AppSettings) -> str | None:
     clause = _clause_iso(text, settings)
     if clause is not None:
         return clause
+    words = _WORD.findall(text)
+    if len(words) > config.word_fallback_max_words:
+        # Una frase no se decide por una palabra suelta: «staccato» es
+        # italiano y ese voto bastaba para reescribir una caption inglesa
+        # entera («staccato chords» → «detached chords»). El fallback por
+        # palabra queda para etiquetas sueltas.
+        return None
+    # Una palabra suelta dentro de una frase inglesa solo se traduce si es
+    # española: es el idioma que escriben los usuarios y el único con
+    # correcciones verificadas (`style_term_fixes.json`). Los préstamos
+    # italianos («staccato»), latinos o daneses de una caption inglesa se
+    # quedan tal cual y ya no fuerzan la traducción de toda la frase.
     best: tuple[str, float] | None = None
-    for word in _WORD.findall(text):
+    for word in words:
         if len(word) < config.word_min_chars:
             continue
         word_english, word_foreign = _ranked(word, config.english_code)
         if not word_foreign:
             continue
         iso, confidence = word_foreign[0]
+        if iso != STRUCTURED_DETAILS_SOURCE_LANGUAGE:
+            continue
         if confidence < config.word_min_confidence:
             continue
         if word_english > 0 and confidence < word_english * config.word_foreign_ratio:
