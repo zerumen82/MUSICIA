@@ -16,6 +16,11 @@ prueba ejecutada y resultado, con fecha.
 
 ---
 
+## 2026-11-18 — Semilla fija 42 por defecto en CREAR/SUBIR/REMIX
+- **Qué**: el campo SEMILLA arranca con `42` en Composer, RemixWorkspace, RemixIAPanel y VoiceBackingPanel (antes vacío/aleatorio), para que la base sea reproducible y mantenga el estilo que funcionó (prompt corto + 180 s). El usuario puede borrarlo para volver a aleatorio.
+- **Resultado**: lint 0 errores, build OK (440.71 kB), Musicia.exe v1.3.59 recompilado (SHA-256 E84D7BD70EB2A0C1F9066F778886D9CA0ED6A882A15705FDD1E2D11D7887A54A).
+- **Lecciones**: la semilla fija estabiliza la densidad de la base; combinada con prompt corto da resultados consistentes.
+
 ## 2026-11-18 — Regenerado Musicia.exe v1.3.58 tras fixes de groove
 - **Qué**: rebuild de `frontend/dist` y recompilación de `Musicia.exe` (FileVersion/ProductVersion 1.3.58) tras los fixes de tolerancia a groove incierto.
 - **Resultado**: build OK (440.70 kB), EXE 16384 bytes, SHA-256 E8E2AEAF4FBDCBFD48C4D89E813F095FF81C0642F26C9952243EABA2E383ADEB.

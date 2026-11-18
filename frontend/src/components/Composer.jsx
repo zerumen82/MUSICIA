@@ -97,7 +97,7 @@ export default function Composer({ initialMode = 'music', engine = { checked: fa
   const [key, setKey] = useState('');
   const [timeSig, setTimeSig] = useState('');
   const [duration, setDuration] = useState(UI.defaultDuration);
-  const [seed, setSeed] = useState(''); // vacío = aleatorio (use_random_seed del config)
+  const [seed, setSeed] = useState('42'); // 42 = semilla fija por defecto (reproducible)
   const [songName, setSongName] = useState(''); // nombre del MP3; vacío = pista-sin-nombre
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);

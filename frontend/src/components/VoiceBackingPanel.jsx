@@ -16,7 +16,7 @@ export default function VoiceBackingPanel({ fileName, sourceKind, duration, capa
   const prepared = useStylePrompt(prompt);
   const [minutes, setMinutes] = useState('');
   const [bpm, setBpm] = useState('');
-  const [seed, setSeed] = useState('');
+  const [seed, setSeed] = useState('42');
   const [name, setName] = useState('');
   const request = {
     file_name: fileName, source_kind: sourceKind, mode: 'voz', prompt: prepared.effectivePrompt,
