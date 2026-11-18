@@ -269,15 +269,23 @@ def timeline_plan(request, duration, settings, measured=None) -> dict:
     if request.scope == "groups" and request.bpm is not None:
         if request.source_bpm is not None:
             source_bpm, origin = request.source_bpm, "manual"
+            ratio = request.bpm / source_bpm
         else:
-            source_bpm, origin = measured.get("bpm_measured"), "measurement"
+            measured_bpm = measured.get("bpm_measured")
             confidence = measured.get("bpm_confidence", 0)
             limits = config.parameters["bpm"]
-            if (not source_bpm or not math.isfinite(source_bpm)
-                    or not math.isfinite(confidence) or confidence < config.timeline_min_groove_confidence
-                    or not limits["min"] <= source_bpm <= limits["max"]):
-                raise ValueError("No hay un BPM original fiable: indica el BPM original revisado para cambiar todas las pistas juntas")
-        ratio = request.bpm / source_bpm
+            if (measured_bpm is not None and math.isfinite(measured_bpm)
+                    and math.isfinite(confidence)
+                    and confidence >= config.timeline_min_groove_confidence
+                    and limits["min"] <= measured_bpm <= limits["max"]):
+                source_bpm, origin = measured_bpm, "measurement"
+                ratio = request.bpm / source_bpm
+            else:
+                # El BPM original no se pudo medir con fiabilidad: en lugar de
+                # tumbar el remix, se sigue sin cambio de tempo y se avisa.
+                # El BPM pedido no queda garantizado (decisión 2026-10-19).
+                source_bpm, origin = None, "unmeasured"
+                ratio = 1.0
     natural = duration / ratio
     target = natural if request.duration_seconds is None else request.duration_seconds
     if natural > settings.generation.max_duration_seconds or target > settings.generation.max_duration_seconds:
@@ -1335,6 +1343,10 @@ class RemixProjectRuntime:
                     "Si el ritmo de la mezcla no se puede medir con fiabilidad, su tempo no se "
                     "ajusta al pedido y el trabajo se entrega con un aviso: el BPM pedido no "
                     "queda garantizado.")
+            if timeline.get("source_bpm_origin") == "unmeasured":
+                result["warnings"].append(
+                    "No se pudo medir el BPM original de la fuente con fiabilidad; el BPM pedido "
+                    "no se aplica al tempo común. Indica el BPM original revisado para cuadrar las pistas.")
         if request.scope == "sequence":
             sequence_info = result.get("sequence") or {}
             steps = sequence_info.get("steps") or []
@@ -2334,12 +2346,33 @@ class RemixProjectRuntime:
                                     MixerService.tempo_audio, timeline, adjusted, ratio,
                                     adjusted_plan["natural_duration_seconds"], config)
                                 tempo_processing.update(input_path=str(timeline), output_path=str(adjusted))
-                                tempo_after_adjust = await asyncio.to_thread(required_measured_tempo, adjusted)
-                                verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
-                                variant_plan = adjusted_plan
-                                variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
-                                variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
-                                timeline = adjusted
+                                try:
+                                    tempo_after_adjust = await asyncio.to_thread(required_measured_tempo, adjusted)
+                                except ValueError as tempo_exc:
+                                    if not audio_has_no_usable_groove(tempo_exc):
+                                        raise
+                                    # El audio ajustado no tiene pulso medible: se entrega
+                                    # con el tempo acreditado de la mezcla y un aviso.
+                                    tempo_after_adjust = mix_measured
+                                    variant_plan = adjusted_plan
+                                    variant_plan["beat_clock_bpm"] = (mix_measured or {}).get("bpm_measured")
+                                    variant_plan["beat_clock_origin"] = "adjusted_audio_uncertain"
+                                    variant_plan["tempo_verification"] = "uncertain_after_adjust"
+                                    variant_plan["tempo_verification_error"] = str(tempo_exc)
+                                    warnings = job.setdefault("warnings", [])
+                                    notice = ("El audio ajustado no tiene un pulso medible; "
+                                              "el BPM pedido no queda garantizado.")
+                                    if notice not in warnings:
+                                        warnings.append(notice)
+                                    timeline = adjusted
+                                    # saltar la verificación contra el BPM pedido
+                                    tempo_after_adjust = None
+                                if tempo_after_adjust is not None:
+                                    verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
+                                    variant_plan = adjusted_plan
+                                    variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
+                                    variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
+                                    timeline = adjusted
                             else:
                                 variant_plan["beat_clock_bpm"] = mix_measured["bpm_measured"]
                                 variant_plan["beat_clock_origin"] = "generated_measurement"
@@ -2454,7 +2487,7 @@ class RemixProjectRuntime:
                             measured = await asyncio.to_thread(self.measure_bpm, staged_output)
                     self.cancelled(job)
                     if request.bpm is not None and request.scope in {"full", "groups"}:
-                        if variant_plan.get("tempo_verification") == "uncertain_at_mix":
+                        if variant_plan.get("tempo_verification") in ("uncertain_at_mix", "uncertain_after_adjust"):
                             # La mezcla se entrega con su aviso de tempo sin acreditar
                             # (decisión 2026-10-19); no se verifica contra el BPM pedido.
                             pass

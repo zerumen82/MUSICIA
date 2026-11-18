@@ -253,6 +253,14 @@ export default function RemixWorkspace({ fileName, onDone, initialAction = '', f
           return;
         } catch (err) {
           if (!current()) return;
+          // Un groove incierto no es un fallo bloqueante: la fuente simplemente
+          // no tiene un tempo claro y el usuario puede indicarlo a mano.
+          if (/incierto/i.test(err.message ?? '')) {
+            setGrooveReading({ sourceKey, groove: { bpm: 0, confidence: 0 }, error: null });
+            setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''
+              ? previous : { sourceKey, value: '', origin: 'measurement' });
+            return;
+          }
           if (!isTransportBlip(err.message)) {
             setGrooveReading({ sourceKey, groove: null, error: err.message });
             setSourceTempo((previous) => previous?.sourceKey === sourceKey && previous.origin === 'manual' && previous.value !== ''

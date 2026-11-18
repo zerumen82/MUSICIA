@@ -685,14 +685,25 @@ def _measure_bpm(path: Path) -> dict[str, Any] | None:
     """BPM real del MP3 (spec/02 [M3]). None si no hay tempo claro.
 
     La medición es auxiliar en las rutas de generación habituales: si no se
-    puede medir, no se inventa un BPM en la ficha. Canción completa con BPM
-    exige esta medición y su confianza antes y después del ajuste DSP; allí
-    una ausencia o discrepancia produce un error explícito.
+    puede medir, se intenta con analyze_audio (menos preciso) y, si tampoco,
+    se devuelve None sin inventar un BPM.
     """
     try:
         groove = detect_groove(path)
     except Exception as exc:  # noqa: BLE001 - la medición es opcional por diseño
-        logger.warning(f"Sin BPM medido para {path.name}: {exc}")
+        logger.warning(f"Sin BPM medido por groove para {path.name}: {exc}")
+        try:
+            analysis = analyze_audio(path)
+            bpm = analysis.get("bpm")
+            if bpm:
+                return {
+                    "bpm_measured": round(float(bpm), 2),
+                    "bpm_confidence": 0.0,
+                    "beat_clock_bpm": round(float(bpm), 2),
+                    "beat_clock_origin": "analysis_fallback",
+                }
+        except Exception as fallback_exc:  # noqa: BLE001
+            logger.warning(f"Sin BPM por análisis para {path.name}: {fallback_exc}")
         return None
     return {
         "bpm_measured": round(float(groove["bpm"]), 2),
@@ -1067,11 +1078,9 @@ def _mix_alignment(
     try:
         base_groove = detect_groove(_find_audio(base_name, base_kind))
         vocal_groove = detect_groove(_find_audio(vocal_name, vocal_kind))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No se puede cuadrar automáticamente: {exc}",
-        ) from exc
+    except (ValueError, FileNotFoundError) as exc:
+        logger.warning(f"No se pudo cuadrar automáticamente: {exc}")
+        return None
     return plan_alignment(base_groove, vocal_groove)
 
 
@@ -1153,13 +1162,22 @@ def _tempo_plan(mode: str, bpm: float | None, current_bpm: float) -> tuple[float
 async def audio_tempo(request: TempoRequest) -> dict[str, Any]:
     """Fuerza el tempo: a un BPM concreto, a medio tiempo o a doble tiempo."""
     source = _find_audio(request.file_name, request.source_kind)
+    current_bpm: float | None = None
     try:
         current = await asyncio.to_thread(detect_groove, source)
+        current_bpm = float(current["bpm"])
     except (ValueError, FileNotFoundError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
+        logger.warning(f"No se pudo medir el groove para tempo de {source.name}: {exc}")
+        try:
+            analysis = await asyncio.to_thread(analyze_audio, source)
+            if analysis.get("bpm"):
+                current_bpm = float(analysis["bpm"])
+        except Exception as fallback_exc:  # noqa: BLE001
+            logger.warning(f"Análisis de respaldo también falló: {fallback_exc}")
+    if current_bpm is None or current_bpm <= 0:
+        raise HTTPException(status_code=422, detail="No se pudo medir el tempo actual del audio para ajustarlo.") from None
     try:
-        factor, marker = _tempo_plan(request.mode, request.bpm, float(current["bpm"]))
+        factor, marker = _tempo_plan(request.mode, request.bpm, current_bpm)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1178,7 +1196,7 @@ async def audio_tempo(request: TempoRequest) -> dict[str, Any]:
             after = None
         return {
             "status": "success",
-            "source_bpm": current["bpm"],
+            "source_bpm": current_bpm,
             "result_bpm": after["bpm"] if after else None,
             **info,
         }
@@ -1309,14 +1327,69 @@ def _prepare_ai_generation(request: AiRemixRequest, source: Path, groove: dict) 
                              if request.cover_strength is None else request.cover_strength))
 
 
-async def _prepare_ai_preview(request: AiRemixRequest):
-    source = _find_audio(request.file_name, request.source_kind)
+_groove_cache: dict[tuple[str, float], dict] = {}
+
+
+async def _cached_detect_groove(source: Path) -> tuple[dict, str | None]:
+    key = (str(source.resolve()), source.stat().st_mtime if source.exists() else 0.0)
+    cached = _groove_cache.get(key)
+    if cached is not None:
+        return cached[0], cached[1]
+    groove_error: str | None = None
     try:
         groove = await asyncio.to_thread(detect_groove, source)
+    except (ValueError, FileNotFoundError) as exc:
+        groove_error = str(exc)
+        logger.warning(f"No se pudo medir el groove de {source.name}: {exc}")
+        try:
+            analysis = await asyncio.to_thread(analyze_audio, source)
+            groove = {
+                "bpm": analysis.get("bpm"),
+                "duration_seconds": analysis.get("duration_seconds"),
+                "confidence": 0.0,
+                "phase_ms": 0.0,
+                "period_ms": None,
+            }
+        except Exception as fallback_exc:  # noqa: BLE001
+            logger.warning(f"Análisis de respaldo también falló para {source.name}: {fallback_exc}")
+            try:
+                from pydub import AudioSegment
+                audio = await asyncio.to_thread(lambda: AudioSegment.from_file(str(source)))
+                groove = {
+                    "bpm": None,
+                    "duration_seconds": round(len(audio) / 1000.0, 2),
+                    "confidence": 0.0,
+                    "phase_ms": 0.0,
+                    "period_ms": None,
+                }
+            except Exception as last_exc:  # noqa: BLE001
+                logger.warning(f"No se pudo leer el audio de respaldo {source.name}: {last_exc}")
+                groove = {
+                    "bpm": None,
+                    "duration_seconds": None,
+                    "confidence": 0.0,
+                    "phase_ms": 0.0,
+                    "period_ms": None,
+                }
+    _groove_cache[key] = (groove, groove_error)
+    if len(_groove_cache) > 64:
+        _groove_cache.pop(next(iter(_groove_cache)))
+    return groove, groove_error
+
+
+async def _prepare_ai_preview(request: AiRemixRequest):
+    source = _find_audio(request.file_name, request.source_kind)
+    groove, groove_error = await _cached_detect_groove(source)
+    try:
         generation = await asyncio.to_thread(_prepare_ai_generation, request, source, groove)
         prepared = music.preview(generation)
     except (ValueError, FileNotFoundError, MusicEngineError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if groove_error is not None:
+        prepared.setdefault("warnings", []).append(
+            f"No se pudo medir el groove de la fuente ({groove_error}); "
+            "se usará la duración y el BPM disponibles para generar la base."
+        )
     prepared["operations"] = {"mode": request.mode, "source": source.name,
                               "source_kind": request.source_kind,
                               "source_duration_seconds": groove.get("duration_seconds"),

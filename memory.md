@@ -16,7 +16,14 @@ prueba ejecutada y resultado, con fecha.
 
 ---
 
-## 2026-10-01 — Despliegue GLOBAL del ejército SDD (todos los CLIs, todos los proyectos)
+## 2026-11-18 — Regenerado Musicia.exe v1.3.58 tras fixes de groove
+- **Qué**: rebuild de `frontend/dist` y recompilación de `Musicia.exe` (FileVersion/ProductVersion 1.3.58) tras los fixes de tolerancia a groove incierto.
+- **Resultado**: build OK (440.70 kB), EXE 16384 bytes, SHA-256 E8E2AEAF4FBDCBFD48C4D89E813F095FF81C0642F26C9952243EABA2E383ADEB.
+- **Lecciones**: cada cambio de producto requiere rebuild dist + exe; nunca entregar EXE con versión anterior.
+- **Qué**: `_prepare_ai_preview` (`backend/main.py`) capturaba `ValueError` de `detect_groove` y lo propagaba como 422, bloqueando el remix IA cuando la fuente tenía un groove poco claro. Ahora, si `detect_groove` falla, se usa un groove de respaldo (BPM/duración de `analyze_audio`, o duración medida con pydub) y se añade un aviso al preview; el remix sigue. El detector no se relaja: sigue lanzando en los casos que antes lanzaba.
+- **Por qué**: el usuario reportó "no me deja hacer remix, sale un error: el groove es incierto".
+- **Resultado**: `python -m py_compile main.py` OK; `test_groove.py` 25/25 OK.
+- **Lecciones**: los flujos de usuario que dependen de una medición DSP deben degradar con fallback + aviso, no bloquear la operación entera.
 
 - **Qué**: a petición del usuario, el método SDD y el ejército de agentes ya no
   son específicos de Musicia sino **globales**:
@@ -4491,3 +4498,18 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
 - **Refactor (paso 5, sin cambio de comportamiento)**: la fila por pista se movió a `frontend/src/components/RemixGroupRow.jsx`, recibiendo el estado compartido mediante `groupRowCtx`. `RemixWorkspace.jsx` baja a ~660 líneas.
 - **Verificación**: lint exit 0; node tests **116/116**; build exit 0 (`index-CW5vm_iL.js`, 440,49 kB); EXE 1.3.54 (SHA-256 `1C5EB87841BD1C5569E2605137E00DEF1516EE5D800E8BD57567988CFEC7C2B7`).
 - **Estado del refactor**: componentes extraídos: RegionEditor, ScopeSelector, StemPicker, DrumPattern, GroupRow. Quedan en RemixWorkspace: el contenedor, el desplegable Avanzado y la secuencia. Se ha reducido el acoplamiento; el comportamiento no ha cambiado.
+
+## 2026-11-18 — Corrección: remix por pistas ya no falla con «groove indeterminado» (1.3.55)
+
+- **Causa**: en `backend/remix_project.py`, `timeline_plan()` lanzaba `ValueError("No hay un BPM original fiable...")` cuando la medición automática del BPM de la fuente era incierta (confianza < umbral o sin pico). El preview (`/music/remix/preview`) convertía eso en 422, por lo que el usuario no llegaba a generar el remix («no have remix»). Lo mismo en `run()`: `tempo_audio` re-medía el audio ajustado con `required_measured_tempo()` sin protección, pudiendo tumbar el trabajo si ese audio no tenía pulso medible.
+- **Corrección**:
+  - `timeline_plan()`: si la fuente no se puede medir, en lugar de lanzar, se sigue con `source_bpm=None`, `source_bpm_origin="unmeasured"` y `ratio=1.0` (sin cambio de tempo), marcando el plan como no acreditado.
+  - `prepare()`: aviso honesto añadido cuando `source_bpm_origin == "unmeasured"` («No se pudo medir el BPM original... el BPM pedido no se aplica al tempo común»).
+  - `run()`: la re-medición del audio ajustado (`required_measured_tempo(adjusted)`) queda envuelta en `try/except`; si el audio ajustado no tiene pulso, se entrega con el tempo acreditado de la mezcla y aviso, sin tumbar el trabajo. `verify_requested_tempo` se salta en los estados `uncertain_at_mix` y `uncertain_after_adjust`.
+- **Verificación**: `py_compile` OK; `test_remix_timeline` + `test_remix_recovery` (76 tests) OK; `test_effective_preview` (25 tests) OK; prueba real: POST `/music/remix/preview` y `/music/remix/project` sobre `e1917493-07-Serafin.mp3` (bpm 170, grupos conservados) → 200 + job `succeeded` con MP3 `e1917493-07-Serafin-remix.mp3` y avisos honestos. Build frontend OK (`index-B9R7aUf_.js`, 440,49 kB); EXE 1.3.55 (SHA-256 `0B02801475BF847BDAB1F45BFD441E6D845F774F23D6A9C17E3C3F2446345953`).
+
+## 2026-11-18 (cont.) — UI ya no muestra «El groove es incierto» como error bloqueante (1.3.56)
+
+- **Causa adicional**: aunque el backend entregaba el remix, la medición del BPM de la fuente (`/audio/groove`) devolvía 422 con «El groove es incierto…» y la UI lo pintaba como alerta roja («Medición del BPM original: …»), lo que el usuario leía como fallo.
+- **Corrección**: en `frontend/src/components/RemixWorkspace.jsx`, `measureSourceTempo` trata un error de groove incierto como «sin tempo determinable» (groove `{bpm:0, confidence:0}`, sin error) en lugar de alerta; la UI muestra «No se pudo determinar el tempo.» e invita a indicar el BPM original a mano.
+- **Verificación**: `npm run lint` exit 0; node tests **116/116**; build exit 0; EXE 1.3.56.

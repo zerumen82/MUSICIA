@@ -70,4 +70,8 @@ Un cierre exige ejecución real de los recorridos afectados, lint/build verdes, 
 
 La generación, análisis, separación y mezcla se ejecutan en la máquina del usuario. Las descargas iniciales y cualquier dependencia de red se declaran en la bitácora. No se instala ni se descarga nada por abrir estos documentos.
 
-`backend/` contiene la API y servicios; `frontend/`, la UI y Electron; `scripts/`, lanzadores y sondas; `spec/`, especificaciones SDD; `vendor/`, el motor externo. El secuenciador permanece fuera de la navegación; no se reactivan sus samples remotos.
+---
+
+## Autor
+
+Firmado por **pillsoft**. Proyecto Musicia — estudio musical local con IA.
