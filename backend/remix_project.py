@@ -11,6 +11,25 @@ import math
 import os
 import time
 import uuid
+from config import get_settings
+
+settings = get_settings()
+
+_NO_MELODY_WORDS = ("sin melod", "no melody", "without melody", "solo bater", "solo ritmo", "solo percusi")
+_LIKE_ORIGINAL_WORDS = ("como la original", "como el original", "similar a la original",
+                         "similares a la original", "similares a las originales",
+                         "misma melod", "mismas melod", "igual que la original",
+                         "igual al original", "fiel a la original", "fiel al original",
+                         "like the original")
+
+
+def remix_cover_strength_for(prompt: str) -> tuple[float, str | None]:
+    text = (prompt or "").lower()
+    if any(w in text for w in _NO_MELODY_WORDS):
+        return settings.generation.remix_cover_strength_no_melody, None
+    if any(w in text for w in _LIKE_ORIGINAL_WORDS):
+        return settings.generation.remix_cover_strength_like_original, "like-original"
+    return settings.generation.remix_cover_strength, None
 from pathlib import Path
 from typing import Literal
 
@@ -1100,6 +1119,16 @@ def project_generation(request, source, reference, settings, *, prompt=None) -> 
     texto una sola vez); si no se entrega, se traduce el del request.
     """
     config = settings.remix
+    if request.cover_strength is None:
+        _strength, _ = remix_cover_strength_for(request.prompt)
+        # En Por pistas se transforma sobre la estructura original: por defecto
+        # se conserva la melodía/contorno (fuerza alta), salvo que el prompt
+        # pida explícitamente soltarla ("sin melodías").
+        if request.scope == "groups" and _strength == settings.generation.remix_cover_strength:
+            _strength = settings.generation.remix_cover_strength_like_original
+        cover_strength = _strength
+    else:
+        cover_strength = request.cover_strength
     lyrics = request.lyrics
     instrumental = request.instrumental
     external_voice = False
@@ -1120,7 +1149,7 @@ def project_generation(request, source, reference, settings, *, prompt=None) -> 
         reference_path=str(reference) if reference else None,
         duration_seconds=None, bpm=request.bpm, seed=request.seed,
         model=settings.generation.remix_model, audio_format=config.intermediate_format,
-        cover_strength=(settings.generation.remix_cover_strength if request.cover_strength is None else request.cover_strength),
+        cover_strength=cover_strength,
         cover_noise_strength=config.cover_noise_strength if request.cover_noise_strength is None else request.cover_noise_strength,
         repaint_start=request.region_start, repaint_end=request.region_end,
         repaint_mode=request.repaint_mode or config.repaint_mode,
