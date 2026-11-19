@@ -3,14 +3,9 @@ import PromptGuide from './PromptGuide';
 import PromptTools from './PromptTools';
 import RemixDrumPattern from './RemixDrumPattern';
 
-const field = 'px-2 py-1.5 bg-transparent border border-[var(--line)] outline-none focus:border-[var(--acc-line)] text-[12px] min-w-0';
-
 export default function RemixGroupRow({ group, ctx }) {
   const {
-    actions, setActions, solo, setSolo, trackText, setTrackText,
-    trackSelections, setTrackSelections, setTrackSelectionRoles,
-    trackRoles, trackSelection, preparedTracks, applyTrackAction, emptyStyleSelection,
-    stylePrepared, busy, mediaUrl, capabilities,
+    actions, setActions, solo, setSolo, busy, mediaUrl, capabilities,
     groupPatternEditor, setGroupPatternEditor, groupPatternEnabled, setGroupPatternEnabled,
     groupPatterns, setGroupPatterns, patternSummary,
   } = ctx;
@@ -27,22 +22,9 @@ export default function RemixGroupRow({ group, ctx }) {
         {solo === group.id ? 'CERRAR SOLO' : 'SOLO'}
       </button>
       {actions[group.id] === 'transform' && <fieldset disabled={busy} className="flex flex-col gap-2 border-0 p-0 min-w-0" style={{ gridColumn: '1 / -1' }}>
-        <textarea aria-label={`Texto de ${group.label}`} value={trackText[group.id] ?? ''} placeholder="Qué cambia en esta pista"
-          onChange={(event) => setTrackText((current) => ({ ...current, [group.id]: event.target.value }))} rows={2}
-          className={`${field} w-full resize-y`} />
-        <PromptGuide label="Cómo montar el prompt de esta pista para el modelo" />
-        <PromptTools prompt={trackText[group.id] ?? ''}
-          setPrompt={(next) => setTrackText((current) => ({ ...current, [group.id]: typeof next === 'function' ? next(current[group.id] ?? '') : next }))}
-          prepared={{ ...preparedTracks[group.id], selection: trackSelection(group.id),
-            setSelection: (next) => {
-              const step = applyTrackAction(
-                trackSelections[group.id] ?? emptyStyleSelection(),                  trackRoles(group.id),
-                  stylePrepared?.selection,
-                  next,
-              );
-              setTrackSelections((current) => ({ ...current, [group.id]: step.own }));
-              setTrackSelectionRoles((current) => ({ ...current, [group.id]: step.touched }));
-            } }} disabled={busy} />
+        <div className="text-[12px] text-[var(--muted)] px-1">
+          Esta pista hereda el prompt general (no hay prompt propio por pista).
+        </div>
         {group.id === 'drums' && <RemixDrumPattern groupPatternEditor={groupPatternEditor} setGroupPatternEditor={setGroupPatternEditor}
           groupPatternEnabled={groupPatternEnabled} setGroupPatternEnabled={setGroupPatternEnabled}
           groupPatterns={groupPatterns} setGroupPatterns={setGroupPatterns} capabilities={capabilities} busy={busy} patternSummary={patternSummary} />}
