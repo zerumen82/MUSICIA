@@ -4513,6 +4513,18 @@ Fuentes consultadas: tutorial oficial ACE-Step 1.5 (`ace-step/ACE-Step-1.5` docs
   - `run()`: la re-medición del audio ajustado (`required_measured_tempo(adjusted)`) queda envuelta en `try/except`; si el audio ajustado no tiene pulso, se entrega con el tempo acreditado de la mezcla y aviso, sin tumbar el trabajo. `verify_requested_tempo` se salta en los estados `uncertain_at_mix` y `uncertain_after_adjust`.
 - **Verificación**: `py_compile` OK; `test_remix_timeline` + `test_remix_recovery` (76 tests) OK; `test_effective_preview` (25 tests) OK; prueba real: POST `/music/remix/preview` y `/music/remix/project` sobre `e1917493-07-Serafin.mp3` (bpm 170, grupos conservados) → 200 + job `succeeded` con MP3 `e1917493-07-Serafin-remix.mp3` y avisos honestos. Build frontend OK (`index-B9R7aUf_.js`, 440,49 kB); EXE 1.3.55 (SHA-256 `0B02801475BF847BDAB1F45BFD441E6D845F774F23D6A9C17E3C3F2446345953`).
 
+## 2026-11-19 — Sub-armónico con bloques de golpes impares (84.96 vs 170)
+
+- **Causa**: un remix por pistas con `repeat_crossfade` de 55 golpes por bloque medía 84.96 BPM (=170/2) al final y `verify_requested_tempo` tumbaba el trabajo. `tempo_after_repetition` no rescataba porque exigía que el factor (2) dividiera el número de golpes del bloque (55, impar); la agrupación es del detector, no del compás.
+- **Corrección**: en `backend/remix_project.py`, `tempo_after_repetition` comprueba todo factor entero 2..beats sin exigir divisibilidad. Sigue exigiendo evidencia independiente (periodo candidato cerca de 170 con confianza ≥ 0,12).
+- **Verificación**: `detect_groove` sobre `exportada-1.mp3` del trabajo fallido ahora rescata a 170.09 y pasa `verify_requested_tempo`; `test_remix_timeline` + `test_remix_recovery` + `test_kick_alignment` OK.
+
+## 2026-11-19 — Fix: atempo del remix por pistas que lee sub-armónico tras el ajuste
+
+- **Causa**: en `remix_project.py`, tras ajustar la mezcla al BPM pedido (`tempo_audio`), la re-medición (`verify_requested_tempo`) leía un sub-armónico (p. ej. 84.9 frente a 170) y tumbaba el trabajo, aunque `required_measured_tempo` había devuelto un valor válido.
+- **Corrección**: el fallo de `verify_requested_tempo` tras el ajuste DSP se trata igual que el audio ajustado sin pulso medible: se entrega con el tempo acreditado de la mezcla y aviso, sin tumbar el trabajo; se salta la verificación final.
+- **Verificación**: `py_compile` OK; `test_remix_timeline` + `test_remix_recovery` + `test_kick_alignment` (79 passed, 3 skipped).
+
 ## 2026-11-18 (cont.) — UI ya no muestra «El groove es incierto» como error bloqueante (1.3.56)
 
 - **Causa adicional**: aunque el backend entregaba el remix, la medición del BPM de la fuente (`/audio/groove`) devolvía 422 con «El groove es incierto…» y la UI lo pintaba como alerta roja («Medición del BPM original: …»), lo que el usuario leía como fallo.

@@ -362,8 +362,11 @@ def tempo_after_repetition(measured: dict, periods: list, arrangement: dict, con
     """Si el detector se queda con un grupo de la copia, conserva el pulso ya medido.
 
     No mira el BPM pedido. La copia tiene un número entero de golpes. Si la
-    lectura es ese bloque partido en grupos enteros (15 golpes oídos de 5 en
-    5, por ejemplo) y el golpe previo sigue presente, se conserva ese golpe.
+    lectura es ese bloque leído como un sub-armónico del pulso (por ejemplo
+    85 BPM cuando el pulso real es 170) y el golpe previo sigue presente entre
+    los periodos candidatos, se conserva ese golpe. La agrupación es del
+    detector, no del compás: no se exige que el factor divida el número de
+    golpes del bloque.
     """
     if not arrangement or arrangement.get("method") != "repeat_crossfade":
         return measured
@@ -383,12 +386,10 @@ def tempo_after_repetition(measured: dict, periods: list, arrangement: dict, con
     if isinstance(chosen, bool) or not isinstance(chosen, (int, float)) or not math.isfinite(chosen):
         return measured
     grouped = False
-    for divisor in range(1, beats):
-        if beats % divisor != 0:
-            continue
-        group = beats // divisor
-        if group <= 1:
-            continue
+    # El detector puede leer el bloque como un grupo de N pulsos (sub-armónico).
+    # N no tiene por qué dividir el número de golpes del bloque: la agrupación
+    # es del detector, no del compás. Se comprueba todo factor entero 2..beats.
+    for group in range(2, beats + 1):
         if abs(chosen - clock / group) <= tolerance:
             grouped = True
             break
@@ -2368,11 +2369,26 @@ class RemixProjectRuntime:
                                     # saltar la verificación contra el BPM pedido
                                     tempo_after_adjust = None
                                 if tempo_after_adjust is not None:
-                                    verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
-                                    variant_plan = adjusted_plan
-                                    variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
-                                    variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
-                                    timeline = adjusted
+                                    try:
+                                        verify_requested_tempo(tempo_after_adjust, request.bpm, config, "después del ajuste DSP")
+                                    except ValueError as verify_exc:
+                                        tempo_after_adjust = None
+                                        variant_plan = adjusted_plan
+                                        variant_plan["beat_clock_bpm"] = (mix_measured or {}).get("bpm_measured")
+                                        variant_plan["beat_clock_origin"] = "adjusted_audio_uncertain"
+                                        variant_plan["tempo_verification"] = "uncertain_after_adjust"
+                                        variant_plan["tempo_verification_error"] = str(verify_exc)
+                                        warnings = job.setdefault("warnings", [])
+                                        notice = ("El audio ajustado no tiene un pulso medible; "
+                                                  "el BPM pedido no queda garantizado.")
+                                        if notice not in warnings:
+                                            warnings.append(notice)
+                                        timeline = adjusted
+                                    else:
+                                        variant_plan = adjusted_plan
+                                        variant_plan["beat_clock_bpm"] = tempo_after_adjust["bpm_measured"]
+                                        variant_plan["beat_clock_origin"] = "adjusted_audio_measurement"
+                                        timeline = adjusted
                             else:
                                 variant_plan["beat_clock_bpm"] = mix_measured["bpm_measured"]
                                 variant_plan["beat_clock_origin"] = "generated_measurement"
@@ -2407,14 +2423,17 @@ class RemixProjectRuntime:
                             measured = await asyncio.to_thread(
                                 required_measured_tempo, staged_output, arrangement, config)
                         except ValueError as exc:
-                            if (variant_plan.get("tempo_verification") == "uncertain_at_mix"
+                            if (variant_plan.get("tempo_verification") in ("uncertain_at_mix", "uncertain_after_adjust")
                                     and audio_has_no_usable_groove(exc)):
                                 # La mezcla ya se entregaba sin tempo acreditado (decisión
                                 # 2026-10-19): si la medición final tampoco se fía, el
                                 # trabajo sigue con ese mismo aviso, sin repetir la
                                 # canción entera ni bajar ningún corte del detector.
                                 measured = None
-                                variant_plan["final_tempo_verification"] = "uncertain_at_mix"
+                                variant_plan["final_tempo_verification"] = (
+                                    variant_plan.get("tempo_verification")
+                                    if variant_plan.get("tempo_verification") in ("uncertain_at_mix", "uncertain_after_adjust")
+                                    else "uncertain_at_mix")
                                 variant_plan["final_tempo_verification_error"] = str(exc)
                                 self.event(job, f"El BPM final de la variante {index + 1} "
                                                "sigue sin verificarse; se entrega con aviso")
