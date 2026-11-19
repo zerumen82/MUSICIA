@@ -1005,8 +1005,27 @@ class MixerService:
         )
         run_ffmpeg(inputs + ["-filter_complex", ";".join(filters), "-map", "[mix]",
                             "-c:a", "pcm_f32le", "-f", "wav", str(output)], output)
+        # Evita saturación al sumar pistas: si el pico supera el techo seguro,
+        # se escala todo el resultado de forma uniforme (las proporciones entre
+        # pistas se conservan) para que no haya clipping al exportar a int/MP3.
+        try:
+            pcm = MixerService.inspect_pcm(output)
+            samples = pcm["samples"]
+            channels = pcm["channels"]
+            rate = pcm["sample_rate"]
+            peak = max((abs(value) for value in samples), default=0.0)
+            target = 0.9
+            if peak > target and math.isfinite(peak) and peak > 0:
+                scale = target / peak
+                scaled = array("f", (value * scale for value in samples))
+                MixerService._write_float_wav(output, scaled, rate, channels)
+                normalization = f"peak_scaled x{scale:.4f}"
+            else:
+                normalization = "none"
+        except (OSError, ValueError):
+            normalization = "none"
         return {"duration_seconds": duration_seconds, "tracks": len(tracks),
-                "normalization": "none", "output_path": str(output)}
+                "normalization": normalization, "output_path": str(output)}
 
     @staticmethod
     def _matched_pcm(source: Path, rate: int, channels: int, frames: int) -> array:
